@@ -5,11 +5,16 @@ import { listShipments } from "@/lib/shiplog";
 export default async function ShipmentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; date?: string }>;
 }) {
   await pageRequireUser();
-  const { q } = await searchParams;
-  const shipments = await listShipments(q);
+  const { q, date } = await searchParams;
+  const shipments = await listShipments({ search: q, date });
+  const hasFilter = Boolean(q || date);
+
+  const filterDescriptions: string[] = [];
+  if (q) filterDescriptions.push(`contain a tracking number matching “${q}”`);
+  if (date) filterDescriptions.push(`shipped on ${date}`);
 
   return (
     <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
@@ -18,18 +23,27 @@ export default async function ShipmentsPage({
         <span className="tag-label">{shipments.length} on record</span>
       </div>
 
-      <form className="flex gap-2">
+      <form className="flex gap-2 flex-wrap">
         <input
           type="text"
           name="q"
           defaultValue={q ?? ""}
           placeholder="SEARCH BY TRACKING NUMBER…"
-          className="data flex-1 text-lg px-4 py-3 border border-line-strong focus:border-orange outline-none bg-paper-panel"
+          className="data flex-1 min-w-[220px] text-lg px-4 py-3 border border-line-strong focus:border-orange outline-none bg-paper-panel"
         />
+        <label className="flex items-center gap-2 shrink-0">
+          <span className="tag-label !text-ink-soft">Ship date</span>
+          <input
+            type="date"
+            name="date"
+            defaultValue={date ?? ""}
+            className="data text-lg px-3 py-3 border border-line-strong focus:border-orange outline-none bg-paper-panel"
+          />
+        </label>
         <button type="submit" className="btn px-6 py-3 bg-ink text-paper">
           Search
         </button>
-        {q && (
+        {hasFilter && (
           <Link
             href="/shipments"
             className="btn px-4 py-3 border border-line-strong text-ink-soft hover:bg-paper-dim"
@@ -39,10 +53,9 @@ export default async function ShipmentsPage({
         )}
       </form>
 
-      {q && (
+      {hasFilter && (
         <p className="tag-label !normal-case !tracking-normal">
-          {shipments.length} shipment{shipments.length === 1 ? "" : "s"} contain a tracking number
-          matching &ldquo;{q}&rdquo;.
+          {shipments.length} shipment{shipments.length === 1 ? "" : "s"} {filterDescriptions.join(" and ")}.
         </p>
       )}
 
@@ -76,7 +89,7 @@ export default async function ShipmentsPage({
         ))}
         {shipments.length === 0 && (
           <p className="text-ink-faint text-center py-12 border-b border-line data">
-            {q ? "NO SHIPMENTS FOUND" : "NO SHIPMENTS SUBMITTED YET"}
+            {hasFilter ? "NO SHIPMENTS FOUND" : "NO SHIPMENTS SUBMITTED YET"}
           </p>
         )}
       </div>

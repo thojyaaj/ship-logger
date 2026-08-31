@@ -11,6 +11,7 @@ import {
   createBoxAction,
   setActiveBoxAction,
   removeEmptyBoxAction,
+  resetSessionAction,
 } from "./scan-actions";
 import SubmitDialog from "./SubmitDialog";
 import OrderPanel from "./OrderPanel";
@@ -249,6 +250,21 @@ export default function ScanClient({
     });
   }
 
+  function resetDay() {
+    const count = dashboard.totals.total;
+    const warning =
+      count > 0
+        ? `Reset today's session? This permanently discards all ${count} scanned tracking number${count === 1 ? "" : "s"} and starts a fresh session. This cannot be undone.`
+        : "Start a fresh session for today?";
+    if (!confirm(warning)) return;
+    startTransition(async () => {
+      const updated = await resetSessionAction(dashboard.session.id);
+      setDashboard(updated);
+      setBanner(null);
+      focusInput();
+    });
+  }
+
   const boxCountSum = dashboard.boxes.reduce((a, b) => a + b.scanCount, 0);
   const boxSumMismatch = dashboard.boxes.length > 0 && boxCountSum !== dashboard.totals.epg;
 
@@ -256,7 +272,17 @@ export default function ScanClient({
     <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
       <div className="flex items-baseline justify-between route-line pb-2">
         <span className="tag-label">Session {dashboard.session.id.slice(0, 8)}</span>
-        <span className="tag-label">{dashboard.session.shipDate}</span>
+        <div className="flex items-baseline gap-4">
+          <span className="tag-label">{dashboard.session.shipDate}</span>
+          <button
+            type="button"
+            onClick={resetDay}
+            className="tag-label !text-red hover:!text-red-ink"
+            title="Discard all of today's scans and start over"
+          >
+            Reset Day
+          </button>
+        </div>
       </div>
 
       {/* Row 1 — per-carrier totals (§8.6), styled as instrument readouts */}

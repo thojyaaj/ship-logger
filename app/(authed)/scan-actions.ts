@@ -9,6 +9,7 @@ import {
   removeEmptyBox,
   submitSession,
   reopenSession,
+  resetSession,
   type RecordScanResult,
   type SessionDashboard,
 } from "@/lib/shiplog";
@@ -66,4 +67,9 @@ export async function submitSessionAction(input: {
 export async function reopenSessionAction(sessionId: string): Promise<void> {
   const user = await requireUser();
   await reopenSession(sessionId, user.name);
+}
+
+export async function resetSessionAction(sessionId: string): Promise<SessionDashboard> {
+  const user = await requireUser();
+  return resetSession(sessionId, user.id, user.name);
 }

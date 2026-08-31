@@ -281,7 +281,9 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
     .select({ count: sql<number>`count(*)` })
     .from(scan)
     .where(eq(scan.sessionId, input.sessionId));
-  const sequence = (countRow[0]?.count ?? 0) + 1;
+  // postgres-js returns count(*) as a string (bigint-safe) — Number() it
+  // before arithmetic, or string concatenation silently misbehaves.
+  const sequence = Number(countRow[0]?.count ?? 0) + 1;
 
   // §9c: UPS/DHL enrichment is a local, no-network lookup against the
   // webhook-fed index (§9b) — never a live Shopify call at scan time. EPG
@@ -397,6 +399,55 @@ export async function removeEmptyBox(sessionId: string, boxId: string): Promise<
   return loadDashboard(sessionId);
 }
 
+/**
+ * Wipes the current open session's scans and boxes and voids it, then opens
+ * a fresh one — "start today over." Deleting (not just voiding) the scan
+ * rows matters: `scan.tracking_number` is globally unique, so a voided
+ * session that kept its rows would permanently block rescanning the same
+ * parcels later today. The voided row itself is kept (with a stamp, same
+ * pattern as reopenSession) purely as an audit trail that a reset happened;
+ * `listShipments` already excludes voided sessions, so it never surfaces in
+ * history.
+ */
+export async function resetSession(
+  sessionId: string,
+  resetByUserId: string,
+  resetByUserName: string,
+): Promise<SessionDashboard> {
+  await db.transaction(async (tx) => {
+    const session = (
+      await tx.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId))
+    )[0];
+    if (!session || session.status !== "open") {
+      throw new Error("Only the open session can be reset.");
+    }
+
+    const countRow = await tx
+      .select({ count: sql<number>`count(*)` })
+      .from(scan)
+      .where(eq(scan.sessionId, sessionId));
+    // postgres-js returns count(*) as a string (bigint-safe) — Number() it
+    // before comparing/interpolating, or `=== 1` and string concatenation
+    // both silently misbehave.
+    const scanCount = Number(countRow[0]?.count ?? 0);
+
+    await tx.delete(scan).where(eq(scan.sessionId, sessionId));
+    await tx.delete(box).where(eq(box.sessionId, sessionId));
+
+    const stamp = `[Reset by ${resetByUserName} at ${nowSqlTimestamp()} UTC — ${scanCount} scan${scanCount === 1 ? "" : "s"} discarded]`;
+    await tx
+      .update(shipmentSession)
+      .set({
+        status: "voided",
+        activeBoxId: null,
+        notes: session.notes ? `${session.notes}\n${stamp}` : stamp,
+      })
+      .where(eq(shipmentSession.id, sessionId));
+  });
+
+  return getOrCreateOpenSession(resetByUserId);
+}
+
 export async function reopenSession(sessionId: string, reopenedByName: string): Promise<void> {
   const session = (await db.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId)))[0];
   if (!session || session.status !== "submitted") throw new Error("Only a submitted session can be reopened.");
@@ -433,10 +484,17 @@ export type ShipmentListItem = {
   boxCount: number;
 };
 
-export async function listShipments(search?: string): Promise<ShipmentListItem[]> {
+export type ListShipmentsOptions = {
+  /** Free-text search against scanned tracking numbers. */
+  search?: string;
+  /** Exact `ship_date` match ("YYYY-MM-DD") — e.g. "show me everything that went out on the 24th." */
+  date?: string;
+};
+
+export async function listShipments(opts?: ListShipmentsOptions): Promise<ShipmentListItem[]> {
   let sessionIds: string[] | null = null;
 
-  const term = search?.trim();
+  const term = opts?.search?.trim();
   if (term) {
     const normalized = term.toUpperCase().replace(/\s+/g, "");
     const matches = await db
@@ -447,6 +505,8 @@ export async function listShipments(search?: string): Promise<ShipmentListItem[]
     if (sessionIds.length === 0) return [];
   }
 
+  const date = opts?.date?.trim();
+
   const sessions = await db
     .select()
     .from(shipmentSession)
@@ -454,6 +514,7 @@ export async function listShipments(search?: string): Promise<ShipmentListItem[]
       and(
         ne(shipmentSession.status, "voided"),
         sessionIds ? inArray(shipmentSession.id, sessionIds) : undefined,
+        date ? eq(shipmentSession.shipDate, date) : undefined,
       ),
     )
     .orderBy(desc(shipmentSession.shipDate), desc(shipmentSession.openedAt));
