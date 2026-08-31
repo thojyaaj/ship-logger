@@ -15,6 +15,7 @@ import {
 } from "./scan-actions";
 import SubmitDialog from "./SubmitDialog";
 import OrderPanel from "./OrderPanel";
+import { useCommandPaletteState } from "./CommandPaletteState";
 
 type Banner =
   | { kind: "unrecognized"; trackingNumber: string }
@@ -119,13 +120,15 @@ export default function ScanClient({
   const keyTimestamps = useRef<number[]>([]);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const { open: paletteOpen } = useCommandPaletteState();
+
   const focusInput = useCallback(() => {
-    // Never steal focus back while the submit dialog or order panel is open
-    // — otherwise every click into their fields gets immediately yanked
-    // back to this input via onBlur, and typing lands here instead.
-    if (showSubmit || openOrderGid) return;
+    // Never steal focus back while the submit dialog, order panel, or
+    // command palette is open — otherwise every click/keystroke into their
+    // fields gets immediately yanked back to this input via onBlur.
+    if (showSubmit || openOrderGid || paletteOpen) return;
     inputRef.current?.focus();
-  }, [showSubmit, openOrderGid]);
+  }, [showSubmit, openOrderGid, paletteOpen]);
 
   useEffect(() => {
     focusInput();

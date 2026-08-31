@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { switchUser } from "./actions";
 import { searchShipmentsPaletteAction } from "./palette-actions";
+import { useCommandPaletteState } from "./CommandPaletteState";
 import type { ShipmentPaletteHit } from "@/lib/shiplog";
 
 type NavCommand = {
@@ -70,7 +71,7 @@ function Highlighted({ text, indices }: { text: string; indices: number[] }) {
 }
 
 export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen } = useCommandPaletteState();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [shipmentHits, setShipmentHits] = useState<ShipmentPaletteHit[]>([]);
@@ -83,7 +84,7 @@ export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
     setShipmentHits([]);
     setSelectedIndex(0);
     setOpen(true);
-  }, []);
+  }, [setOpen]);
 
   const navCommands = useMemo<NavCommand[]>(() => {
     const cmds: NavCommand[] = [
@@ -131,7 +132,7 @@ export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, openFresh]);
+  }, [open, openFresh, setOpen]);
 
   // Empty query never renders a blank palette — it falls back to the static
   // nav list below, which the (query-independent) matchedNav also produces
@@ -197,7 +198,7 @@ export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
         router.push(`/shipments/${result.shipment.id}`);
       }
     },
-    [router],
+    [router, setOpen],
   );
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
