@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import crypto from "node:crypto";
 import { runEpgStatusCron } from "@/lib/epg-cron";
 
 // Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}` automatically when
@@ -7,8 +8,15 @@ import { runEpgStatusCron } from "@/lib/epg-cron";
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
   if (secret) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${secret}`) {
+    const auth = req.headers.get("authorization") ?? "";
+    const expected = `Bearer ${secret}`;
+    const a = Buffer.from(auth);
+    const b = Buffer.from(expected);
+    // Constant-time compare — a plain !== leaks how many leading characters
+    // matched via response timing, letting the secret be recovered byte by
+    // byte over enough requests.
+    const valid = a.length === b.length && crypto.timingSafeEqual(a, b);
+    if (!valid) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
   }
