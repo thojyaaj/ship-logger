@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { UserListItem } from "@/lib/users";
 import { addUserAction, resetPinAction, setAdminAction, setActiveAction } from "./actions";
@@ -12,9 +12,15 @@ export default function UsersClient({
   initialUsers: UserListItem[];
   currentUserId: string;
 }) {
-  // No local copy of the list: router.refresh() re-runs the Server Component
-  // and passes fresh `initialUsers` props after every mutation below.
-  const users = initialUsers;
+  // router.refresh() re-runs the Server Component and passes fresh
+  // `initialUsers` props after every mutation below. useOptimistic flips a
+  // toggle instantly against that base and snaps back on its own if the
+  // transition ends without a refresh (i.e. the action errored).
+  const [users, applyOptimisticToggle] = useOptimistic(
+    initialUsers,
+    (state, patch: { id: string; isAdmin?: boolean; active?: boolean }) =>
+      state.map((u) => (u.id === patch.id ? { ...u, ...patch } : u)),
+  );
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +58,7 @@ export default function UsersClient({
 
   function toggleAdmin(u: UserListItem) {
     startTransition(async () => {
+      applyOptimisticToggle({ id: u.id, isAdmin: !u.isAdmin });
       const result = await setAdminAction(u.id, !u.isAdmin);
       if (result.status === "error") alert(result.message);
       else refresh();
@@ -60,6 +67,7 @@ export default function UsersClient({
 
   function toggleActive(u: UserListItem) {
     startTransition(async () => {
+      applyOptimisticToggle({ id: u.id, active: !u.active });
       const result = await setActiveAction(u.id, !u.active);
       if (result.status === "error") alert(result.message);
       else refresh();

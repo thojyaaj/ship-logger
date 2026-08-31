@@ -233,9 +233,27 @@ export default function ScanClient({
   }
 
   function undo(scanId: string) {
+    const sessionId = dashboard.session.id;
+    const previous = dashboard;
+    const target = previous.scans.find((s) => s.id === scanId);
+    if (!target) return;
+    setDashboard((d) => ({
+      ...d,
+      scans: d.scans.filter((s) => s.id !== scanId),
+      totals: { ...d.totals, [target.carrier]: d.totals[target.carrier] - 1, total: d.totals.total - 1 },
+      boxes: target.boxId
+        ? d.boxes.map((b) => (b.id === target.boxId ? { ...b, scanCount: b.scanCount - 1 } : b))
+        : d.boxes,
+    }));
     startTransition(async () => {
-      const updated = await undoScanAction(dashboard.session.id, scanId);
-      setDashboard(updated);
+      try {
+        const updated = await undoScanAction(sessionId, scanId);
+        setDashboard(updated);
+      } catch (err) {
+        setDashboard(previous);
+        playTone("blocked");
+        setBanner({ kind: "error", message: err instanceof Error ? err.message : "Undo failed — please retry." });
+      }
       focusInput();
     });
   }
@@ -249,17 +267,39 @@ export default function ScanClient({
   }
 
   function activateBox(boxId: string) {
+    const sessionId = dashboard.session.id;
+    const previous = dashboard;
+    setDashboard((d) => ({ ...d, session: { ...d.session, activeBoxId: boxId } }));
     startTransition(async () => {
-      const updated = await setActiveBoxAction(dashboard.session.id, boxId);
-      setDashboard(updated);
+      try {
+        const updated = await setActiveBoxAction(sessionId, boxId);
+        setDashboard(updated);
+      } catch (err) {
+        setDashboard(previous);
+        playTone("blocked");
+        setBanner({ kind: "error", message: err instanceof Error ? err.message : "Couldn't switch box — please retry." });
+      }
       focusInput();
     });
   }
 
   function removeBox(boxId: string) {
+    const sessionId = dashboard.session.id;
+    const previous = dashboard;
+    setDashboard((d) => ({
+      ...d,
+      boxes: d.boxes.filter((b) => b.id !== boxId),
+      session: d.session.activeBoxId === boxId ? { ...d.session, activeBoxId: null } : d.session,
+    }));
     startTransition(async () => {
-      const updated = await removeEmptyBoxAction(dashboard.session.id, boxId);
-      setDashboard(updated);
+      try {
+        const updated = await removeEmptyBoxAction(sessionId, boxId);
+        setDashboard(updated);
+      } catch (err) {
+        setDashboard(previous);
+        playTone("blocked");
+        setBanner({ kind: "error", message: err instanceof Error ? err.message : "Couldn't remove box — please retry." });
+      }
       focusInput();
     });
   }
