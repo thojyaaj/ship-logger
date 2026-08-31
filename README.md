@@ -2,7 +2,7 @@
 
 A warehouse scan station for outbound shipments across three carriers — ePost Global (EPG), UPS, and DHL — built for OTC Shoppe Express. Plan in [`docs/PRD.md`](docs/PRD.md).
 
-Packers sign in with a 4-digit PIN, scan tracking numbers, and the app auto-detects the carrier, groups ePost Global parcels into numbered boxes for consolidated shipping, and blocks a number that's already shipped in a prior submitted shipment. Every submitted day's shipment is searchable by tracking number afterward, and any scanned tracking number resolves to its Shopify order — customer, line items, ship-to — without opening Shopify.
+Packers sign in with a 4-digit PIN, scan tracking numbers, and the app auto-detects the carrier, groups ePost Global parcels into numbered boxes for consolidated shipping, and blocks a number that's already shipped in a prior submitted shipment. Every submitted day's shipment is searchable by tracking number afterward, and any scanned tracking number resolves to its Shopify order — line items, ship-to — without opening Shopify.
 
 Live at [ship-logger.vercel.app](https://ship-logger.vercel.app).
 
@@ -46,7 +46,7 @@ See [`.env.example`](.env.example).
 - `DATABASE_URL` — Postgres connection string. In production, use Supabase's **transaction pooler** URI (port 6543), not the direct connection — Vercel's serverless functions each get their own short-lived connection, and the direct connection limit exhausts fast under concurrent invocations.
 - `SESSION_SECRET` — signs the session cookie. Falls back to an insecure dev-only value if unset; **never deploy without setting it**.
 - `CRON_SECRET` — optional, protects `/api/cron/epg-status` from being triggered by anyone who finds the URL. Vercel Cron sends this automatically when set (see `vercel.json`).
-- `SHOPIFY_STORE`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` — the custom app credential used for order lookups. The app needs `read_orders`, `read_all_orders`, and `read_fulfillments` scopes approved on the store, plus protected customer data access configured in the Dev Dashboard (see PRD §9, Step 0) — without these, `orders`/`order` queries fail with `ACCESS_DENIED`.
+- `SHOPIFY_STORE`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` — the custom app credential used for order lookups. The app needs `read_orders`, `read_all_orders`, and `read_fulfillments` scopes approved on the store, plus protected customer data access configured in the Dev Dashboard (see PRD §9, Step 0) — without these, `orders`/`order` queries fail with `ACCESS_DENIED`. Note `read_customers` was *not* requested, so customer display names are intentionally left null (see `lib/shopify.ts`); only `read_orders`/`read_all_orders`/`read_fulfillments` are needed.
 
 ## Notes for future work
 

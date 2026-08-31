@@ -20,7 +20,6 @@ type OrdersPage = {
       node: {
         id: string;
         name: string;
-        customer: { displayName: string } | null;
         shippingAddress: { formatted: string[] } | null;
         fulfillments: { trackingInfo: { number: string | null }[] }[];
       };
@@ -36,7 +35,6 @@ const QUERY = `
         node {
           id
           name
-          customer { displayName }
           shippingAddress { formatted }
           fulfillments(first: 10) {
             trackingInfo { number }
@@ -72,7 +70,8 @@ async function main() {
       await upsertOrderIndex(numbers, {
         gid: node.id,
         name: node.name,
-        customerName: node.customer?.displayName ?? null,
+        // Always null — read_customers wasn't part of §9's scope request; see lib/shopify.ts.
+        customerName: null,
         destination: node.shippingAddress?.formatted.join(", ") ?? null,
       });
       trackingNumbersIndexed += numbers.length;
