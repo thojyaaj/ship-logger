@@ -5,6 +5,7 @@ import { getShipmentDetail } from "@/lib/shiplog";
 import { formatDbTimestamp } from "@/lib/date";
 import { trackingUrl, statusTone } from "@/lib/carrier";
 import ReopenButton from "./ReopenButton";
+import DeleteShipmentButton from "./DeleteShipmentButton";
 import ScanTable from "./ScanTable";
 
 export default async function ShipmentDetailPage({
@@ -12,7 +13,7 @@ export default async function ShipmentDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await pageRequireUser();
+  const user = await pageRequireUser();
   const { id } = await params;
 
   let dashboard;
@@ -60,6 +61,7 @@ export default async function ShipmentDetailPage({
             Export CSV
           </a>
           {session.status === "submitted" && <ReopenButton sessionId={session.id} />}
+          {user.isAdmin && <DeleteShipmentButton sessionId={session.id} shipDate={session.shipDate} />}
         </div>
       </div>
 

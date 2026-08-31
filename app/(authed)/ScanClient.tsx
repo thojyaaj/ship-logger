@@ -15,6 +15,7 @@ import {
 } from "./scan-actions";
 import SubmitDialog from "./SubmitDialog";
 import OrderPanel from "./OrderPanel";
+import ConfirmDialog from "./ConfirmDialog";
 import { useCommandPaletteState } from "./CommandPaletteState";
 
 type Banner =
@@ -115,6 +116,7 @@ export default function ScanClient({
   const [flashScanId, setFlashScanId] = useState<string | null>(null);
   const [showSubmit, setShowSubmit] = useState(false);
   const [openOrderGid, setOpenOrderGid] = useState<string | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
   const keyTimestamps = useRef<number[]>([]);
@@ -123,12 +125,13 @@ export default function ScanClient({
   const { open: paletteOpen } = useCommandPaletteState();
 
   const focusInput = useCallback(() => {
-    // Never steal focus back while the submit dialog, order panel, or
-    // command palette is open — otherwise every click/keystroke into their
-    // fields gets immediately yanked back to this input via onBlur.
-    if (showSubmit || openOrderGid || paletteOpen) return;
+    // Never steal focus back while the submit dialog, order panel, reset
+    // confirmation, or command palette is open — otherwise every
+    // click/keystroke into their fields gets immediately yanked back to
+    // this input via onBlur.
+    if (showSubmit || openOrderGid || showResetConfirm || paletteOpen) return;
     inputRef.current?.focus();
-  }, [showSubmit, openOrderGid, paletteOpen]);
+  }, [showSubmit, openOrderGid, showResetConfirm, paletteOpen]);
 
   useEffect(() => {
     focusInput();
@@ -307,13 +310,8 @@ export default function ScanClient({
     });
   }
 
-  function resetDay() {
-    const count = dashboard.totals.total;
-    const warning =
-      count > 0
-        ? `Reset today's session? This permanently discards all ${count} scanned tracking number${count === 1 ? "" : "s"} and starts a fresh session. This cannot be undone.`
-        : "Start a fresh session for today?";
-    if (!confirm(warning)) return;
+  function confirmResetDay() {
+    setShowResetConfirm(false);
     startTransition(async () => {
       const updated = await resetSessionAction(dashboard.session.id);
       setDashboard(updated);
@@ -333,7 +331,7 @@ export default function ScanClient({
           <span className="tag-label">{dashboard.session.shipDate}</span>
           <button
             type="button"
-            onClick={resetDay}
+            onClick={() => setShowResetConfirm(true)}
             className="tag-label !text-red hover:!text-red-ink"
             title="Discard all of today's scans and start over"
           >
@@ -522,6 +520,21 @@ export default function ScanClient({
       )}
 
       {openOrderGid && <OrderPanel orderGid={openOrderGid} onClose={() => setOpenOrderGid(null)} />}
+
+      {showResetConfirm && (
+        <ConfirmDialog
+          title="Reset today's session?"
+          message={
+            dashboard.totals.total > 0
+              ? `This permanently discards all ${dashboard.totals.total} scanned tracking number${dashboard.totals.total === 1 ? "" : "s"} and starts a fresh session. This cannot be undone.`
+              : "Start a fresh session for today?"
+          }
+          confirmLabel="Reset Day"
+          danger
+          onConfirm={confirmResetDay}
+          onCancel={() => setShowResetConfirm(false)}
+        />
+      )}
     </div>
   );
 }

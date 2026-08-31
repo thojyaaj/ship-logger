@@ -499,6 +499,29 @@ export async function reopenSession(sessionId: string, reopenedByName: string): 
     .where(eq(shipmentSession.id, sessionId));
 }
 
+/**
+ * Permanently removes a shipment day from history — admin-only, and unlike
+ * `resetSession` (which voids the *open* session so scanning can restart)
+ * this hard-deletes a submitted or already-voided one, no trace left in
+ * `listShipments`. FK columns on `scan`/`box` have no ON DELETE CASCADE, so
+ * children are deleted first in the same order `resetSession` already uses.
+ */
+export async function deleteShipment(sessionId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const session = (
+      await tx.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId))
+    )[0];
+    if (!session) throw new Error("Shipment not found.");
+    if (session.status === "open") {
+      throw new Error("Cannot delete the open session — use Reset Day instead.");
+    }
+
+    await tx.delete(scan).where(eq(scan.sessionId, sessionId));
+    await tx.delete(box).where(eq(box.sessionId, sessionId));
+    await tx.delete(shipmentSession).where(eq(shipmentSession.id, sessionId));
+  });
+}
+
 export type ShipmentListItem = {
   id: string;
   shipDate: string;

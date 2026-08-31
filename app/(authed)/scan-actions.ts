@@ -1,6 +1,6 @@
 "use server";
 
-import { requireUser } from "@/lib/auth";
+import { requireUser, requireAdmin } from "@/lib/auth";
 import {
   recordScan,
   undoScan,
@@ -10,6 +10,7 @@ import {
   submitSession,
   reopenSession,
   resetSession,
+  deleteShipment,
   type RecordScanResult,
   type SessionDashboard,
 } from "@/lib/shiplog";
@@ -72,4 +73,9 @@ export async function reopenSessionAction(sessionId: string): Promise<void> {
 export async function resetSessionAction(sessionId: string): Promise<SessionDashboard> {
   const user = await requireUser();
   return resetSession(sessionId, user.id, user.name);
+}
+
+export async function deleteShipmentAction(sessionId: string): Promise<void> {
+  await requireAdmin();
+  await deleteShipment(sessionId);
 }
