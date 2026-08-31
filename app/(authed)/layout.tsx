@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { pageRequireUser } from "@/lib/auth";
 import SwitchUserButton from "./SwitchUserButton";
+import CommandPalette from "./CommandPalette";
 
 export default async function AuthedLayout({ children }: { children: React.ReactNode }) {
   const user = await pageRequireUser();
@@ -25,6 +26,7 @@ export default async function AuthedLayout({ children }: { children: React.React
               <span className="tag-label !text-paper/40">OPERATOR</span>
               <span className="text-paper font-semibold">{user.name}</span>
             </span>
+            <CommandPalette isAdmin={user.isAdmin} />
             <SwitchUserButton />
           </div>
         </div>

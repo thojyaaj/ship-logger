@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "./db";
 import { appUser, shipmentSession, box, scan } from "./db/schema";
-import { and, eq, desc, sql, ne, inArray } from "drizzle-orm";
+import { and, eq, desc, sql, ne, inArray, ilike, or } from "drizzle-orm";
 import { newId } from "./id";
 import { detectCarrier, type Carrier } from "./carrier";
 import { nowSqlTimestamp, localCalendarDate } from "./date";
@@ -567,6 +567,52 @@ export async function listShipments(opts?: ListShipmentsOptions): Promise<Shipme
       totals,
       boxCount: boxRows.length,
     });
+  }
+  return results;
+}
+
+export type ShipmentPaletteHit = {
+  id: string;
+  shipDate: string;
+  status: string;
+  awbNumber: string | null;
+  totals: { epg: number; ups: number; dhl: number; unknown: number; total: number };
+};
+
+/**
+ * Lightweight jump-to-shipment lookup for the command palette (§ command
+ * palette) — matches session id, AWB, or ship date directly, unlike
+ * `listShipments`'s search which only matches scanned tracking numbers.
+ * Capped and unpaginated since it's a fast-jump, not the full history browser.
+ */
+export async function searchShipmentsForPalette(query: string, limit = 8): Promise<ShipmentPaletteHit[]> {
+  const term = query.trim();
+  if (term.length < 2) return [];
+  const like = `%${term}%`;
+
+  const sessions = await db
+    .select()
+    .from(shipmentSession)
+    .where(
+      and(
+        ne(shipmentSession.status, "voided"),
+        or(
+          ilike(shipmentSession.id, like),
+          ilike(shipmentSession.awbNumber, like),
+          ilike(shipmentSession.masterUpsTracking, like),
+          ilike(shipmentSession.shipDate, like),
+        ),
+      ),
+    )
+    .orderBy(desc(shipmentSession.shipDate), desc(shipmentSession.openedAt))
+    .limit(limit);
+
+  const results: ShipmentPaletteHit[] = [];
+  for (const s of sessions) {
+    const scanRows = await db.select({ carrier: scan.carrier }).from(scan).where(eq(scan.sessionId, s.id));
+    const totals = { epg: 0, ups: 0, dhl: 0, unknown: 0, total: scanRows.length };
+    for (const row of scanRows) totals[row.carrier as Carrier] += 1;
+    results.push({ id: s.id, shipDate: s.shipDate, status: s.status, awbNumber: s.awbNumber, totals });
   }
   return results;
 }
