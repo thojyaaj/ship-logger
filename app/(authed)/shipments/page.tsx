@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { pageRequireUser } from "@/lib/auth";
-import { listShipments } from "@/lib/shiplog";
+import { listShipments, getDailyVolume } from "@/lib/shiplog";
+import { statusTone } from "@/lib/carrier";
+import VolumeChart from "./VolumeChart";
 
 export default async function ShipmentsPage({
   searchParams,
@@ -9,7 +11,12 @@ export default async function ShipmentsPage({
 }) {
   await pageRequireUser();
   const { q, date } = await searchParams;
-  const shipments = await listShipments({ search: q, date });
+  // The trend chart always covers the full trailing window regardless of
+  // the search/date filters below — it's an overview, not a filtered view.
+  const [shipments, dailyVolume] = await Promise.all([
+    listShipments({ search: q, date }),
+    getDailyVolume(30),
+  ]);
   const hasFilter = Boolean(q || date);
 
   const filterDescriptions: string[] = [];
@@ -22,6 +29,8 @@ export default async function ShipmentsPage({
         <h1 className="font-stencil text-2xl tracking-wide">Shipments Log</h1>
         <span className="tag-label">{shipments.length} on record</span>
       </div>
+
+      <VolumeChart points={dailyVolume} />
 
       <form className="flex gap-2 flex-wrap">
         <input
@@ -84,7 +93,17 @@ export default async function ShipmentsPage({
               <span className="text-amber">DHL {s.totals.dhl}</span>
               {s.boxCount > 0 && <span className="text-ink-soft">{s.boxCount} box(es)</span>}
             </div>
-            <div className="tag-label !normal-case">{s.awbNumber ?? ""}</div>
+            <div className="flex flex-col items-end gap-1 shrink-0 text-right">
+              {s.awbNumber && <span className="tag-label !normal-case">{s.awbNumber}</span>}
+              {s.totals.epg > 0 && s.masterUpsTracking && (
+                <span
+                  title={`Master UPS ${s.masterUpsTracking}${s.masterUpsStatusAt ? ` — as of ${s.masterUpsStatusAt}` : ""}`}
+                  className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block whitespace-nowrap ${statusTone(s.masterUpsStatusLabel)}`}
+                >
+                  {s.masterUpsStatusLabel ?? "STATUS PENDING"}
+                </span>
+              )}
+            </div>
           </Link>
         ))}
         {shipments.length === 0 && (

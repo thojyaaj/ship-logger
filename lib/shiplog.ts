@@ -480,6 +480,8 @@ export type ShipmentListItem = {
   submittedAt: string | null;
   awbNumber: string | null;
   masterUpsTracking: string | null;
+  masterUpsStatusLabel: string | null;
+  masterUpsStatusAt: string | null;
   totals: { epg: number; ups: number; dhl: number; unknown: number; total: number };
   boxCount: number;
 };
@@ -533,6 +535,8 @@ export async function listShipments(opts?: ListShipmentsOptions): Promise<Shipme
       submittedAt: s.submittedAt,
       awbNumber: s.awbNumber,
       masterUpsTracking: s.masterUpsTracking,
+      masterUpsStatusLabel: s.masterUpsStatusLabel,
+      masterUpsStatusAt: s.masterUpsStatusAt,
       totals,
       boxCount: boxRows.length,
     });
@@ -542,4 +546,59 @@ export async function listShipments(opts?: ListShipmentsOptions): Promise<Shipme
 
 export async function getShipmentDetail(sessionId: string): Promise<SessionDashboard> {
   return loadDashboard(sessionId);
+}
+
+export type DailyVolumePoint = {
+  shipDate: string;
+  epg: number;
+  ups: number;
+  dhl: number;
+  unknown: number;
+  total: number;
+};
+
+/**
+ * Daily package volume for the shipments-page chart — one point per
+ * calendar day in the trailing window, zero-filled for days with nothing
+ * submitted (so gaps in the shipping cadence are visible, not skipped).
+ * Only counts `submitted` sessions: "packages sent out" means shipped, not
+ * still sitting in an open/draft session.
+ */
+export async function getDailyVolume(days: number = 30): Promise<DailyVolumePoint[]> {
+  const cutoff = new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const rows = await db
+    .select({
+      shipDate: shipmentSession.shipDate,
+      carrier: scan.carrier,
+      count: sql<number>`count(*)`,
+    })
+    .from(scan)
+    .innerJoin(shipmentSession, eq(scan.sessionId, shipmentSession.id))
+    .where(and(eq(shipmentSession.status, "submitted"), sql`${shipmentSession.shipDate} >= ${cutoff}`))
+    .groupBy(shipmentSession.shipDate, scan.carrier);
+
+  const byDate = new Map<string, DailyVolumePoint>();
+  for (const r of rows) {
+    const point = byDate.get(r.shipDate) ?? {
+      shipDate: r.shipDate,
+      epg: 0,
+      ups: 0,
+      dhl: 0,
+      unknown: 0,
+      total: 0,
+    };
+    // postgres-js returns count(*) as a string — Number() it before summing.
+    const count = Number(r.count);
+    point[r.carrier as Carrier] += count;
+    point.total += count;
+    byDate.set(r.shipDate, point);
+  }
+
+  const points: DailyVolumePoint[] = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(Date.now() - (days - 1 - i) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    points.push(byDate.get(d) ?? { shipDate: d, epg: 0, ups: 0, dhl: 0, unknown: 0, total: 0 });
+  }
+  return points;
 }

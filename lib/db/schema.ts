@@ -38,6 +38,13 @@ export const shipmentSession = pgTable("shipment_session", {
     .default("open"),
   awbNumber: text("awb_number"),
   masterUpsTracking: text("master_ups_tracking"),
+  // Live UPS Track API status for `masterUpsTracking`, refreshed by the
+  // nightly ups-status cron (mirrors scan.status_* for EPG). Nullable/never
+  // populated until the cron runs at least once for this session.
+  masterUpsStatusCode: text("master_ups_status_code"),
+  masterUpsStatusLabel: text("master_ups_status_label"),
+  masterUpsStatusAt: text("master_ups_status_at"),
+  masterUpsStatusCheckedAt: text("master_ups_status_checked_at"),
   // Which EPG box new scans land in. UI-convenience state, not domain data —
   // kept here (rather than only in client state) so a hard refresh mid-session
   // reopens on the same box instead of defaulting back to Box 1.

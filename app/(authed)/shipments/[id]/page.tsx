@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { pageRequireUser } from "@/lib/auth";
 import { getShipmentDetail } from "@/lib/shiplog";
 import { formatDbTimestamp } from "@/lib/date";
+import { trackingUrl, statusTone } from "@/lib/carrier";
 import ReopenButton from "./ReopenButton";
 import ScanTable from "./ScanTable";
 
@@ -69,7 +70,27 @@ export default async function ShipmentDetailPage({
         <Field label="Total" value={String(totals.total)} />
         {session.awbNumber && <Field label="AWB" value={session.awbNumber} mono />}
         {session.masterUpsTracking && (
-          <Field label="Master UPS tracking" value={session.masterUpsTracking} mono />
+          <Field
+            label="Master UPS tracking"
+            value={session.masterUpsTracking}
+            href={trackingUrl("ups", session.masterUpsTracking) ?? undefined}
+            mono
+          />
+        )}
+        {session.masterUpsTracking && (
+          <div className="bg-paper-panel p-3">
+            <div className="tag-label">Master UPS Status</div>
+            <div className="mt-1">
+              <span
+                className={`tag-label !text-[0.65rem] px-1.5 py-0.5 inline-block ${statusTone(session.masterUpsStatusLabel)}`}
+              >
+                {session.masterUpsStatusLabel ?? "STATUS PENDING"}
+              </span>
+            </div>
+            {session.masterUpsStatusAt && (
+              <div className="data text-xs text-ink-faint mt-1">as of {session.masterUpsStatusAt}</div>
+            )}
+          </div>
         )}
         <Field label="Opened" value={formatDbTimestamp(session.openedAt)} />
         {session.submittedAt && (
@@ -111,16 +132,29 @@ function Field({
   value,
   mono,
   accent,
+  href,
 }: {
   label: string;
   value: string;
   mono?: boolean;
   accent?: string;
+  href?: string;
 }) {
   return (
     <div className="bg-paper-panel p-3">
       <div className={`tag-label ${accent ?? ""}`}>{label}</div>
-      <div className={`font-semibold ${mono ? "data text-sm" : "data"}`}>{value}</div>
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className={`font-semibold text-blue hover:underline ${mono ? "data text-sm" : "data"}`}
+        >
+          {value}
+        </a>
+      ) : (
+        <div className={`font-semibold ${mono ? "data text-sm" : "data"}`}>{value}</div>
+      )}
     </div>
   );
 }

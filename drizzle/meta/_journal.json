@@ -15,6 +15,13 @@
       "when": 1788151073677,
       "tag": "0001_stormy_red_wolf",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788154736812,
+      "tag": "0002_add_master_ups_status",
+      "breakpoints": true
     }
   ]
 }

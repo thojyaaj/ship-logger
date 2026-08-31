@@ -91,3 +91,11 @@ export function trackingUrl(carrier: Carrier, trackingNumber: string): string | 
       return null;
   }
 }
+
+/** Tailwind classes for a status badge, shared by the shipments list and detail pages. */
+export function statusTone(label: string | null): string {
+  if (!label) return "bg-paper-dim !text-ink-faint";
+  if (/delivered/i.test(label)) return "bg-green-dim !text-green-ink";
+  if (/exception|return/i.test(label)) return "bg-red-dim !text-red-ink";
+  return "bg-blue-dim !text-blue-ink";
+}
