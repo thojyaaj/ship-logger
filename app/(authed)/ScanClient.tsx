@@ -138,52 +138,66 @@ export default function ScanClient({
       setValue("");
       keyTimestamps.current = [];
       startTransition(async () => {
-        const result = await scanAction(dashboard.session.id, trimmed, opts);
-        switch (result.status) {
-          case "ok": {
-            setDashboard(result.dashboard);
-            setBanner(null);
-            const newest = result.dashboard.scans[0];
-            if (newest) {
-              setFlashScanId(newest.id);
-              setTimeout(() => setFlashScanId(null), 600);
+        try {
+          const result = await scanAction(dashboard.session.id, trimmed, opts);
+          switch (result.status) {
+            case "ok": {
+              setDashboard(result.dashboard);
+              setBanner(null);
+              const newest = result.dashboard.scans[0];
+              if (newest) {
+                setFlashScanId(newest.id);
+                setTimeout(() => setFlashScanId(null), 600);
+              }
+              playTone("accept");
+              break;
             }
-            playTone("accept");
-            break;
+            case "unrecognized":
+              playTone("unrecognized");
+              setBanner({ kind: "unrecognized", trackingNumber: result.trackingNumber });
+              break;
+            case "checksum_warning":
+              playTone("checksum_warning");
+              setBanner({
+                kind: "checksum_warning",
+                trackingNumber: result.trackingNumber,
+                carrier: result.carrier,
+                reason: result.reason,
+              });
+              break;
+            case "duplicate_in_session":
+              playTone("duplicate");
+              setBanner({
+                kind: "duplicate_in_session",
+                trackingNumber: result.trackingNumber,
+                boxNumber: result.boxNumber,
+              });
+              setTimeout(() => setBanner((b) => (b?.kind === "duplicate_in_session" ? null : b)), 4000);
+              break;
+            case "duplicate_previous_shipment":
+              playTone("blocked");
+              setBanner({
+                kind: "duplicate_previous_shipment",
+                trackingNumber: result.trackingNumber,
+                shipDate: result.shipDate,
+                boxNumber: result.boxNumber,
+                scannedByName: result.scannedByName,
+                sessionSubmitted: result.sessionSubmitted,
+              });
+              break;
           }
-          case "unrecognized":
-            playTone("unrecognized");
-            setBanner({ kind: "unrecognized", trackingNumber: result.trackingNumber });
-            break;
-          case "checksum_warning":
-            playTone("checksum_warning");
-            setBanner({
-              kind: "checksum_warning",
-              trackingNumber: result.trackingNumber,
-              carrier: result.carrier,
-              reason: result.reason,
-            });
-            break;
-          case "duplicate_in_session":
-            playTone("duplicate");
-            setBanner({
-              kind: "duplicate_in_session",
-              trackingNumber: result.trackingNumber,
-              boxNumber: result.boxNumber,
-            });
-            setTimeout(() => setBanner((b) => (b?.kind === "duplicate_in_session" ? null : b)), 4000);
-            break;
-          case "duplicate_previous_shipment":
-            playTone("blocked");
-            setBanner({
-              kind: "duplicate_previous_shipment",
-              trackingNumber: result.trackingNumber,
-              shipDate: result.shipDate,
-              boxNumber: result.boxNumber,
-              scannedByName: result.scannedByName,
-              sessionSubmitted: result.sessionSubmitted,
-            });
-            break;
+        } catch (err) {
+          // A thrown scanAction (e.g. the session was voided out from under
+          // this scan by a concurrent Reset Day, or a race on box creation)
+          // must never silently swallow the tracking number — a packer
+          // watching the parcel, not the screen, needs a loud signal that
+          // this one didn't record, not a scan that vanishes with no trace.
+          playTone("blocked");
+          const message = err instanceof Error ? err.message : "Scan failed — please rescan.";
+          setBanner({ kind: "error", message: `"${trimmed}" — ${message}` });
+          // Only refill the input if the packer hasn't already moved on to
+          // scanning something else while this request was in flight.
+          setValue((current) => (current.trim() ? current : trimmed));
         }
         focusInput();
       });

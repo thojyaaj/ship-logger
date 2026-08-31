@@ -105,6 +105,21 @@ async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
   return { session, boxes, scans, totals, userNames };
 }
 
+const POSTGRES_UNIQUE_VIOLATION = "23505";
+
+function isUniqueViolation(err: unknown): boolean {
+  return (err as { code?: string } | undefined)?.code === POSTGRES_UNIQUE_VIOLATION;
+}
+
+/**
+ * Two packers loading the scan page at the same moment (or a Reset Day
+ * racing a second tab's load) could both see zero open sessions and both
+ * try to create one. The partial unique index on `status = 'open'`
+ * (migration 0003) makes the database reject the loser's INSERT instead of
+ * silently creating two open sessions — that loser then just re-reads and
+ * returns whichever session actually won, same as if it had seen it up
+ * front.
+ */
 export async function getOrCreateOpenSession(userId: string): Promise<SessionDashboard> {
   const openRows = await db
     .select()
@@ -118,11 +133,23 @@ export async function getOrCreateOpenSession(userId: string): Promise<SessionDas
   }
 
   const id = newId();
-  await db.insert(shipmentSession).values({
-    id,
-    openedBy: userId,
-    shipDate: today(),
-  });
+  try {
+    await db.insert(shipmentSession).values({
+      id,
+      openedBy: userId,
+      shipDate: today(),
+    });
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    const winner = await db
+      .select()
+      .from(shipmentSession)
+      .where(eq(shipmentSession.status, "open"))
+      .orderBy(desc(shipmentSession.openedAt))
+      .limit(1);
+    if (!winner[0]) throw err; // shouldn't happen, but don't swallow a real error
+    return loadDashboard(winner[0].id);
+  }
   return loadDashboard(id);
 }
 

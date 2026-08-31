@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "shipment_session_one_open_idx" ON "shipment_session" USING btree ("status") WHERE "shipment_session"."status" = 'open';
