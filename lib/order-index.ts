@@ -2,7 +2,7 @@
 // reason: it's also used by standalone scripts run via bare tsx.
 import { db } from "./db";
 import { shopifyOrderIndex, scan } from "./db/schema";
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { nowSqlTimestamp } from "./date";
 import { normalizeTrackingNumber } from "./carrier";
 import type { OrderSummary } from "./shopify";
@@ -67,9 +67,4 @@ export async function lookupOrderIndex(
     .where(eq(shopifyOrderIndex.trackingNumber, normalizeTrackingNumber(trackingNumber)))
     .limit(1);
   return rows[0] ?? null;
-}
-
-export async function orderIndexSize(): Promise<number> {
-  const rows = await db.select({ count: sql<number>`count(*)` }).from(shopifyOrderIndex);
-  return rows[0]?.count ?? 0;
 }

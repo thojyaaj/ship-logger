@@ -112,28 +112,6 @@ export async function findOrderByName(name: string): Promise<ResolvedOrder | nul
   return node ? { gid: node.id, name: node.name } : null;
 }
 
-/**
- * §9b optional spike — bare tracking-number full-text search. Undocumented
- * behavior; used only as an on-demand fallback (e.g. a manual "look it up"
- * click) when the local webhook index has no entry, never at scan time.
- */
-export async function findOrderByTrackingNumberFallback(
-  trackingNumber: string,
-): Promise<ResolvedOrder | null> {
-  const data = await shopifyGraphql<{
-    orders: { edges: { node: { id: string; name: string } }[] };
-  }>(
-    `query($query: String!) {
-      orders(first: 1, query: $query) {
-        edges { node { id name } }
-      }
-    }`,
-    { query: trackingNumber },
-  );
-  const node = data.orders.edges[0]?.node;
-  return node ? { gid: node.id, name: node.name } : null;
-}
-
 export type OrderDetail = {
   gid: string;
   name: string;
