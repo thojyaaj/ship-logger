@@ -3,6 +3,7 @@ import { pageRequireUser } from "@/lib/auth";
 import { listShipments, getDailyVolume } from "@/lib/shiplog";
 import { statusTone } from "@/lib/carrier";
 import VolumeChart from "./VolumeChart";
+import ShipmentSearchForm from "./ShipmentSearchForm";
 
 export default async function ShipmentsPage({
   searchParams,
@@ -32,35 +33,7 @@ export default async function ShipmentsPage({
 
       <VolumeChart points={dailyVolume} />
 
-      <form className="flex gap-2 flex-wrap">
-        <input
-          type="text"
-          name="q"
-          defaultValue={q ?? ""}
-          placeholder="SEARCH BY TRACKING NUMBER…"
-          className="data flex-1 min-w-[220px] text-lg px-4 py-3 border border-line-strong focus:border-orange outline-none bg-paper-panel"
-        />
-        <label className="flex items-center gap-2 shrink-0">
-          <span className="tag-label !text-ink-soft">Ship date</span>
-          <input
-            type="date"
-            name="date"
-            defaultValue={date ?? ""}
-            className="data text-lg px-3 py-3 border border-line-strong focus:border-orange outline-none bg-paper-panel"
-          />
-        </label>
-        <button type="submit" className="btn px-6 py-3 bg-ink text-paper">
-          Search
-        </button>
-        {hasFilter && (
-          <Link
-            href="/shipments"
-            className="btn px-4 py-3 border border-line-strong text-ink-soft hover:bg-paper-dim"
-          >
-            Clear
-          </Link>
-        )}
-      </form>
+      <ShipmentSearchForm initialQuery={q ?? ""} initialDate={date ?? ""} />
 
       {hasFilter && (
         <p className="tag-label !normal-case !tracking-normal">
