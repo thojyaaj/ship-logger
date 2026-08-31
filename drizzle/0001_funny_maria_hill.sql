@@ -1,0 +1,1 @@
+ALTER TABLE `shipment_session` ADD `active_box_id` text;

@@ -1,0 +1,85 @@
+import Link from "next/link";
+import { pageRequireUser } from "@/lib/auth";
+import { listShipments } from "@/lib/shiplog";
+
+export default async function ShipmentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
+  await pageRequireUser();
+  const { q } = await searchParams;
+  const shipments = await listShipments(q);
+
+  return (
+    <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
+      <div className="flex items-baseline justify-between route-line pb-2">
+        <h1 className="font-stencil text-2xl tracking-wide">Shipments Log</h1>
+        <span className="tag-label">{shipments.length} on record</span>
+      </div>
+
+      <form className="flex gap-2">
+        <input
+          type="text"
+          name="q"
+          defaultValue={q ?? ""}
+          placeholder="SEARCH BY TRACKING NUMBER…"
+          className="data flex-1 text-lg px-4 py-3 border border-line-strong focus:border-orange outline-none bg-paper-panel"
+        />
+        <button type="submit" className="btn px-6 py-3 bg-ink text-paper">
+          Search
+        </button>
+        {q && (
+          <Link
+            href="/shipments"
+            className="btn px-4 py-3 border border-line-strong text-ink-soft hover:bg-paper-dim"
+          >
+            Clear
+          </Link>
+        )}
+      </form>
+
+      {q && (
+        <p className="tag-label !normal-case !tracking-normal">
+          {shipments.length} shipment{shipments.length === 1 ? "" : "s"} contain a tracking number
+          matching &ldquo;{q}&rdquo;.
+        </p>
+      )}
+
+      <div className="flex flex-col border-t border-line">
+        {shipments.map((s) => (
+          <Link
+            key={s.id}
+            href={`/shipments/${s.id}`}
+            className="flex items-center gap-4 px-4 py-3 border-b border-line bg-paper-panel hover:bg-white transition-colors"
+          >
+            <div className="w-28 shrink-0">
+              <div className="data font-semibold">{s.shipDate}</div>
+              <span
+                className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block mt-0.5 ${
+                  s.status === "submitted"
+                    ? "bg-green-dim !text-green-ink"
+                    : "bg-amber-dim !text-amber-ink"
+                }`}
+              >
+                {s.status}
+              </span>
+            </div>
+            <div className="flex-1 flex gap-4 text-sm data">
+              <span className="text-orange">EPG {s.totals.epg}</span>
+              <span className="text-blue">UPS {s.totals.ups}</span>
+              <span className="text-amber">DHL {s.totals.dhl}</span>
+              {s.boxCount > 0 && <span className="text-ink-soft">{s.boxCount} box(es)</span>}
+            </div>
+            <div className="tag-label !normal-case">{s.awbNumber ?? ""}</div>
+          </Link>
+        ))}
+        {shipments.length === 0 && (
+          <p className="text-ink-faint text-center py-12 border-b border-line data">
+            {q ? "NO SHIPMENTS FOUND" : "NO SHIPMENTS SUBMITTED YET"}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

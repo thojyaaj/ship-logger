@@ -1,0 +1,196 @@
+@import "tailwindcss";
+
+/*
+  Ship Log — "Freight Manifest" system.
+  A technical logistics aesthetic: manifest paper, ruled grids, tabular
+  mono data, sharp corners, corner-registration marks like a technical
+  drawing. Carrier colors are assigned by role, not brand: EPG = orange
+  (this app's primary accent, since EPG is the one with real complexity),
+  UPS = blue, DHL = amber, unrecognized = neutral.
+*/
+
+:root {
+  --paper: #f6f3ea;
+  --paper-panel: #fdfcf8;
+  --paper-dim: #ece7d8;
+  --ink: #14181f;
+  --ink-soft: #565c6b;
+  --ink-faint: #8b8f7f;
+  --line: #d6cfba;
+  --line-strong: #a89f85;
+
+  --orange: #ff5a1f;
+  --orange-ink: #7a2400;
+  --orange-dim: #ffe3d3;
+
+  --blue: #1b4b8f;
+  --blue-ink: #0d2d5c;
+  --blue-dim: #dbe6f4;
+
+  --amber: #a9720a;
+  --amber-ink: #5c3d05;
+  --amber-dim: #f3e6c8;
+
+  --green: #2f6b4f;
+  --green-ink: #1a3d2c;
+  --green-dim: #dbeadf;
+
+  --red: #b8291d;
+  --red-ink: #5e140d;
+  --red-dim: #f6dad6;
+
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-condensed: "IBM Plex Sans Condensed", sans-serif;
+  --font-stencil: "Allerta Stencil", sans-serif;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-panel: var(--paper-panel);
+  --color-paper-dim: var(--paper-dim);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-orange: var(--orange);
+  --color-orange-ink: var(--orange-ink);
+  --color-orange-dim: var(--orange-dim);
+  --color-blue: var(--blue);
+  --color-blue-ink: var(--blue-ink);
+  --color-blue-dim: var(--blue-dim);
+  --color-amber: var(--amber);
+  --color-amber-ink: var(--amber-ink);
+  --color-amber-dim: var(--amber-dim);
+  --color-green: var(--green);
+  --color-green-ink: var(--green-ink);
+  --color-green-dim: var(--green-dim);
+  --color-red: var(--red);
+  --color-red-ink: var(--red-ink);
+  --color-red-dim: var(--red-dim);
+
+  --font-mono: var(--font-mono);
+  --font-condensed: var(--font-condensed);
+  --font-stencil: var(--font-stencil);
+}
+
+* {
+  border-color: var(--line);
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-condensed);
+  background-image:
+    radial-gradient(circle, var(--line) 1px, transparent 1px);
+  background-size: 22px 22px;
+  background-position: -11px -11px;
+}
+
+::selection {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* Numbers/tracking numbers/labels read as instrument data everywhere. */
+.data,
+.font-data {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Small uppercase technical label, like a manifest field caption. */
+.tag-label {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* Four-corner registration marks, like a technical drawing crop mark.
+   Apply to any `position: relative` container. */
+.corners {
+  position: relative;
+}
+.corners::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-image:
+    linear-gradient(var(--ink), var(--ink)), linear-gradient(var(--ink), var(--ink)),
+    linear-gradient(var(--ink), var(--ink)), linear-gradient(var(--ink), var(--ink)),
+    linear-gradient(var(--ink), var(--ink)), linear-gradient(var(--ink), var(--ink)),
+    linear-gradient(var(--ink), var(--ink)), linear-gradient(var(--ink), var(--ink));
+  background-size:
+    1.5px 11px, 11px 1.5px,
+    1.5px 11px, 11px 1.5px,
+    1.5px 11px, 11px 1.5px,
+    1.5px 11px, 11px 1.5px;
+  background-position:
+    top -1px left -1px, top -1px left -1px,
+    top -1px right -1px, top -1px right -1px,
+    bottom -1px left -1px, bottom -1px left -1px,
+    bottom -1px right -1px, bottom -1px right -1px;
+}
+
+/* Barcode-strip decoration — purely ornamental, evokes a shipping label. */
+.barcode {
+  height: 100%;
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--ink) 0px,
+    var(--ink) 2px,
+    transparent 2px,
+    transparent 3px,
+    var(--ink) 3px,
+    var(--ink) 4px,
+    transparent 4px,
+    transparent 7px,
+    var(--ink) 7px,
+    var(--ink) 9px,
+    transparent 9px,
+    transparent 11px
+  );
+  opacity: 0.85;
+}
+
+/* Dashed route line — a shipping-lane divider. */
+.route-line {
+  border-top: 1.5px dashed var(--line-strong);
+}
+
+.btn {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  border-radius: 2px;
+  transition: transform 80ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+.btn:active {
+  transform: scale(0.98);
+}
+
+input,
+textarea,
+select {
+  font-family: var(--font-mono);
+}
+
+/* Sharp-cornered focus ring consistent with the drafting-table aesthetic. */
+:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 1px;
+}
