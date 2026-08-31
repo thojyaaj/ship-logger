@@ -13,6 +13,7 @@ import {
   removeEmptyBoxAction,
 } from "./scan-actions";
 import SubmitDialog from "./SubmitDialog";
+import OrderPanel from "./OrderPanel";
 
 type Banner =
   | { kind: "unrecognized"; trackingNumber: string }
@@ -111,18 +112,19 @@ export default function ScanClient({
   const [banner, setBanner] = useState<Banner | null>(null);
   const [flashScanId, setFlashScanId] = useState<string | null>(null);
   const [showSubmit, setShowSubmit] = useState(false);
+  const [openOrderGid, setOpenOrderGid] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
   const keyTimestamps = useRef<number[]>([]);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const focusInput = useCallback(() => {
-    // Never steal focus back while the submit dialog (or any future overlay)
-    // is open — otherwise every click into its fields gets immediately
-    // yanked back to this input via onBlur, and typing lands here instead.
-    if (showSubmit) return;
+    // Never steal focus back while the submit dialog or order panel is open
+    // — otherwise every click into their fields gets immediately yanked
+    // back to this input via onBlur, and typing lands here instead.
+    if (showSubmit || openOrderGid) return;
     inputRef.current?.focus();
-  }, [showSubmit]);
+  }, [showSubmit, openOrderGid]);
 
   useEffect(() => {
     focusInput();
@@ -379,7 +381,19 @@ export default function ScanClient({
               <span className={`tag-label !text-[0.6rem] px-1.5 py-1 ${CARRIER_COLOR[s.carrier]}`}>
                 {carrierLabel(s.carrier)}
               </span>
-              <span className="data text-sm flex-1">{s.trackingNumber}</span>
+              <button
+                type="button"
+                onClick={() => s.orderGid && setOpenOrderGid(s.orderGid)}
+                disabled={!s.orderGid}
+                className="flex-1 flex flex-col items-start text-left min-w-0"
+              >
+                <span className="data text-sm">{s.trackingNumber}</span>
+                {s.orderName ? (
+                  <span className="text-xs text-blue hover:underline">{s.orderName}</span>
+                ) : s.carrier === "ups" || s.carrier === "dhl" ? (
+                  <span className="text-xs text-ink-faint">no order match yet</span>
+                ) : null}
+              </button>
               {s.boxNumber && (
                 <span className="tag-label">BOX {String(s.boxNumber).padStart(2, "0")}</span>
               )}
@@ -423,6 +437,8 @@ export default function ScanClient({
           }}
         />
       )}
+
+      {openOrderGid && <OrderPanel orderGid={openOrderGid} onClose={() => setOpenOrderGid(null)} />}
     </div>
   );
 }

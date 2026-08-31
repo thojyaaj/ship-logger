@@ -5,6 +5,7 @@ import { and, eq, desc, sql, ne, inArray } from "drizzle-orm";
 import { newId } from "./id";
 import { detectCarrier, type Carrier } from "./carrier";
 import { nowSqlTimestamp } from "./date";
+import { lookupOrderIndex } from "./order-index";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -26,6 +27,7 @@ export type ScanRow = {
   scannedBy: string;
   scannedAt: string;
   sequence: number;
+  orderGid: string | null;
   orderName: string | null;
   epgExternalRef: string | null;
   epgFinalMile: string | null;
@@ -82,6 +84,7 @@ async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
     scannedBy: s.scannedBy,
     scannedAt: s.scannedAt,
     sequence: s.sequence,
+    orderGid: s.orderGid,
     orderName: s.orderName,
     epgExternalRef: s.epgExternalRef,
     epgFinalMile: s.epgFinalMile,
@@ -280,6 +283,16 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
     .where(eq(scan.sessionId, input.sessionId));
   const sequence = (countRow[0]?.count ?? 0) + 1;
 
+  // §9c: UPS/DHL enrichment is a local, no-network lookup against the
+  // webhook-fed index (§9b) — never a live Shopify call at scan time. EPG
+  // enrichment instead happens later, in the EPG status cron (§9a), since
+  // it depends on `epg_external_ref` which isn't known until EPG ingests
+  // the label.
+  const orderMatch =
+    finalCarrier === "ups" || finalCarrier === "dhl"
+      ? await lookupOrderIndex(trackingNumber)
+      : null;
+
   await db.insert(scan).values({
     id: newId(),
     sessionId: input.sessionId,
@@ -288,6 +301,8 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
     trackingNumber,
     carrier: finalCarrier,
     sequence,
+    orderGid: orderMatch?.orderGid,
+    orderName: orderMatch?.orderName,
   });
 
   const dashboard = await loadDashboard(input.sessionId);

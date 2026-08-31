@@ -4,6 +4,7 @@ import { scan } from "./db/schema";
 import { and, eq, gt } from "drizzle-orm";
 import { lookupEpgStatuses } from "./epg";
 import { nowSqlTimestamp, toSqlTimestamp } from "./date";
+import { findOrderByName } from "./shopify";
 
 const LOOKBACK_DAYS = 45;
 
@@ -16,6 +17,8 @@ export type EpgCronResult = {
   candidates: number;
   updated: number;
   stillPending: number;
+  ordersResolved: number;
+  orderResolutionMisses: number; // ERef present but no matching Shopify order — a real data problem (§9a)
 };
 
 /**
@@ -37,13 +40,15 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
   const pending = allRecent.filter((s) => !isTerminal(s.statusLabel));
 
   if (pending.length === 0) {
-    return { candidates: allRecent.length, updated: 0, stillPending: 0 };
+    return { candidates: allRecent.length, updated: 0, stillPending: 0, ordersResolved: 0, orderResolutionMisses: 0 };
   }
 
   const trackingNumbers = pending.map((s) => s.trackingNumber);
   const results = await lookupEpgStatuses(trackingNumbers);
 
   let updated = 0;
+  let ordersResolved = 0;
+  let orderResolutionMisses = 0;
   const now = nowSqlTimestamp();
   for (const s of pending) {
     const record = results.get(s.trackingNumber);
@@ -51,6 +56,24 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
       await db.update(scan).set({ statusCheckedAt: now }).where(eq(scan.id, s.id));
       continue;
     }
+
+    // §9a: resolve the Shopify order via ERef once EPG has ingested it.
+    // Skip if already resolved on a prior run — ERef doesn't change once set.
+    let orderGid: string | null = null;
+    let orderName: string | null = null;
+    if (record.externalRef && !s.orderGid) {
+      const order = await findOrderByName(record.externalRef);
+      if (order) {
+        orderGid = order.gid;
+        orderName = order.name;
+        ordersResolved += 1;
+      } else {
+        // ERef present but no matching order — a genuine data problem
+        // (mislabeled parcel, wrong order name format), not a transient miss.
+        orderResolutionMisses += 1;
+      }
+    }
+
     await db
       .update(scan)
       .set({
@@ -60,6 +83,7 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
         statusLabel: record.latestEvent?.event ?? null,
         statusAt: record.latestEvent?.eventAt ?? null,
         statusCheckedAt: now,
+        ...(orderGid ? { orderGid, orderName } : {}),
       })
       .where(eq(scan.id, s.id));
     updated += 1;
@@ -69,5 +93,7 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
     candidates: allRecent.length,
     updated,
     stillPending: pending.length - updated,
+    ordersResolved,
+    orderResolutionMisses,
   };
 }

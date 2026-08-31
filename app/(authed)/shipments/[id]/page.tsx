@@ -2,9 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { pageRequireUser } from "@/lib/auth";
 import { getShipmentDetail } from "@/lib/shiplog";
-import { trackingUrl } from "@/lib/carrier";
 import { formatDbTimestamp } from "@/lib/date";
 import ReopenButton from "./ReopenButton";
+import ScanTable from "./ScanTable";
 
 export default async function ShipmentDetailPage({
   params,
@@ -125,48 +125,3 @@ function Field({
   );
 }
 
-function ScanTable({
-  rows,
-  userNames,
-}: {
-  rows: { id: string; trackingNumber: string; carrier: string; scannedBy: string; scannedAt: string; orderName: string | null; statusLabel: string | null }[];
-  userNames: Record<string, string>;
-}) {
-  return (
-    <div className="overflow-x-auto border border-line">
-      <table className="w-full text-sm">
-        <thead className="bg-paper-dim text-ink-faint">
-          <tr>
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Status</th>
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Scanned By</th>
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Scanned At</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => {
-            const url = trackingUrl(r.carrier as "epg" | "ups" | "dhl", r.trackingNumber);
-            return (
-              <tr key={r.id} className="border-t border-line bg-paper-panel">
-                <td className="px-3 py-2 data">
-                  {url ? (
-                    <a href={url} target="_blank" rel="noreferrer" className="text-blue hover:underline">
-                      {r.trackingNumber}
-                    </a>
-                  ) : (
-                    r.trackingNumber
-                  )}
-                </td>
-                <td className="px-3 py-2 text-ink-faint data">{r.orderName ?? "—"}</td>
-                <td className="px-3 py-2 text-ink-faint data">{r.statusLabel ?? "—"}</td>
-                <td className="px-3 py-2 font-condensed">{userNames[r.scannedBy] ?? "?"}</td>
-                <td className="px-3 py-2 text-ink-faint data">{formatDbTimestamp(r.scannedAt)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}

@@ -83,3 +83,18 @@ export const scan = pgTable(
   },
   (t) => [uniqueIndex("scan_tracking_number_idx").on(t.trackingNumber)],
 );
+
+// Phase 2 §9b — UPS/DHL parcels carry no reference back to their Shopify
+// order (unlike EPG's ERef), so this index is fed by FULFILLMENTS_CREATE/
+// UPDATE webhooks plus a one-time backfill, then read locally at scan time
+// with no per-scan Shopify API call. EPG parcels don't use this table —
+// their order comes from resolving `scan.epg_external_ref` (ERef) via a
+// live Shopify query in the nightly EPG status cron (§9a).
+export const shopifyOrderIndex = pgTable("shopify_order_index", {
+  trackingNumber: text("tracking_number").primaryKey(),
+  orderGid: text("order_gid").notNull(),
+  orderName: text("order_name").notNull(),
+  customerName: text("customer_name"),
+  destination: text("destination"),
+  updatedAt: text("updated_at").notNull().default(nowUtcText),
+});

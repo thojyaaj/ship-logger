@@ -8,6 +8,13 @@
       "when": 1788147402891,
       "tag": "0000_huge_warhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788151073677,
+      "tag": "0001_stormy_red_wolf",
+      "breakpoints": true
     }
   ]
 }

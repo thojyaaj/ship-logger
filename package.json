@@ -9,7 +9,9 @@
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx lib/db/migrate.ts",
-    "db:seed": "tsx lib/db/seed.ts"
+    "db:seed": "tsx lib/db/seed.ts",
+    "shopify:register-webhook": "tsx scripts/register-webhook.ts",
+    "shopify:backfill-orders": "tsx scripts/backfill-orders.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
