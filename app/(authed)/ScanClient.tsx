@@ -415,7 +415,11 @@ export default function ScanClient({
             onBlur={focusInput}
             autoFocus
             placeholder="Scan or type a tracking number, then press Enter"
-            className="data flex-1 text-2xl px-4 py-4 bg-paper-panel focus:bg-white outline-none placeholder:text-ink-faint placeholder:text-base placeholder:font-condensed"
+            // min-w-0 overrides a flex item's default min-width:auto — without
+            // it, this input refuses to shrink below its content's intrinsic
+            // width and pushes the row past a phone's viewport (measured
+            // 422px content in a 375px viewport before this).
+            className="data flex-1 min-w-0 text-2xl px-4 py-4 bg-paper-panel focus:bg-white outline-none placeholder:text-ink-faint placeholder:text-base placeholder:font-condensed"
           />
           <button
             type="button"

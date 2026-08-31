@@ -131,7 +131,7 @@ export default function SubmitDialog({
                           onChange={(e) =>
                             setBoxUpsTracking((prev) => ({ ...prev, [b.id]: e.target.value }))
                           }
-                          className="data flex-1 border border-line px-2 py-1 text-sm bg-paper"
+                          className="data flex-1 min-w-0 border border-line px-2 py-1 text-sm bg-paper"
                           placeholder="optional piece tracking"
                         />
                       </label>
