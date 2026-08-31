@@ -22,4 +22,4 @@ async function main() {
   console.log(`Seeded admin user with PIN ${adminPin} — change this in /admin/users.`);
 }
 
-main();
+main().then(() => process.exit(0));

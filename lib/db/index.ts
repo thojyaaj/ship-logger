@@ -1,21 +1,24 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import path from "node:path";
+import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "./schema";
 
-const DB_PATH = process.env.DATABASE_PATH ?? path.join(process.cwd(), "shiplog.db");
-
-declare global {
-  var __shiplogSqlite: Database.Database | undefined;
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error("DATABASE_URL is not set — see .env.example.");
 }
 
-const sqlite = global.__shiplogSqlite ?? new Database(DB_PATH);
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = ON");
+// One client per module scope, reused across warm serverless invocations.
+// `prepare: false` is required against Supabase's transaction pooler
+// (pgbouncer in transaction mode doesn't support prepared statements) —
+// harmless against a direct connection too, so it's left on unconditionally.
+declare global {
+  var __shiplogSql: ReturnType<typeof postgres> | undefined;
+}
+
+const client = global.__shiplogSql ?? postgres(connectionString, { prepare: false });
 
 if (process.env.NODE_ENV !== "production") {
-  global.__shiplogSqlite = sqlite;
+  global.__shiplogSql = client;
 }
 
-export const db = drizzle(sqlite, { schema });
-export { sqlite };
+export const db = drizzle(client, { schema });

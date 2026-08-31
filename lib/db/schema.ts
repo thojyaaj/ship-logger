@@ -1,27 +1,31 @@
 import { sql } from "drizzle-orm";
 import {
-  sqliteTable,
+  pgTable,
   text,
   integer,
+  boolean,
   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
 
-export const appUser = sqliteTable("app_user", {
+// Timestamp columns are `text`, not Postgres's native `timestamp` type,
+// formatted as "YYYY-MM-DD HH:MI:SS" UTC with no zone marker — matching
+// what SQLite's `(current_timestamp)` produced during Phase 1 dev. Kept
+// this way on the Postgres port so lib/date.ts's parsing (and every
+// display site built against it) didn't need to change.
+const nowUtcText = sql`to_char(now() at time zone 'utc', 'YYYY-MM-DD HH24:MI:SS')`;
+
+export const appUser = pgTable("app_user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   pinHash: text("pin_hash").notNull(),
-  isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
-  createdAt: text("created_at")
-    .notNull()
-    .default(sql`(current_timestamp)`),
+  isAdmin: boolean("is_admin").notNull().default(false),
+  active: boolean("active").notNull().default(true),
+  createdAt: text("created_at").notNull().default(nowUtcText),
 });
 
-export const shipmentSession = sqliteTable("shipment_session", {
+export const shipmentSession = pgTable("shipment_session", {
   id: text("id").primaryKey(),
-  openedAt: text("opened_at")
-    .notNull()
-    .default(sql`(current_timestamp)`),
+  openedAt: text("opened_at").notNull().default(nowUtcText),
   openedBy: text("opened_by")
     .notNull()
     .references(() => appUser.id),
@@ -40,7 +44,7 @@ export const shipmentSession = sqliteTable("shipment_session", {
   activeBoxId: text("active_box_id"),
 });
 
-export const box = sqliteTable(
+export const box = pgTable(
   "box",
   {
     id: text("id").primaryKey(),
@@ -53,7 +57,7 @@ export const box = sqliteTable(
   (t) => [uniqueIndex("box_session_number_idx").on(t.sessionId, t.boxNumber)],
 );
 
-export const scan = sqliteTable(
+export const scan = pgTable(
   "scan",
   {
     id: text("id").primaryKey(),
@@ -66,9 +70,7 @@ export const scan = sqliteTable(
       .references(() => appUser.id),
     trackingNumber: text("tracking_number").notNull(),
     carrier: text("carrier", { enum: ["epg", "ups", "dhl", "unknown"] }).notNull(),
-    scannedAt: text("scanned_at")
-      .notNull()
-      .default(sql`(current_timestamp)`),
+    scannedAt: text("scanned_at").notNull().default(nowUtcText),
     sequence: integer("sequence").notNull(),
     orderGid: text("order_gid"),
     orderName: text("order_name"),

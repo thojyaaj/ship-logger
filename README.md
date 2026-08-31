@@ -4,10 +4,13 @@ A warehouse scan station for outbound shipments across three carriers — ePost 
 
 Packers sign in with a 4-digit PIN, scan tracking numbers, and the app auto-detects the carrier, groups ePost Global parcels into numbered boxes for consolidated shipping, and blocks a number that's already shipped in a prior submitted shipment. Every submitted day's shipment is searchable by tracking number afterward.
 
+Live at [ship-logger.vercel.app](https://ship-logger.vercel.app).
+
 ## Stack
 
 - Next.js 16 (App Router) + TypeScript + Tailwind CSS 4
-- SQLite via Drizzle ORM (`lib/db/`) — schema is written to be easy to port to Postgres later
+- Postgres via Drizzle ORM (`lib/db/`) — Supabase in production, any Postgres works locally
+- `postgres.js` as the driver, configured for Supabase's transaction pooler (`prepare: false`) since Vercel's serverless functions are short-lived
 - `ts-tracking-number` for UPS/DHL check-digit validation
 - No Shopify dependency in Phase 1 by design — see the PRD for why
 
@@ -15,7 +18,7 @@ Packers sign in with a 4-digit PIN, scan tracking numbers, and the app auto-dete
 
 ```bash
 npm install
-cp .env.example .env.local   # set SESSION_SECRET at minimum
+cp .env.example .env.local   # set DATABASE_URL and SESSION_SECRET at minimum
 npm run db:migrate
 npm run db:seed              # creates an admin user, PIN printed to console
 npm run dev
@@ -36,10 +39,14 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Environment variables
 
-See [`.env.example`](.env.example). `SESSION_SECRET` is the only one that matters for a real deployment — everything else has a workable default for local development.
+See [`.env.example`](.env.example).
+
+- `DATABASE_URL` — Postgres connection string. In production, use Supabase's **transaction pooler** URI (port 6543), not the direct connection — Vercel's serverless functions each get their own short-lived connection, and the direct connection limit exhausts fast under concurrent invocations.
+- `SESSION_SECRET` — signs the session cookie. Falls back to an insecure dev-only value if unset; **never deploy without setting it**.
+- `CRON_SECRET` — optional, protects `/api/cron/epg-status` from being triggered by anyone who finds the URL. Vercel Cron sends this automatically when set (see `vercel.json`).
 
 ## Notes for future work
 
 - `lib/epg.ts` talks to an **undocumented, unofficial** ePost Global endpoint (verified working, not supported by EPG) — see the comment at the top of that file before changing it.
-- `app/api/cron/epg-status/route.ts` is meant to run on a schedule (`vercel.json` has the cron config); protect it with `CRON_SECRET` in production.
-- Session cookies fall back to an insecure dev secret if `SESSION_SECRET` is unset — never deploy without setting it.
+- Timestamp columns are `text`, not Postgres's native `timestamp` type, formatted as `"YYYY-MM-DD HH:MI:SS"` UTC with no zone marker (see the comment in `lib/db/schema.ts` and the helpers in `lib/date.ts`). This is a deliberate holdover from the original SQLite dev setup, not an oversight — changing it means touching every display site that reads a scan/session timestamp.
+- Row Level Security is enabled on all tables with no policies, since the app only ever connects via `DATABASE_URL` directly and never through Supabase's PostgREST/anon-key surface.
