@@ -149,7 +149,21 @@ export async function pinIsTaken(pin: string, excludeUserId?: string): Promise<b
 // In-memory only — resets on redeploy/restart. Fine for a single-process warehouse
 // kiosk deployment; would need a shared store (Redis/DB) behind a serverless
 // multi-instance deployment.
-type Attempt = { count: number; windowStart: number; lockedUntil: number };
+//
+// `windowCount`/`windowStart` and `cumulativeFailures` are deliberately separate
+// counters. The 5/min check only ever calls recordFailedAttempt for attempts it
+// already let through (see app/login/actions.ts), so a single counter that reset
+// every time the rolling window elapsed could never climb past ~5 — the 15-minute
+// lockout at 10 failures would never fire, no matter how long someone kept
+// guessing at one failure per window. cumulativeFailures instead only resets on
+// a successful login (or the lockout itself firing), so failures actually stack
+// across windows.
+type Attempt = {
+  windowCount: number;
+  windowStart: number;
+  cumulativeFailures: number;
+  lockedUntil: number;
+};
 const attempts = new Map<string, Attempt>();
 const WINDOW_MS = 60 * 1000;
 const MAX_PER_WINDOW = 5;
@@ -166,7 +180,7 @@ export function checkRateLimit(ip: string): { allowed: boolean; retryAfterMs?: n
   if (now - entry.windowStart > WINDOW_MS) {
     return { allowed: true };
   }
-  if (entry.count >= MAX_PER_WINDOW) {
+  if (entry.windowCount >= MAX_PER_WINDOW) {
     return { allowed: false, retryAfterMs: WINDOW_MS - (now - entry.windowStart) };
   }
   return { allowed: true };
@@ -175,14 +189,17 @@ export function checkRateLimit(ip: string): { allowed: boolean; retryAfterMs?: n
 export function recordFailedAttempt(ip: string): void {
   const now = Date.now();
   const entry = attempts.get(ip);
-  if (!entry || now - entry.windowStart > WINDOW_MS) {
-    attempts.set(ip, { count: 1, windowStart: now, lockedUntil: 0 });
-    return;
-  }
-  entry.count += 1;
-  if (entry.count >= LOCKOUT_AFTER) {
-    entry.lockedUntil = now + LOCKOUT_MS;
-  }
+  const windowExpired = !entry || now - entry.windowStart > WINDOW_MS;
+
+  const cumulativeFailures = (entry?.cumulativeFailures ?? 0) + 1;
+  const lockedUntil = cumulativeFailures >= LOCKOUT_AFTER ? now + LOCKOUT_MS : (entry?.lockedUntil ?? 0);
+
+  attempts.set(ip, {
+    windowCount: windowExpired ? 1 : entry.windowCount + 1,
+    windowStart: windowExpired ? now : entry.windowStart,
+    cumulativeFailures,
+    lockedUntil,
+  });
 }
 
 export function recordSuccessfulAttempt(ip: string): void {

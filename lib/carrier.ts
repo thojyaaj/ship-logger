@@ -15,6 +15,17 @@ export type CarrierDetection = {
 const EPG_PATTERN = /^EPG\d{15}$/;
 
 /**
+ * The one normalization every tracking number goes through before it's
+ * compared, stored, or looked up anywhere in the app — scan-time detection,
+ * the Shopify order index (webhook + backfill), duplicate checks. Two
+ * different call sites normalizing differently (or one of them not at all)
+ * is exactly how a real fulfillment silently stops matching its scan.
+ */
+export function normalizeTrackingNumber(raw: string): string {
+  return raw.trim().toUpperCase().replace(/\s+/g, "");
+}
+
+/**
  * Carrier order matters: EPG's prefix is checked first since it's not in any
  * public tracking-number dataset (it's EPG-internal), then UPS/DHL via
  * ts-tracking-number, which also validates the checksum. See PRD §5.1 — with
@@ -22,7 +33,7 @@ const EPG_PATTERN = /^EPG\d{15}$/;
  * simpler and more auditable than a generic multi-carrier matcher.
  */
 export function detectCarrier(raw: string): CarrierDetection {
-  const trackingNumber = raw.trim().toUpperCase().replace(/\s+/g, "");
+  const trackingNumber = normalizeTrackingNumber(raw);
 
   if (EPG_PATTERN.test(trackingNumber)) {
     return { carrier: "epg", trackingNumber, checksumValid: true };

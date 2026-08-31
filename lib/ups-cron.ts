@@ -3,7 +3,7 @@ import { db } from "./db";
 import { shipmentSession } from "./db/schema";
 import { and, eq, gte, isNotNull, ne } from "drizzle-orm";
 import { lookupUpsStatuses } from "./ups";
-import { nowSqlTimestamp } from "./date";
+import { nowSqlTimestamp, localCalendarDate } from "./date";
 
 const LOOKBACK_DAYS = 45;
 
@@ -13,7 +13,7 @@ function isTerminal(statusLabel: string | null): boolean {
 }
 
 function cutoffDate(): string {
-  return new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return localCalendarDate(new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000));
 }
 
 export type UpsCronResult = {

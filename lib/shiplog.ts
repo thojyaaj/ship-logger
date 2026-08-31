@@ -4,11 +4,11 @@ import { appUser, shipmentSession, box, scan } from "./db/schema";
 import { and, eq, desc, sql, ne, inArray } from "drizzle-orm";
 import { newId } from "./id";
 import { detectCarrier, type Carrier } from "./carrier";
-import { nowSqlTimestamp } from "./date";
+import { nowSqlTimestamp, localCalendarDate } from "./date";
 import { lookupOrderIndex } from "./order-index";
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localCalendarDate();
 }
 
 export type BoxSummary = {
@@ -592,7 +592,7 @@ export type DailyVolumePoint = {
  * still sitting in an open/draft session.
  */
 export async function getDailyVolume(days: number = 30): Promise<DailyVolumePoint[]> {
-  const cutoff = new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const cutoff = localCalendarDate(new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000));
 
   const rows = await db
     .select({
@@ -624,7 +624,7 @@ export async function getDailyVolume(days: number = 30): Promise<DailyVolumePoin
 
   const points: DailyVolumePoint[] = [];
   for (let i = 0; i < days; i++) {
-    const d = new Date(Date.now() - (days - 1 - i) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const d = localCalendarDate(new Date(Date.now() - (days - 1 - i) * 24 * 60 * 60 * 1000));
     points.push(byDate.get(d) ?? { shipDate: d, epg: 0, ups: 0, dhl: 0, unknown: 0, total: 0 });
   }
   return points;

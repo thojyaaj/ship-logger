@@ -26,3 +26,17 @@ export function toSqlTimestamp(date: Date): string {
 export function nowSqlTimestamp(): string {
   return toSqlTimestamp(new Date());
 }
+
+/**
+ * YYYY-MM-DD in the process-local timezone. `toISOString().slice(0, 10)` is
+ * UTC and will stamp a US-evening warehouse session as tomorrow — used
+ * anywhere a calendar day (shipDate, a chart's date bucket, a cron's
+ * lookback window) needs to match what a human standing at the warehouse
+ * would call "today," not what UTC currently reads.
+ */
+export function localCalendarDate(date: Date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
