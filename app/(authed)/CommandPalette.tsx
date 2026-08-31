@@ -233,7 +233,10 @@ export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
           onClick={() => setOpen(false)}
         >
           <div
-            className="corners bg-paper-panel w-full max-w-lg flex flex-col overflow-hidden"
+            // The palette is mounted inside the header (bg-ink text-paper),
+            // so without resetting color here every unstyled span here would
+            // inherit that near-white text onto this light panel — unreadable.
+            className="corners bg-paper-panel text-ink w-full max-w-lg flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <input

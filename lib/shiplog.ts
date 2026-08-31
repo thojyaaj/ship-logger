@@ -581,14 +581,21 @@ export type ShipmentPaletteHit = {
 
 /**
  * Lightweight jump-to-shipment lookup for the command palette (§ command
- * palette) — matches session id, AWB, or ship date directly, unlike
- * `listShipments`'s search which only matches scanned tracking numbers.
+ * palette) — matches session id, AWB, master UPS tracking, ship date, or a
+ * scanned tracking number (same tracking-number match `listShipments` uses).
  * Capped and unpaginated since it's a fast-jump, not the full history browser.
  */
 export async function searchShipmentsForPalette(query: string, limit = 8): Promise<ShipmentPaletteHit[]> {
   const term = query.trim();
   if (term.length < 2) return [];
   const like = `%${term}%`;
+
+  const normalizedTracking = term.toUpperCase().replace(/\s+/g, "");
+  const trackingMatches = await db
+    .select({ sessionId: scan.sessionId })
+    .from(scan)
+    .where(sql`upper(${scan.trackingNumber}) LIKE ${"%" + normalizedTracking + "%"}`);
+  const trackingSessionIds = [...new Set(trackingMatches.map((m) => m.sessionId))];
 
   const sessions = await db
     .select()
@@ -601,6 +608,7 @@ export async function searchShipmentsForPalette(query: string, limit = 8): Promi
           ilike(shipmentSession.awbNumber, like),
           ilike(shipmentSession.masterUpsTracking, like),
           ilike(shipmentSession.shipDate, like),
+          trackingSessionIds.length > 0 ? inArray(shipmentSession.id, trackingSessionIds) : undefined,
         ),
       ),
     )
