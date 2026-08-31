@@ -12,12 +12,15 @@ export default async function AuthedLayout({ children }: { children: React.React
       <div className="flex flex-col min-h-screen">
         <header className="sticky top-0 z-10 bg-ink text-paper">
           <div className="flex items-center justify-between gap-4 px-4 md:px-6 py-3 flex-wrap">
-            <div className="flex items-center gap-6 md:gap-8">
+            {/* flex-wrap here too, not just on the outer row — otherwise the
+                logo+nav group overflows the phone's viewport as one rigid
+                unrelated to whether the outer row wraps around it. */}
+            <div className="flex items-center gap-3 sm:gap-6 md:gap-8 flex-wrap">
               <Link href="/" className="flex items-baseline gap-2 shrink-0">
                 <span className="font-stencil text-xl tracking-wide">SHIP LOGGER</span>
                 <span className="tag-label text-orange hidden sm:inline">MANIFEST SYS.</span>
               </Link>
-              <nav className="flex gap-1 text-sm">
+              <nav className="flex flex-wrap gap-1 text-sm">
                 <NavLink href="/">Scan</NavLink>
                 <NavLink href="/shipments">Shipments</NavLink>
                 {user.isAdmin && <NavLink href="/admin/users">Admin</NavLink>}

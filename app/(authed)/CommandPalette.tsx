@@ -272,7 +272,7 @@ export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
                               <span className="font-condensed font-semibold">
                                 <Highlighted text={command.label} indices={indices} />
                               </span>
-                              <span className="tag-label !normal-case !tracking-normal !text-ink-faint ml-auto">
+                              <span className="hidden sm:inline tag-label !normal-case !tracking-normal !text-ink-faint ml-auto shrink-0">
                                 {command.hint}
                               </span>
                             </ResultRow>
@@ -323,7 +323,9 @@ export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
               })()}
             </div>
 
-            <div className="route-line px-4 py-2 flex items-center gap-3 text-[0.65rem] tag-label !text-ink-faint">
+            {/* Keyboard hints only make sense with a physical keyboard — a
+                touch user taps a result or the backdrop directly instead. */}
+            <div className="hidden sm:flex route-line px-4 py-2 items-center gap-3 text-[0.65rem] tag-label !text-ink-faint">
               <span>↑↓ navigate</span>
               <span>⏎ select</span>
               <span>esc close</span>

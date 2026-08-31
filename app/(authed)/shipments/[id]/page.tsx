@@ -44,7 +44,7 @@ export default async function ShipmentDetailPage({
           </Link>
           <h1 className="font-stencil text-2xl tracking-wide mt-1">{session.shipDate}</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span
             className={`tag-label px-3 py-1 ${
               session.status === "submitted"

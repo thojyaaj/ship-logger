@@ -115,11 +115,11 @@ export default function UsersClient({
         {users.map((u) => (
           <div
             key={u.id}
-            className={`flex items-center gap-3 px-4 py-3 border-b border-line bg-paper-panel ${
+            className={`flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 border-b border-line bg-paper-panel ${
               u.active ? "" : "opacity-40"
             }`}
           >
-            <div className="flex-1">
+            <div className="flex-1 min-w-[140px]">
               <div className="font-semibold font-condensed">
                 {u.name}
                 {u.id === currentUserId && (
@@ -130,27 +130,32 @@ export default function UsersClient({
                 {u.isAdmin ? "Admin" : "Packer"} · {u.active ? "Active" : "Deactivated"}
               </div>
             </div>
-            <button
-              onClick={() => handleResetPin(u.id)}
-              className="tag-label !text-blue hover:!text-blue-ink"
-              disabled={isPending}
-            >
-              Reset PIN
-            </button>
-            <button
-              onClick={() => toggleAdmin(u)}
-              className="tag-label hover:!text-ink"
-              disabled={isPending}
-            >
-              {u.isAdmin ? "Remove admin" : "Make admin"}
-            </button>
-            <button
-              onClick={() => toggleActive(u)}
-              className="tag-label !text-red hover:!text-red-ink"
-              disabled={isPending}
-            >
-              {u.active ? "Deactivate" : "Reactivate"}
-            </button>
+            {/* Grouped so the three actions wrap onto their own line together
+                on a narrow phone, rather than each button wrapping alone in
+                a different place mid-row. */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={() => handleResetPin(u.id)}
+                className="tag-label !text-blue hover:!text-blue-ink"
+                disabled={isPending}
+              >
+                Reset PIN
+              </button>
+              <button
+                onClick={() => toggleAdmin(u)}
+                className="tag-label hover:!text-ink"
+                disabled={isPending}
+              >
+                {u.isAdmin ? "Remove admin" : "Make admin"}
+              </button>
+              <button
+                onClick={() => toggleActive(u)}
+                className="tag-label !text-red hover:!text-red-ink"
+                disabled={isPending}
+              >
+                {u.active ? "Deactivate" : "Reactivate"}
+              </button>
+            </div>
           </div>
         ))}
       </div>

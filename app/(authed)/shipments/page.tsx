@@ -73,12 +73,16 @@ export default async function ShipmentsPage({
           <Link
             key={s.id}
             href={`/shipments/${s.id}`}
-            className="flex items-center gap-4 px-4 py-3 border-b border-line bg-paper-panel hover:bg-white transition-colors"
+            // Stacks into a card on a phone — the single desktop row (fixed
+            // date column + flex-1 counts + fixed AWB column) has no slack
+            // left to give on a narrow screen, so it just goes vertical
+            // below the sm breakpoint instead of overflowing or squeezing.
+            className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 py-3 border-b border-line bg-paper-panel hover:bg-white transition-colors"
           >
-            <div className="w-28 shrink-0">
+            <div className="flex items-center gap-2 sm:block sm:w-28 sm:shrink-0">
               <div className="data font-semibold">{s.shipDate}</div>
               <span
-                className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block mt-0.5 ${
+                className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block sm:mt-0.5 ${
                   s.status === "submitted"
                     ? "bg-green-dim !text-green-ink"
                     : "bg-amber-dim !text-amber-ink"
@@ -87,13 +91,13 @@ export default async function ShipmentsPage({
                 {s.status}
               </span>
             </div>
-            <div className="flex-1 flex gap-4 text-sm data">
+            <div className="flex-1 flex flex-wrap gap-x-4 gap-y-1 text-sm data">
               <span className="text-orange">EPG {s.totals.epg}</span>
               <span className="text-blue">UPS {s.totals.ups}</span>
               <span className="text-amber">DHL {s.totals.dhl}</span>
               {s.boxCount > 0 && <span className="text-ink-soft">{s.boxCount} box(es)</span>}
             </div>
-            <div className="flex flex-col items-end gap-1 shrink-0 text-right">
+            <div className="flex items-center gap-2 sm:flex-col sm:items-end sm:gap-1 sm:shrink-0 sm:text-right">
               {s.awbNumber && <span className="tag-label !normal-case">{s.awbNumber}</span>}
               {s.totals.epg > 0 && s.masterUpsTracking && (
                 <span

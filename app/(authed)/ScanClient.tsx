@@ -340,8 +340,10 @@ export default function ScanClient({
         </div>
       </div>
 
-      {/* Row 1 — per-carrier totals (§8.6), styled as instrument readouts */}
-      <div className="grid grid-cols-4 gap-px bg-line">
+      {/* Row 1 — per-carrier totals (§8.6), styled as instrument readouts.
+          2 columns on a phone — 4-across at that width squeezes text-4xl
+          numbers into ~70px cells. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-line">
         {(["epg", "ups", "dhl"] as const).map((c) => (
           <div key={c} className="corners bg-paper-panel p-4 text-center">
             <div className={`tag-label ${CARRIER_ACCENT[c]}`}>{carrierLabel(c)}</div>
@@ -478,7 +480,11 @@ export default function ScanClient({
               {s.boxNumber && (
                 <span className="tag-label">BOX {String(s.boxNumber).padStart(2, "0")}</span>
               )}
-              <span className="tag-label !normal-case !tracking-normal !text-ink-soft">
+              {/* Who/when is useful context but not essential to a packer's
+                  next tap — dropped on narrow screens so the tracking number
+                  and Undo button (the two things actually needed mid-pack)
+                  keep real room instead of getting squeezed. */}
+              <span className="hidden sm:inline tag-label !normal-case !tracking-normal !text-ink-soft">
                 {dashboard.userNames[s.scannedBy] ?? "?"} · {timeAgo(s.scannedAt)}
               </span>
               <button
