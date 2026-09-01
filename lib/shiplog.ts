@@ -372,15 +372,20 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
     .where(eq(scan.sessionId, input.sessionId));
   const sequence = Number(maxRow[0]?.max ?? 0) + 1;
 
-  // §9c: UPS/DHL enrichment is a local, no-network lookup against the
-  // webhook-fed index (§9b) — never a live Shopify call at scan time. EPG
-  // enrichment instead happens later, in the EPG status cron (§9a), since
-  // it depends on `epg_external_ref` which isn't known until EPG ingests
-  // the label.
-  const orderMatch =
-    finalCarrier === "ups" || finalCarrier === "dhl"
-      ? await lookupOrderIndex(trackingNumber)
-      : null;
+  // §9c: a local, no-network lookup against the webhook-fed index (§9b) —
+  // never a live Shopify call at scan time.
+  //
+  // Now runs for EPG too, not just UPS/DHL. EPG used to be excluded on the
+  // assumption its orders could only be reached via `epg_external_ref`, which
+  // isn't known until EPG ingests the label — and since parcels are scanned at
+  // the packing desk *before* the consolidated shipment physically ships, that
+  // left every EPG scan with a blank order number for days, sometimes forever.
+  // But this store's Shopify fulfilments carry the EPG tracking number, and the
+  // webhook indexes every tracking number on a fulfilment regardless of
+  // carrier, so the answer is already sitting in the local index at scan time.
+  // A carrier the index doesn't know simply misses and returns null, so there
+  // is no downside to asking for all of them.
+  const orderMatch = await lookupOrderIndex(trackingNumber);
 
   await db.insert(scan).values({
     id: newId(),

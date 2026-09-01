@@ -5,6 +5,7 @@ import { and, eq, gt } from "drizzle-orm";
 import { lookupEpgStatuses } from "./epg";
 import { nowSqlTimestamp, toSqlTimestamp } from "./date";
 import { findOrderByName } from "./shopify";
+import { lookupOrderIndex } from "./order-index";
 
 const LOOKBACK_DAYS = 45;
 
@@ -27,6 +28,13 @@ export type EpgCronResult = {
    * they have completely different causes and fixes.
    */
   epgNoRecord: number;
+  /**
+   * Orders resolved from the local webhook-fed index rather than from EPG's
+   * ERef. Counted separately because it needs no EPG data at all — these are
+   * parcels that would otherwise have waited on EPG ingestion, or waited
+   * forever if EPG never picked them up.
+   */
+  ordersFromIndex: number;
 };
 
 /**
@@ -67,6 +75,7 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
       orderResolutionMisses: 0,
       orderResolutionErrors: 0,
       epgNoRecord: 0,
+      ordersFromIndex: 0,
     };
   }
 
@@ -78,8 +87,26 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
   let orderResolutionMisses = 0;
   let orderResolutionErrors = 0;
   let epgNoRecord = 0;
+  let ordersFromIndex = 0;
   const now = nowSqlTimestamp();
   for (const s of pending) {
+    // Try the local index before anything else. It's a free, no-network lookup
+    // and it doesn't depend on EPG having ingested the label, so it resolves
+    // the exact parcels the ERef path can never reach. Scans recorded before
+    // EPG was wired into this lookup get picked up here.
+    if (!s.orderGid) {
+      const indexed = await lookupOrderIndex(s.trackingNumber);
+      if (indexed) {
+        await db
+          .update(scan)
+          .set({ orderGid: indexed.orderGid, orderName: indexed.orderName })
+          .where(eq(scan.id, s.id));
+        s.orderGid = indexed.orderGid;
+        s.orderName = indexed.orderName;
+        ordersFromIndex += 1;
+      }
+    }
+
     const record = results.get(s.trackingNumber);
     if (!record) {
       epgNoRecord += 1;
@@ -162,5 +189,6 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
     orderResolutionMisses,
     orderResolutionErrors,
     epgNoRecord,
+    ordersFromIndex,
   };
 }
