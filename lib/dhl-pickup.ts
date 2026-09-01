@@ -217,18 +217,22 @@ function hhmmToMinutes(hhmm: string): number {
 }
 
 /**
- * Same-day vs. next-day for a DHL pickup, based on how late the shipment
- * was actually submitted relative to the configured pickup window:
+ * Same-day vs. next-day for a DHL pickup, based on how late it is *right
+ * now*, relative to the configured pickup window — not how late the
+ * shipment was submitted. Those can be hours apart (a shipment submitted at
+ * 9am but not actually scheduled with DHL until 3:51pm), and it's the
+ * moment of scheduling that has to fit before the truck can realistically
+ * show up, not the moment of packing. Using submittedAt here let the
+ * preview/confirm dialog show an already-passed ready time — e.g. "1:00 PM
+ * – 5:00 PM" displayed at 3:51pm — reported live against this exact code.
  *
- *  - Submitted at/before (readyTime - 1h): comfortably early — same day.
- *  - Submitted after that but still at/before (closeTime - 3h): missed the
- *    official 1-hour cutoff, but DHL's local dispatcher still has enough
- *    runway before the window closes to fit it in — a grace window, still
- *    same day.
- *  - Submitted after (closeTime - 3h): too late to realistically route a
- *    same-day pickup — next day instead, using the exact same ready/close
- *    times from settings (only the date moves, never the time-of-day
- *    window).
+ *  - Right now, at/before (readyTime - 1h): comfortably early — same day.
+ *  - After that but still at/before (closeTime - 3h): missed the official
+ *    1-hour cutoff, but DHL's local dispatcher still has enough runway
+ *    before the window closes to fit it in — a grace window, still same day.
+ *  - After (closeTime - 3h): too late to realistically route a same-day
+ *    pickup — next day instead, using the exact same ready/close times from
+ *    settings (only the date moves, never the time-of-day window).
  *
  * "Same day" here always means same day as whichever is later of shipDate
  * and today — a shipment's `shipDate` is set when its session opens and
@@ -240,21 +244,18 @@ function hhmmToMinutes(hhmm: string): number {
  */
 function resolvePickupDate(
   shipDate: string,
-  submittedAt: string | null,
   settings: Pick<DhlPickupSettings, "readyTime" | "closeTime">,
 ): string {
-  // submittedAt is always set by the time a shipment can be submitted (and
-  // only a submitted shipment can have a pickup scheduled) — this is just a
-  // defensive fallback, not an expected path.
-  if (!submittedAt) return shipDate;
-
   const referenceDate = shipDate < localCalendarDate() ? localCalendarDate() : shipDate;
+  // A future shipDate's ready window hasn't happened yet regardless of what
+  // time it is right now — only "today" needs the time-of-day check below.
+  if (referenceDate !== localCalendarDate()) return referenceDate;
 
-  const submittedMinutes = hhmmToMinutes(warehouseLocalTime(submittedAt));
+  const nowMinutes = hhmmToMinutes(warehouseLocalTime(nowSqlTimestamp()));
   const oneHourBeforeStart = hhmmToMinutes(settings.readyTime) - 60;
   const threeHoursBeforeEnd = hhmmToMinutes(settings.closeTime) - 180;
-  const missedFirstCutoff = submittedMinutes > oneHourBeforeStart;
-  const withinGraceWindow = submittedMinutes <= threeHoursBeforeEnd;
+  const missedFirstCutoff = nowMinutes > oneHourBeforeStart;
+  const withinGraceWindow = nowMinutes <= threeHoursBeforeEnd;
   const sameDay = !missedFirstCutoff || withinGraceWindow;
 
   return sameDay ? referenceDate : nextCalendarDate(referenceDate);
@@ -321,7 +322,7 @@ export async function previewPickupForSession(sessionId: string): Promise<Previe
   }
 
   const totalWeightLb = Math.max(1, Math.round(parcelCount * settings.avgWeightLbPerParcel));
-  const pickupDate = resolvePickupDate(dashboard.session.shipDate, dashboard.session.submittedAt, settings);
+  const pickupDate = resolvePickupDate(dashboard.session.shipDate, settings);
   return {
     status: "ok",
     preview: {
@@ -381,7 +382,7 @@ export async function schedulePickupForSession(
     return { status: "error", message: "This shipment has no DHL parcels." };
   }
   const totalWeightLb = Math.max(1, Math.round(parcelCount * settings.avgWeightLbPerParcel));
-  const pickupDate = resolvePickupDate(session.shipDate, session.submittedAt, settings);
+  const pickupDate = resolvePickupDate(session.shipDate, settings);
 
   const result = await requestDhlPickup({
     accountNumber: settings.accountNumber,
