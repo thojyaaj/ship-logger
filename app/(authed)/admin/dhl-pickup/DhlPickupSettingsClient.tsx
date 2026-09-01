@@ -6,6 +6,7 @@ import { saveDhlPickupSettingsAction } from "./actions";
 import { actionErrorMessage } from "@/lib/error-message";
 
 const EMPTY: DhlPickupSettingsInput = {
+  enabled: true,
   accountNumber: "",
   companyName: "",
   contactName: "",
@@ -33,6 +34,7 @@ export default function DhlPickupSettingsClient({
   const [form, setForm] = useState<DhlPickupSettingsInput>(
     initialSettings
       ? {
+          enabled: initialSettings.enabled,
           accountNumber: initialSettings.accountNumber,
           companyName: initialSettings.companyName,
           contactName: initialSettings.contactName,
@@ -90,6 +92,22 @@ export default function DhlPickupSettingsClient({
       </div>
 
       <form onSubmit={submit} className="flex flex-col gap-6 corners p-4 bg-paper-panel">
+        <Section title="Scheduling">
+          <label className="flex items-center gap-2 text-sm font-condensed">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(e) => set("enabled", e.target.checked)}
+              className="w-4 h-4"
+            />
+            DHL pickup scheduling enabled
+          </label>
+          <p className="text-xs text-ink-faint font-condensed">
+            Turn this off to stop new pickups from being scheduled. An already-booked pickup can
+            still be cancelled while this is off.
+          </p>
+        </Section>
+
         <Section title="Account">
           <Field label="DHL account number">
             <Input value={form.accountNumber} onChange={(v) => set("accountNumber", v)} required />

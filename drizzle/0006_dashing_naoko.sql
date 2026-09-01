@@ -1,0 +1,1 @@
+ALTER TABLE "dhl_pickup_settings" ADD COLUMN "enabled" boolean DEFAULT true NOT NULL;

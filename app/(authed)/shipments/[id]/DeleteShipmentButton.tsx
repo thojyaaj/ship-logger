@@ -6,6 +6,7 @@ import { deleteShipmentAction } from "../../scan-actions";
 import ConfirmDialog from "../../ConfirmDialog";
 import { actionErrorMessage } from "@/lib/error-message";
 import { withTransportRetry } from "@/lib/with-retry";
+import { TrashIcon } from "./icons";
 
 export default function DeleteShipmentButton({ sessionId, shipDate }: { sessionId: string; shipDate: string }) {
   const [showConfirm, setShowConfirm] = useState(false);
@@ -24,9 +25,11 @@ export default function DeleteShipmentButton({ sessionId, shipDate }: { sessionI
         type="button"
         disabled={isPending || deleted}
         onClick={() => setShowConfirm(true)}
-        className="btn px-4 py-2 border border-red text-red-ink hover:bg-red-dim disabled:opacity-50 shrink-0"
+        className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-red text-red-ink hover:bg-red-dim disabled:opacity-50 shrink-0"
       >
-        {deleted ? "Deleted" : "Delete"}
+        <TrashIcon className="w-5 h-5 md:hidden" />
+        <span className="md:hidden">Delete</span>
+        <span className="hidden md:inline">{deleted ? "Deleted" : "Delete"}</span>
       </button>
 
       {error && (
