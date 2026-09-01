@@ -30,7 +30,17 @@ export function formatDbTimestamp(value: string): string {
  * viewer's own locale/timezone and doesn't need this.
  */
 export function formatWarehouseTimestamp(value: string): string {
-  return parseDbTimestamp(value).toLocaleString("en-US", { timeZone: WAREHOUSE_TZ });
+  // Explicit field list (not the bare no-arg toLocaleString overload used
+  // above) so seconds are dropped — a packer reading "Opened"/"Submitted"
+  // doesn't need second-level precision, and it was adding visual noise.
+  return parseDbTimestamp(value).toLocaleString("en-US", {
+    timeZone: WAREHOUSE_TZ,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 /**
@@ -62,6 +72,31 @@ export function localCalendarDate(date: Date = new Date()): string {
   // en-CA's default date format is ISO-shaped (YYYY-MM-DD) — a convenient
   // way to get that shape straight out of Intl without hand-assembling it.
   return new Intl.DateTimeFormat("en-CA", { timeZone: WAREHOUSE_TZ }).format(date);
+}
+
+/**
+ * "HH:MM" (24-hour) wall-clock time in the warehouse's fixed zone for a DB
+ * timestamp — used to compare a submission time against a DHL pickup
+ * window's cutoffs. en-GB (not en-US) with hour12:false: some ICU builds
+ * render en-US + hour12:false as "24:00" instead of "00:00" at midnight,
+ * which breaks minute-of-day arithmetic; en-GB doesn't have that quirk.
+ */
+export function warehouseLocalTime(value: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: WAREHOUSE_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parseDbTimestamp(value));
+}
+
+/** Next calendar date after `date` ("YYYY-MM-DD"). Pure calendar-day math —
+ * done via Date.UTC (not local-timezone Date arithmetic) so it can't be
+ * thrown off by a DST transition, since no actual timezone or instant is
+ * involved, just incrementing a day-of-month integer. */
+export function nextCalendarDate(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
 }
 
 /**

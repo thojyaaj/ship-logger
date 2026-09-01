@@ -19,7 +19,7 @@ export default function ReopenButton({ sessionId }: { sessionId: string }) {
         type="button"
         disabled={isPending}
         onClick={() => setShowConfirm(true)}
-        className="btn px-4 py-2 border border-amber text-amber-ink hover:bg-amber-dim disabled:opacity-50"
+        className="btn px-4 py-2 border border-amber text-amber-ink hover:bg-amber-dim disabled:opacity-50 shrink-0"
       >
         {isPending ? "Reopening…" : "Reopen for corrections"}
       </button>

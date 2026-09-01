@@ -34,18 +34,32 @@ type Banner =
     }
   | { kind: "error"; message: string };
 
+// `!` is required on every color here: `.tag-label`'s own `color` rule lives
+// outside any Tailwind `@layer` in globals.css, so per the CSS cascade-layers
+// spec it beats ANY layered utility class (including a same-specificity
+// `.text-orange`) regardless of source order — without `!important` these
+// silently render as tag-label's default ink-faint gray instead of the
+// intended carrier color, which is why every other accent color in this app
+// already uses the `!` prefix.
 const CARRIER_COLOR: Record<Carrier, string> = {
-  epg: "bg-orange-dim text-orange-ink",
-  ups: "bg-blue-dim text-blue-ink",
-  dhl: "bg-amber-dim text-amber-ink",
-  unknown: "bg-paper-dim text-ink-soft",
+  epg: "bg-orange-dim !text-orange-ink",
+  ups: "bg-blue-dim !text-blue-ink",
+  dhl: "bg-amber-dim !text-amber-ink",
+  unknown: "bg-paper-dim !text-ink-soft",
 };
 
 const CARRIER_ACCENT: Record<Carrier, string> = {
-  epg: "text-orange",
-  ups: "text-blue",
-  dhl: "text-amber",
-  unknown: "text-ink-faint",
+  epg: "!text-orange",
+  ups: "!text-blue",
+  dhl: "!text-amber",
+  unknown: "!text-ink-faint",
+};
+
+const CARRIER_TINT: Record<Carrier, string> = {
+  epg: "bg-orange-dim",
+  ups: "bg-blue-dim",
+  dhl: "bg-amber-dim",
+  unknown: "bg-paper-dim",
 };
 
 // carrierLabel()'s full "ePost Global" is right for the manual
@@ -481,7 +495,7 @@ export default function ScanClient({
           numbers into ~70px cells. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-line">
         {(["epg", "ups", "dhl"] as const).map((c) => (
-          <div key={c} className="corners bg-paper-panel p-4 text-center">
+          <div key={c} className={`corners p-4 text-center ${CARRIER_TINT[c]}`}>
             <div className={`tag-label ${CARRIER_ACCENT[c]}`}>{CARRIER_SHORT_LABEL[c]}</div>
             <div className="data text-4xl font-semibold mt-1">{dashboard?.totals[c] ?? 0}</div>
           </div>

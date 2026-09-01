@@ -3,6 +3,7 @@ import { pageRequireUser } from "@/lib/auth";
 import SwitchUserButton from "./SwitchUserButton";
 import CommandPalette from "./CommandPalette";
 import { CommandPaletteStateProvider } from "./CommandPaletteState";
+import MobileNav from "./MobileNav";
 
 export default async function AuthedLayout({ children }: { children: React.ReactNode }) {
   const user = await pageRequireUser();
@@ -18,9 +19,9 @@ export default async function AuthedLayout({ children }: { children: React.React
             <div className="flex items-center gap-3 sm:gap-6 md:gap-8 flex-wrap">
               <Link href="/" className="flex items-baseline gap-2 shrink-0">
                 <span className="font-stencil text-xl tracking-wide">SHIP LOGGER</span>
-                <span className="tag-label text-orange hidden sm:inline">MANIFEST SYS.</span>
+                <span className="tag-label !text-orange hidden sm:inline">MANIFEST SYS.</span>
               </Link>
-              <nav className="flex flex-wrap gap-1 text-sm">
+              <nav className="hidden md:flex flex-wrap gap-1 text-sm">
                 <NavLink href="/">Scan</NavLink>
                 <NavLink href="/shipments">Shipments</NavLink>
                 {user.isAdmin && <NavLink href="/admin/users">Admin</NavLink>}
@@ -34,6 +35,7 @@ export default async function AuthedLayout({ children }: { children: React.React
               </span>
               <CommandPalette isAdmin={user.isAdmin} />
               <SwitchUserButton />
+              <MobileNav isAdmin={user.isAdmin} operatorName={user.name} />
             </div>
           </div>
           <div className="barcode h-1" />

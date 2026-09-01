@@ -91,61 +91,44 @@ export default function DhlPickupPanel({
   }
 
   return (
-    <div className="corners bg-paper-panel p-4 flex flex-col gap-3">
-      <h2 className="tag-label">DHL Pickup</h2>
-
-      {active && request?.dispatchConfirmationNumber && (
-        <div className="flex flex-col gap-2">
-          <p className="text-sm font-condensed">
-            Scheduled — confirmation <span className="data font-semibold">{request.dispatchConfirmationNumber}</span>
-            <br />
-            <span className="text-ink-faint text-xs">
-              {request.parcelCount} parcel(s), ~{request.totalWeightLb} lb, requested{" "}
-              {formatDbTimestamp(request.requestedAt)}
-            </span>
-          </p>
-          <div>
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() => setShowCancelConfirm(true)}
-              className="tag-label !text-red hover:!text-red-ink disabled:opacity-50"
-            >
-              Cancel pickup
-            </button>
-          </div>
-        </div>
+    <>
+      {active && request?.dispatchConfirmationNumber ? (
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => setShowCancelConfirm(true)}
+          title={`Confirmation ${request.dispatchConfirmationNumber} — ${request.parcelCount} parcel(s), ~${request.totalWeightLb} lb, requested ${formatDbTimestamp(request.requestedAt)}`}
+          className="btn px-4 py-2 border border-green text-green-ink hover:bg-red-dim hover:border-red hover:text-red-ink disabled:opacity-50 shrink-0"
+        >
+          DHL Scheduled · {request.dispatchConfirmationNumber}
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={openScheduleDialog}
+          className="btn px-4 py-2 bg-orange text-paper disabled:opacity-50 shrink-0"
+        >
+          {isPending ? "Checking…" : "Schedule DHL Pickup"}
+        </button>
       )}
 
-      {!active && (
-        <div className="flex flex-col gap-2">
-          {request?.status === "cancelled" && (
-            <p className="text-xs text-ink-faint font-condensed">
-              Previous pickup {request.dispatchConfirmationNumber} was cancelled
-              {request.cancelledAt ? ` ${formatDbTimestamp(request.cancelledAt)}` : ""}.
-            </p>
-          )}
-          {request?.status === "failed" && request.errorMessage && (
-            <p className="text-xs text-red-ink font-condensed">Last attempt failed: {request.errorMessage}</p>
-          )}
-          <div>
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={openScheduleDialog}
-              className="btn px-4 py-2 bg-orange text-paper disabled:opacity-50"
-            >
-              {isPending ? "Checking…" : "Schedule DHL Pickup"}
-            </button>
-          </div>
-        </div>
+      {!active && request?.status === "cancelled" && (
+        <p className="text-xs text-ink-faint font-condensed w-full text-center">
+          Previous pickup {request.dispatchConfirmationNumber} was cancelled
+          {request.cancelledAt ? ` ${formatDbTimestamp(request.cancelledAt)}` : ""}.
+        </p>
       )}
-
+      {!active && request?.status === "failed" && request.errorMessage && (
+        <p className="text-xs text-red-ink font-condensed w-full text-center">
+          Last attempt failed: {request.errorMessage}
+        </p>
+      )}
       {previewError && (
-        <p className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm">{previewError}</p>
+        <p className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm w-full">{previewError}</p>
       )}
       {error && (
-        <p className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm">{error}</p>
+        <p className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm w-full">{error}</p>
       )}
 
       {showConfirm && preview && (
@@ -168,6 +151,6 @@ export default function DhlPickupPanel({
           onConfirm={confirmCancel}
         />
       )}
-    </div>
+    </>
   );
 }

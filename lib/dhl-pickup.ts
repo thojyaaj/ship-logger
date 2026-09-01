@@ -3,7 +3,7 @@ import { db } from "./db";
 import { dhlPickupSettings, dhlPickupRequest, shipmentSession } from "./db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { newId } from "./id";
-import { nowSqlTimestamp, warehouseIsoWithOffset } from "./date";
+import { nowSqlTimestamp, warehouseIsoWithOffset, warehouseLocalTime, nextCalendarDate } from "./date";
 import { requestDhlPickup, cancelDhlPickup } from "./dhl";
 import { getShipmentDetail, ShipmentNotFoundError } from "./shiplog";
 
@@ -169,6 +169,45 @@ export async function getLatestPickupRequest(sessionId: string): Promise<PickupR
   return rows[0] ?? null;
 }
 
+function hhmmToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * Same-day vs. next-day for a DHL pickup, based on how late the shipment
+ * was actually submitted relative to the configured pickup window:
+ *
+ *  - Submitted at/before (readyTime - 1h): comfortably early — same day.
+ *  - Submitted after that but still at/before (closeTime - 3h): missed the
+ *    official 1-hour cutoff, but DHL's local dispatcher still has enough
+ *    runway before the window closes to fit it in — a grace window, still
+ *    same day.
+ *  - Submitted after (closeTime - 3h): too late to realistically route a
+ *    same-day pickup — next day instead, using the exact same ready/close
+ *    times from settings (only the date moves, never the time-of-day
+ *    window).
+ */
+function resolvePickupDate(
+  shipDate: string,
+  submittedAt: string | null,
+  settings: Pick<DhlPickupSettings, "readyTime" | "closeTime">,
+): string {
+  // submittedAt is always set by the time a shipment can be submitted (and
+  // only a submitted shipment can have a pickup scheduled) — this is just a
+  // defensive fallback, not an expected path.
+  if (!submittedAt) return shipDate;
+
+  const submittedMinutes = hhmmToMinutes(warehouseLocalTime(submittedAt));
+  const oneHourBeforeStart = hhmmToMinutes(settings.readyTime) - 60;
+  const threeHoursBeforeEnd = hhmmToMinutes(settings.closeTime) - 180;
+  const missedFirstCutoff = submittedMinutes > oneHourBeforeStart;
+  const withinGraceWindow = submittedMinutes <= threeHoursBeforeEnd;
+  const sameDay = !missedFirstCutoff || withinGraceWindow;
+
+  return sameDay ? shipDate : nextCalendarDate(shipDate);
+}
+
 export type PreviewPickup = {
   parcelCount: number;
   totalWeightLb: number;
@@ -206,12 +245,13 @@ export async function previewPickupForSession(sessionId: string): Promise<Previe
   }
 
   const totalWeightLb = Math.max(1, Math.round(parcelCount * settings.avgWeightLbPerParcel));
+  const pickupDate = resolvePickupDate(dashboard.session.shipDate, dashboard.session.submittedAt, settings);
   return {
     status: "ok",
     preview: {
       parcelCount,
       totalWeightLb,
-      plannedPickupDateAndTime: warehouseIsoWithOffset(dashboard.session.shipDate, settings.readyTime),
+      plannedPickupDateAndTime: warehouseIsoWithOffset(pickupDate, settings.readyTime),
       closeTime: settings.closeTime,
       address: `${settings.addressLine1}${settings.addressLine2 ? ", " + settings.addressLine2 : ""}, ${settings.city}, ${settings.state} ${settings.postalCode}`,
     },
@@ -262,10 +302,11 @@ export async function schedulePickupForSession(
     return { status: "error", message: "This shipment has no DHL parcels." };
   }
   const totalWeightLb = Math.max(1, Math.round(parcelCount * settings.avgWeightLbPerParcel));
+  const pickupDate = resolvePickupDate(session.shipDate, session.submittedAt, settings);
 
   const result = await requestDhlPickup({
     accountNumber: settings.accountNumber,
-    plannedPickupDateAndTime: warehouseIsoWithOffset(session.shipDate, settings.readyTime),
+    plannedPickupDateAndTime: warehouseIsoWithOffset(pickupDate, settings.readyTime),
     closeTime: settings.closeTime,
     contactName: settings.contactName,
     contactPhone: settings.contactPhone,

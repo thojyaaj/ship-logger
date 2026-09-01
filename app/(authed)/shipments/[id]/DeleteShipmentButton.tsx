@@ -24,7 +24,7 @@ export default function DeleteShipmentButton({ sessionId, shipDate }: { sessionI
         type="button"
         disabled={isPending || deleted}
         onClick={() => setShowConfirm(true)}
-        className="btn px-4 py-2 border border-red text-red-ink hover:bg-red-dim disabled:opacity-50"
+        className="btn px-4 py-2 border border-red text-red-ink hover:bg-red-dim disabled:opacity-50 shrink-0"
       >
         {deleted ? "Deleted" : "Delete"}
       </button>

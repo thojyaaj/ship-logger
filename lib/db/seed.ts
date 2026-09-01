@@ -13,7 +13,7 @@ async function main() {
   const adminPin = process.env.SEED_ADMIN_PIN ?? "1234";
   await db.insert(appUser).values({
     id: crypto.randomUUID(),
-    name: "Admin",
+    name: "Thao",
     pinHash: bcrypt.hashSync(adminPin, 10),
     isAdmin: true,
     active: true,
