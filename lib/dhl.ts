@@ -130,7 +130,12 @@ export async function requestDhlPickup(input: PickupRequestInput): Promise<Picku
     });
 
     if (!res.ok) {
-      return { status: "error", message: `DHL pickup request failed: ${res.status}` };
+      const body = await res.text().catch(() => "");
+      console.error(`DHL pickup request failed: ${res.status}`, body);
+      return {
+        status: "error",
+        message: `DHL pickup request failed: ${res.status}${body ? ` — ${body}` : ""}`,
+      };
     }
 
     const data = (await res.json()) as PickupApiResponse;
