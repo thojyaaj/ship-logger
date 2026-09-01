@@ -6,6 +6,7 @@ import { switchUser } from "./actions";
 import { searchShipmentsPaletteAction } from "./palette-actions";
 import { useCommandPaletteState } from "./CommandPaletteState";
 import type { ShipmentPaletteHit } from "@/lib/shiplog";
+import { SearchIcon } from "./icons";
 
 type NavCommand = {
   id: string;
@@ -222,10 +223,14 @@ export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
       <button
         type="button"
         onClick={openFresh}
-        className="btn border border-paper/30 text-paper/70 hover:text-paper hover:border-paper/60 px-3 py-1.5 flex items-center gap-1.5"
+        // Icon-only on mobile — a hamburger-nav header has no room for a
+        // "⌘K" label that means nothing without a physical keyboard anyway;
+        // desktop keeps the label since ⌘K/Ctrl+K is the real shortcut there.
+        className="btn border border-paper/30 text-paper/70 hover:text-paper hover:border-paper/60 p-2 md:px-3 md:py-1.5 flex items-center gap-1.5"
         title="Open command palette (⌘K / Ctrl+K, or / when not typing in a field)"
       >
-        <span className="tag-label !text-inherit">⌘K</span>
+        <SearchIcon className="w-4 h-4 md:hidden" />
+        <span className="tag-label !text-inherit hidden md:inline">⌘K</span>
       </button>
 
       {open && (
