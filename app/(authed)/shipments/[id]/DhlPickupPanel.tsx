@@ -101,7 +101,7 @@ export default function DhlPickupPanel({
           disabled={isPending}
           onClick={() => setShowCancelConfirm(true)}
           title={`Confirmation ${request.dispatchConfirmationNumber} — ${request.parcelCount} parcel(s), ~${request.totalWeightLb} lb, requested ${formatDbTimestamp(request.requestedAt)}. Click to cancel.`}
-          className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-red text-red-ink hover:bg-red-dim disabled:opacity-50 shrink-0"
+          className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-red text-red-ink hover:bg-red-dim disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
         >
           <XCircleIcon className="w-5 h-5 md:hidden" />
           <span className="md:hidden">Cancel</span>
@@ -112,7 +112,7 @@ export default function DhlPickupPanel({
           type="button"
           disabled={isPending}
           onClick={openScheduleDialog}
-          className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 bg-orange text-paper disabled:opacity-50 shrink-0"
+          className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 bg-orange text-paper disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
         >
           <TruckIcon className="w-5 h-5 md:hidden" />
           <span className="md:hidden">Pickup</span>

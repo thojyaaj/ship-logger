@@ -25,7 +25,7 @@ export default function DeleteShipmentButton({ sessionId, shipDate }: { sessionI
         type="button"
         disabled={isPending || deleted}
         onClick={() => setShowConfirm(true)}
-        className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-red text-red-ink hover:bg-red-dim disabled:opacity-50 shrink-0"
+        className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-red text-red-ink hover:bg-red-dim disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
       >
         <TrashIcon className="w-5 h-5 md:hidden" />
         <span className="md:hidden">Delete</span>
