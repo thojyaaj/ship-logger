@@ -473,6 +473,47 @@ export default function ScanClient({
 
   return (
     <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
+      {/* Scan input. A hardware scanner types into this like a keyboard and
+          ends with Enter (§8.3) — the button is a manual-entry fallback for
+          testing and for typing a number in by hand. First thing on the
+          page, right under the app header — the one control a packer is
+          using nonstop, not something to scroll past every time. */}
+      <div className="flex flex-col gap-2">
+        <span className="tag-label">Scan input</span>
+        <div className="corners flex gap-px bg-line">
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            // Deferred to the next macrotask so the click that caused the blur
+            // can land first: refocusing synchronously during blur cancels the
+            // pending click outright on touch devices, which read as "tapping
+            // an order just scrolls back to the input" instead of opening the
+            // panel. focusInput itself reads overlay state from a ref, so by
+            // the time this runs it sees the click's committed state rather
+            // than the stale closure it would otherwise have captured.
+            onBlur={() => setTimeout(focusInput, 0)}
+            autoFocus
+            placeholder="Scan or type a tracking number, then press Enter"
+            // min-w-0 overrides a flex item's default min-width:auto — without
+            // it, this input refuses to shrink below its content's intrinsic
+            // width and pushes the row past a phone's viewport (measured
+            // 422px content in a 375px viewport before this).
+            className="data flex-1 min-w-0 text-2xl px-4 py-4 bg-paper-panel focus:bg-white outline-none placeholder:text-ink-faint placeholder:text-base placeholder:font-condensed"
+          />
+          <button
+            type="button"
+            onClick={() => submitScan(value)}
+            disabled={!value.trim()}
+            className="btn px-6 bg-ink text-paper text-lg disabled:opacity-30"
+          >
+            Add
+          </button>
+        </div>
+        {isPending && <span className="text-sm text-ink-faint data">PROCESSING…</span>}
+      </div>
+
       <div className="flex items-baseline justify-between route-line pb-2">
         <span className="tag-label">Session {dashboard ? dashboard.session.id.slice(0, 8) : "—"}</span>
         <div className="flex items-baseline gap-4">
@@ -490,23 +531,7 @@ export default function ScanClient({
         </div>
       </div>
 
-      {/* Row 1 — per-carrier totals (§8.6), styled as instrument readouts.
-          2 columns on a phone — 4-across at that width squeezes text-4xl
-          numbers into ~70px cells. */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-line">
-        {(["epg", "ups", "dhl"] as const).map((c) => (
-          <div key={c} className={`corners p-4 text-center ${CARRIER_TINT[c]}`}>
-            <div className={`tag-label ${CARRIER_ACCENT[c]}`}>{CARRIER_SHORT_LABEL[c]}</div>
-            <div className="data text-4xl font-semibold mt-1">{dashboard?.totals[c] ?? 0}</div>
-          </div>
-        ))}
-        <div className="corners bg-ink text-paper p-4 text-center">
-          <div className="tag-label !text-orange">Session Total</div>
-          <div className="data text-4xl font-semibold mt-1">{dashboard?.totals.total ?? 0}</div>
-        </div>
-      </div>
-
-      {/* Row 2 — EPG box chips (§8.6) */}
+      {/* EPG box chips (§8.6) */}
       <div className="flex flex-wrap items-center gap-2">
         {dashboard &&
           dashboard.boxes.map((b) => (
@@ -552,45 +577,6 @@ export default function ScanClient({
             ⚠ Box counts ({boxCountSum}) ≠ EPG total ({dashboard.totals.epg})
           </span>
         )}
-      </div>
-
-      {/* Scan input. A hardware scanner types into this like a keyboard and
-          ends with Enter (§8.3) — the button is a manual-entry fallback for
-          testing and for typing a number in by hand. */}
-      <div className="flex flex-col gap-2">
-        <span className="tag-label">Scan input</span>
-        <div className="corners flex gap-px bg-line">
-          <input
-            ref={inputRef}
-            value={value}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            // Deferred to the next macrotask so the click that caused the blur
-            // can land first: refocusing synchronously during blur cancels the
-            // pending click outright on touch devices, which read as "tapping
-            // an order just scrolls back to the input" instead of opening the
-            // panel. focusInput itself reads overlay state from a ref, so by
-            // the time this runs it sees the click's committed state rather
-            // than the stale closure it would otherwise have captured.
-            onBlur={() => setTimeout(focusInput, 0)}
-            autoFocus
-            placeholder="Scan or type a tracking number, then press Enter"
-            // min-w-0 overrides a flex item's default min-width:auto — without
-            // it, this input refuses to shrink below its content's intrinsic
-            // width and pushes the row past a phone's viewport (measured
-            // 422px content in a 375px viewport before this).
-            className="data flex-1 min-w-0 text-2xl px-4 py-4 bg-paper-panel focus:bg-white outline-none placeholder:text-ink-faint placeholder:text-base placeholder:font-condensed"
-          />
-          <button
-            type="button"
-            onClick={() => submitScan(value)}
-            disabled={!value.trim()}
-            className="btn px-6 bg-ink text-paper text-lg disabled:opacity-30"
-          >
-            Add
-          </button>
-        </div>
-        {isPending && <span className="text-sm text-ink-faint data">PROCESSING…</span>}
       </div>
 
       {/* Banners */}
@@ -671,7 +657,23 @@ export default function ScanClient({
         </ul>
       </div>
 
-      <div className="sticky bottom-0 bg-paper pt-2 pb-4 route-line">
+      {/* Static footer — per-carrier totals + Total, always one row of 4
+          (no responsive column collapse; kept compact instead), docked above
+          the Submit button so both stay visible while the manifest list
+          above scrolls. */}
+      <div className="sticky bottom-0 bg-paper pt-2 pb-4 route-line flex flex-col gap-2">
+        <div className="grid grid-cols-4 gap-px bg-line">
+          {(["epg", "ups", "dhl"] as const).map((c) => (
+            <div key={c} className={`corners p-2 text-center ${CARRIER_TINT[c]}`}>
+              <div className={`tag-label !text-[0.6rem] ${CARRIER_ACCENT[c]}`}>{CARRIER_SHORT_LABEL[c]}</div>
+              <div className="data text-xl font-semibold">{dashboard?.totals[c] ?? 0}</div>
+            </div>
+          ))}
+          <div className="corners bg-ink text-paper p-2 text-center">
+            <div className="tag-label !text-[0.6rem] !text-orange">Total</div>
+            <div className="data text-xl font-semibold">{dashboard?.totals.total ?? 0}</div>
+          </div>
+        </div>
         <button
           type="button"
           onClick={() => setShowSubmit(true)}
