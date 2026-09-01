@@ -28,12 +28,16 @@ export default function DeleteShipmentButton({ sessionId, shipDate }: { sessionI
         className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-red text-red-ink hover:bg-red-dim disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
       >
         <TrashIcon className="w-5 h-5 md:hidden" />
-        <span className="md:hidden">Delete</span>
         <span className="hidden md:inline">{deleted ? "Deleted" : "Delete"}</span>
       </button>
 
+      {/* absolute here floats this above the mobile tab bar (its fixed
+          parent's box) instead of squeezing in as a fourth tab; md:static
+          reverts to a plain inline message under the button on desktop. */}
       {error && (
-        <p className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm">{error}</p>
+        <p className="absolute bottom-full left-0 right-0 mb-2 md:static md:mb-0 border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm">
+          {error}
+        </p>
       )}
 
       {showConfirm && (

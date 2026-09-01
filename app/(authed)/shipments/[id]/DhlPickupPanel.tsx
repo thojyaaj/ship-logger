@@ -104,7 +104,6 @@ export default function DhlPickupPanel({
           className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-red text-red-ink hover:bg-red-dim disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
         >
           <XCircleIcon className="w-5 h-5 md:hidden" />
-          <span className="md:hidden">Cancel</span>
           <span className="hidden md:inline">Cancel Pickup · {request.dispatchConfirmationNumber}</span>
         </button>
       ) : schedulingEnabled ? (
@@ -115,7 +114,6 @@ export default function DhlPickupPanel({
           className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 bg-orange text-paper disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
         >
           <TruckIcon className="w-5 h-5 md:hidden" />
-          <span className="md:hidden">Pickup</span>
           <span className="hidden md:inline">{isPending ? "Checking…" : "Schedule DHL Pickup"}</span>
         </button>
       ) : (
@@ -124,22 +122,29 @@ export default function DhlPickupPanel({
         </p>
       )}
 
+      {/* absolute here floats these above the mobile tab bar (its fixed
+          parent's box) instead of squeezing in as extra tabs; md:static
+          reverts to plain inline messages under the buttons on desktop. */}
       {!active && request?.status === "cancelled" && (
-        <p className="text-xs text-ink-faint font-condensed w-full text-center">
+        <p className="absolute bottom-full left-0 right-0 mb-2 md:static md:mb-0 text-xs text-ink-faint font-condensed w-full text-center bg-paper-panel md:bg-transparent px-3 py-2 md:px-0 md:py-0">
           Previous pickup {request.dispatchConfirmationNumber} was cancelled
           {request.cancelledAt ? ` ${formatDbTimestamp(request.cancelledAt)}` : ""}.
         </p>
       )}
       {!active && request?.status === "failed" && request.errorMessage && (
-        <p className="text-xs text-red-ink font-condensed w-full text-center">
+        <p className="absolute bottom-full left-0 right-0 mb-2 md:static md:mb-0 text-xs text-red-ink font-condensed w-full text-center bg-red-dim px-3 py-2">
           Last attempt failed: {request.errorMessage}
         </p>
       )}
       {previewError && (
-        <p className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm w-full">{previewError}</p>
+        <p className="absolute bottom-full left-0 right-0 mb-2 md:static md:mb-0 border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm w-full">
+          {previewError}
+        </p>
       )}
       {error && (
-        <p className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm w-full">{error}</p>
+        <p className="absolute bottom-full left-0 right-0 mb-2 md:static md:mb-0 border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm w-full">
+          {error}
+        </p>
       )}
 
       {showConfirm && preview && (
