@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransitio
 import type { SessionDashboard } from "@/lib/shiplog";
 import type { SessionUser } from "@/lib/auth";
 import { carrierLabel, type Carrier } from "@/lib/carrier";
-import { parseDbTimestamp } from "@/lib/date";
+import { parseDbTimestamp, localCalendarDate } from "@/lib/date";
 import {
   scanAction,
   undoScanAction,
@@ -46,6 +46,20 @@ const CARRIER_ACCENT: Record<Carrier, string> = {
   ups: "text-blue",
   dhl: "text-amber",
   unknown: "text-ink-faint",
+};
+
+// carrierLabel()'s full "ePost Global" is right for the manual
+// carrier-assignment banner and CSV export, where an operator needs to read
+// an unambiguous name. At instrument-tile/badge width it's more than twice
+// UPS/DHL's length, which threw off the totals grid on a phone (that one
+// tile's label nearly touched its edges while its neighbors had room to
+// spare) and shifted the manifest's tracking-number column per row. Fixed
+// three-letter codes here match the Shipments Log's EPG/UPS/DHL convention.
+const CARRIER_SHORT_LABEL: Record<Carrier, string> = {
+  epg: "EPG",
+  ups: "UPS",
+  dhl: "DHL",
+  unknown: "Unknown",
 };
 
 type ToneKind =
@@ -135,7 +149,7 @@ export default function ScanClient({
   initialDashboard,
   currentUser,
 }: {
-  initialDashboard: SessionDashboard;
+  initialDashboard: SessionDashboard | null;
   currentUser: SessionUser;
 }) {
   const [dashboard, setDashboard] = useState(initialDashboard);
@@ -212,7 +226,9 @@ export default function ScanClient({
       const isNewest = beginRequest();
       startTransition(async () => {
         try {
-          const result = await withTransportRetry(() => scanAction(dashboard.session.id, trimmed, opts));
+          const result = await withTransportRetry(() =>
+            scanAction(dashboard?.session.id ?? null, trimmed, opts),
+          );
           switch (result.status) {
             case "ok": {
               // The tone and the accepted-scan flash always fire — this scan
@@ -289,7 +305,7 @@ export default function ScanClient({
         focusInput();
       });
     },
-    [dashboard.session.id, focusInput, beginRequest],
+    [dashboard?.session.id, focusInput, beginRequest],
   );
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -320,19 +336,23 @@ export default function ScanClient({
   }
 
   function undo(scanId: string) {
+    if (!dashboard) return;
     const sessionId = dashboard.session.id;
     const previous = dashboard;
     const isNewest = beginRequest();
     const target = previous.scans.find((s) => s.id === scanId);
     if (!target) return;
-    setDashboard((d) => ({
-      ...d,
-      scans: d.scans.filter((s) => s.id !== scanId),
-      totals: { ...d.totals, [target.carrier]: d.totals[target.carrier] - 1, total: d.totals.total - 1 },
-      boxes: target.boxId
-        ? d.boxes.map((b) => (b.id === target.boxId ? { ...b, scanCount: b.scanCount - 1 } : b))
-        : d.boxes,
-    }));
+    setDashboard((d) => {
+      if (!d) return d;
+      return {
+        ...d,
+        scans: d.scans.filter((s) => s.id !== scanId),
+        totals: { ...d.totals, [target.carrier]: d.totals[target.carrier] - 1, total: d.totals.total - 1 },
+        boxes: target.boxId
+          ? d.boxes.map((b) => (b.id === target.boxId ? { ...b, scanCount: b.scanCount - 1 } : b))
+          : d.boxes,
+      };
+    });
     startTransition(async () => {
       try {
         const updated = await withTransportRetry(() => undoScanAction(sessionId, scanId));
@@ -350,6 +370,7 @@ export default function ScanClient({
   }
 
   function newBox() {
+    if (!dashboard) return;
     const isNewest = beginRequest();
     startTransition(async () => {
       try {
@@ -367,10 +388,11 @@ export default function ScanClient({
   }
 
   function activateBox(boxId: string) {
+    if (!dashboard) return;
     const sessionId = dashboard.session.id;
     const previous = dashboard;
     const isNewest = beginRequest();
-    setDashboard((d) => ({ ...d, session: { ...d.session, activeBoxId: boxId } }));
+    setDashboard((d) => (d ? { ...d, session: { ...d.session, activeBoxId: boxId } } : d));
     startTransition(async () => {
       try {
         const updated = await withTransportRetry(() => setActiveBoxAction(sessionId, boxId));
@@ -385,14 +407,19 @@ export default function ScanClient({
   }
 
   function removeBox(boxId: string) {
+    if (!dashboard) return;
     const sessionId = dashboard.session.id;
     const previous = dashboard;
     const isNewest = beginRequest();
-    setDashboard((d) => ({
-      ...d,
-      boxes: d.boxes.filter((b) => b.id !== boxId),
-      session: d.session.activeBoxId === boxId ? { ...d.session, activeBoxId: null } : d.session,
-    }));
+    setDashboard((d) =>
+      d
+        ? {
+            ...d,
+            boxes: d.boxes.filter((b) => b.id !== boxId),
+            session: d.session.activeBoxId === boxId ? { ...d.session, activeBoxId: null } : d.session,
+          }
+        : d,
+    );
     startTransition(async () => {
       try {
         const updated = await withTransportRetry(() => removeEmptyBoxAction(sessionId, boxId));
@@ -407,6 +434,7 @@ export default function ScanClient({
   }
 
   function confirmResetDay() {
+    if (!dashboard) return;
     setShowResetConfirm(false);
     const isNewest = beginRequest();
     startTransition(async () => {
@@ -426,23 +454,25 @@ export default function ScanClient({
     });
   }
 
-  const boxCountSum = dashboard.boxes.reduce((a, b) => a + b.scanCount, 0);
-  const boxSumMismatch = dashboard.boxes.length > 0 && boxCountSum !== dashboard.totals.epg;
+  const boxCountSum = (dashboard?.boxes ?? []).reduce((a, b) => a + b.scanCount, 0);
+  const boxSumMismatch = !!dashboard && dashboard.boxes.length > 0 && boxCountSum !== dashboard.totals.epg;
 
   return (
     <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
       <div className="flex items-baseline justify-between route-line pb-2">
-        <span className="tag-label">Session {dashboard.session.id.slice(0, 8)}</span>
+        <span className="tag-label">Session {dashboard ? dashboard.session.id.slice(0, 8) : "—"}</span>
         <div className="flex items-baseline gap-4">
-          <span className="tag-label">{dashboard.session.shipDate}</span>
-          <button
-            type="button"
-            onClick={() => setShowResetConfirm(true)}
-            className="tag-label !text-red hover:!text-red-ink"
-            title="Discard all of today's scans and start over"
-          >
-            Reset Day
-          </button>
+          <span className="tag-label">{dashboard?.session.shipDate ?? localCalendarDate()}</span>
+          {dashboard && (
+            <button
+              type="button"
+              onClick={() => setShowResetConfirm(true)}
+              className="tag-label !text-red hover:!text-red-ink"
+              title="Discard all of today's scans and start over"
+            >
+              Reset Day
+            </button>
+          )}
         </div>
       </div>
 
@@ -452,51 +482,54 @@ export default function ScanClient({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-line">
         {(["epg", "ups", "dhl"] as const).map((c) => (
           <div key={c} className="corners bg-paper-panel p-4 text-center">
-            <div className={`tag-label ${CARRIER_ACCENT[c]}`}>{carrierLabel(c)}</div>
-            <div className="data text-4xl font-semibold mt-1">{dashboard.totals[c]}</div>
+            <div className={`tag-label ${CARRIER_ACCENT[c]}`}>{CARRIER_SHORT_LABEL[c]}</div>
+            <div className="data text-4xl font-semibold mt-1">{dashboard?.totals[c] ?? 0}</div>
           </div>
         ))}
         <div className="corners bg-ink text-paper p-4 text-center">
           <div className="tag-label !text-orange">Session Total</div>
-          <div className="data text-4xl font-semibold mt-1">{dashboard.totals.total}</div>
+          <div className="data text-4xl font-semibold mt-1">{dashboard?.totals.total ?? 0}</div>
         </div>
       </div>
 
       {/* Row 2 — EPG box chips (§8.6) */}
       <div className="flex flex-wrap items-center gap-2">
-        {dashboard.boxes.map((b) => (
-          <div key={b.id} className="flex items-stretch">
-            <button
-              type="button"
-              onClick={() => activateBox(b.id)}
-              className={`data px-4 py-2 font-semibold text-base border ${
-                dashboard.session.activeBoxId === b.id
-                  ? "border-orange bg-orange text-paper"
-                  : "border-line-strong bg-paper-panel text-ink hover:border-ink"
-              }`}
-            >
-              BOX {String(b.boxNumber).padStart(2, "0")} <span className="opacity-60">·</span> {b.scanCount}
-            </button>
-            {b.scanCount === 0 && (
+        {dashboard &&
+          dashboard.boxes.map((b) => (
+            <div key={b.id} className="flex items-stretch">
               <button
                 type="button"
-                onClick={() => removeBox(b.id)}
-                title="Remove empty box"
-                className={`px-2 border border-l-0 text-sm ${
+                onClick={() => activateBox(b.id)}
+                className={`data px-4 py-2 font-semibold text-base border ${
                   dashboard.session.activeBoxId === b.id
                     ? "border-orange bg-orange text-paper"
-                    : "border-line-strong bg-paper-panel text-ink-soft"
+                    : "border-line-strong bg-paper-panel text-ink hover:border-ink"
                 }`}
               >
-                ✕
+                BOX {String(b.boxNumber).padStart(2, "0")} <span className="opacity-60">·</span> {b.scanCount}
               </button>
-            )}
-          </div>
-        ))}
+              {b.scanCount === 0 && (
+                <button
+                  type="button"
+                  onClick={() => removeBox(b.id)}
+                  title="Remove empty box"
+                  className={`px-2 border border-l-0 text-sm ${
+                    dashboard.session.activeBoxId === b.id
+                      ? "border-orange bg-orange text-paper"
+                      : "border-line-strong bg-paper-panel text-ink-soft"
+                  }`}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          ))}
         <button
           type="button"
           onClick={newBox}
-          className="data px-4 py-2 font-semibold text-base border border-dashed border-line-strong text-ink-soft hover:border-ink hover:text-ink"
+          disabled={!dashboard}
+          title={dashboard ? undefined : "Scan a parcel first to start today's shipment"}
+          className="data px-4 py-2 font-semibold text-base border border-dashed border-line-strong text-ink-soft hover:border-ink hover:text-ink disabled:opacity-30 disabled:hover:border-line-strong disabled:hover:text-ink-soft"
         >
           + New Box
         </button>
@@ -569,51 +602,54 @@ export default function ScanClient({
 
       {/* Scan list */}
       <div className="flex-1 flex flex-col gap-1 min-h-0">
-        <h2 className="tag-label">Manifest — {dashboard.scans.length} scanned</h2>
+        <h2 className="tag-label">Manifest — {dashboard?.scans.length ?? 0} scanned</h2>
         <ul className="flex flex-col border-t border-line">
-          {dashboard.scans.map((s) => (
-            <li
-              key={s.id}
-              className={`flex items-center gap-3 px-3 py-2.5 border-b border-line transition-colors ${
-                flashScanId === s.id ? "bg-green-dim" : "bg-paper-panel"
-              }`}
-            >
-              <span className={`tag-label !text-[0.6rem] px-1.5 py-1 ${CARRIER_COLOR[s.carrier]}`}>
-                {carrierLabel(s.carrier)}
-              </span>
-              <button
-                type="button"
-                onClick={() => s.orderGid && setOpenOrderGid(s.orderGid)}
-                disabled={!s.orderGid}
-                className="flex-1 flex flex-col items-start text-left min-w-0"
+          {dashboard &&
+            dashboard.scans.map((s) => (
+              <li
+                key={s.id}
+                className={`flex items-center gap-3 px-3 py-2.5 border-b border-line transition-colors ${
+                  flashScanId === s.id ? "bg-green-dim" : "bg-paper-panel"
+                }`}
               >
-                <span className="data text-sm">{s.trackingNumber}</span>
-                {s.orderName ? (
-                  <span className="text-xs text-blue hover:underline">{s.orderName}</span>
-                ) : s.carrier === "ups" || s.carrier === "dhl" ? (
-                  <span className="text-xs text-ink-faint">no order match yet</span>
-                ) : null}
-              </button>
-              {s.boxNumber && (
-                <span className="tag-label">BOX {String(s.boxNumber).padStart(2, "0")}</span>
-              )}
-              {/* Who/when is useful context but not essential to a packer's
-                  next tap — dropped on narrow screens so the tracking number
-                  and Undo button (the two things actually needed mid-pack)
-                  keep real room instead of getting squeezed. */}
-              <span className="hidden sm:inline tag-label !normal-case !tracking-normal !text-ink-soft">
-                {dashboard.userNames[s.scannedBy] ?? "?"} · {timeAgo(s.scannedAt)}
-              </span>
-              <button
-                type="button"
-                onClick={() => undo(s.id)}
-                className="tag-label !text-red hover:!text-red-ink"
-              >
-                Undo
-              </button>
-            </li>
-          ))}
-          {dashboard.scans.length === 0 && (
+                <span
+                  className={`tag-label !text-[0.6rem] px-1.5 py-1 w-12 shrink-0 text-center ${CARRIER_COLOR[s.carrier]}`}
+                >
+                  {CARRIER_SHORT_LABEL[s.carrier]}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => s.orderGid && setOpenOrderGid(s.orderGid)}
+                  disabled={!s.orderGid}
+                  className="flex-1 flex flex-col items-start text-left min-w-0"
+                >
+                  <span className="data text-sm">{s.trackingNumber}</span>
+                  {s.orderName ? (
+                    <span className="text-xs text-blue hover:underline">{s.orderName}</span>
+                  ) : s.carrier === "ups" || s.carrier === "dhl" ? (
+                    <span className="text-xs text-ink-faint">no order match yet</span>
+                  ) : null}
+                </button>
+                {s.boxNumber && (
+                  <span className="tag-label">BOX {String(s.boxNumber).padStart(2, "0")}</span>
+                )}
+                {/* Who/when is useful context but not essential to a packer's
+                    next tap — dropped on narrow screens so the tracking number
+                    and Undo button (the two things actually needed mid-pack)
+                    keep real room instead of getting squeezed. */}
+                <span className="hidden sm:inline tag-label !normal-case !tracking-normal !text-ink-soft">
+                  {dashboard.userNames[s.scannedBy] ?? "?"} · {timeAgo(s.scannedAt)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => undo(s.id)}
+                  className="tag-label !text-red hover:!text-red-ink"
+                >
+                  Undo
+                </button>
+              </li>
+            ))}
+          {(!dashboard || dashboard.scans.length === 0) && (
             <li className="text-ink-faint text-sm py-8 text-center border-b border-line data">
               NO SCANS YET
             </li>
@@ -625,14 +661,14 @@ export default function ScanClient({
         <button
           type="button"
           onClick={() => setShowSubmit(true)}
-          disabled={dashboard.totals.total === 0}
+          disabled={!dashboard || dashboard.totals.total === 0}
           className="btn w-full py-4 bg-orange text-paper text-xl disabled:opacity-30"
         >
           Submit Shipment →
         </button>
       </div>
 
-      {showSubmit && (
+      {showSubmit && dashboard && (
         <SubmitDialog
           dashboard={dashboard}
           onClose={() => setShowSubmit(false)}
@@ -644,7 +680,7 @@ export default function ScanClient({
 
       {openOrderGid && <OrderPanel orderGid={openOrderGid} onClose={() => setOpenOrderGid(null)} />}
 
-      {showResetConfirm && (
+      {showResetConfirm && dashboard && (
         <ConfirmDialog
           title="Reset today's session?"
           message={

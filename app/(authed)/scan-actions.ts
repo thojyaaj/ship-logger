@@ -32,7 +32,7 @@ function validForceCarrier(value: unknown): Carrier | undefined {
 }
 
 export async function scanAction(
-  sessionId: string,
+  sessionId: string | null,
   rawTrackingNumber: string,
   opts?: { forceCarrier?: Carrier; overrideChecksum?: boolean; forcePastDuplicate?: boolean },
 ): Promise<RecordScanResult> {
@@ -89,9 +89,9 @@ export async function reopenSessionAction(sessionId: string): Promise<void> {
   await reopenSession(sessionId, user.name);
 }
 
-export async function resetSessionAction(sessionId: string): Promise<SessionDashboard> {
+export async function resetSessionAction(sessionId: string): Promise<SessionDashboard | null> {
   const user = await requireUser();
-  return resetSession(sessionId, user.id, user.name);
+  return resetSession(sessionId, user.name);
 }
 
 export async function deleteShipmentAction(sessionId: string): Promise<void> {

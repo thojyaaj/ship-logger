@@ -28,7 +28,14 @@ export default function ScanTable({
 
   return (
     <div className="overflow-x-auto border border-line">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm table-fixed">
+        <colgroup>
+          <col className="w-[20%]" />
+          <col className="w-[14%]" />
+          <col className="w-[28%]" />
+          <col className="w-[13%]" />
+          <col className="w-[25%]" />
+        </colgroup>
         <thead className="bg-paper-dim text-ink-faint">
           <tr>
             <th className="text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
@@ -43,7 +50,7 @@ export default function ScanTable({
             const url = trackingUrl(r.carrier as "epg" | "ups" | "dhl", r.trackingNumber);
             return (
               <tr key={r.id} className="border-t border-line bg-paper-panel">
-                <td className="px-3 py-2 data">
+                <td className="px-3 py-2 data truncate">
                   {url ? (
                     <a href={url} target="_blank" rel="noreferrer" className="text-blue hover:underline">
                       {r.trackingNumber}
@@ -52,7 +59,7 @@ export default function ScanTable({
                     r.trackingNumber
                   )}
                 </td>
-                <td className="px-3 py-2 data">
+                <td className="px-3 py-2 data truncate">
                   {r.orderGid ? (
                     <button
                       type="button"
@@ -66,8 +73,8 @@ export default function ScanTable({
                   )}
                 </td>
                 <td className="px-3 py-2 text-ink-faint data">{r.statusLabel ?? "—"}</td>
-                <td className="px-3 py-2 font-condensed">{userNames[r.scannedBy] ?? "?"}</td>
-                <td className="px-3 py-2 text-ink-faint data">{formatDbTimestamp(r.scannedAt)}</td>
+                <td className="px-3 py-2 font-condensed truncate">{userNames[r.scannedBy] ?? "?"}</td>
+                <td className="px-3 py-2 text-ink-faint data truncate">{formatDbTimestamp(r.scannedAt)}</td>
               </tr>
             );
           })}

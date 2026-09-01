@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import type { SessionDashboard } from "@/lib/shiplog";
+import { localCalendarDate } from "@/lib/date";
 import { submitSessionAction } from "./scan-actions";
 import { useDismissable } from "./useDismissable";
 import { actionErrorMessage } from "@/lib/error-message";
@@ -19,7 +20,10 @@ export default function SubmitDialog({
   const hasEpg = dashboard.totals.epg > 0;
   const [awbNumber, setAwbNumber] = useState(dashboard.session.awbNumber ?? "");
   const [masterUpsTracking, setMasterUpsTracking] = useState(dashboard.session.masterUpsTracking ?? "");
-  const [shipDate, setShipDate] = useState(dashboard.session.shipDate);
+  // Defaults to today (the day this shipment is actually being submitted),
+  // not `dashboard.session.shipDate` — that's the day the session was
+  // opened, which can be an earlier calendar day than the day it ships.
+  const [shipDate, setShipDate] = useState(localCalendarDate());
   const [notes, setNotes] = useState(dashboard.session.notes ?? "");
   const [showBoxTracking, setShowBoxTracking] = useState(false);
   const [boxUpsTracking, setBoxUpsTracking] = useState<Record<string, string>>(

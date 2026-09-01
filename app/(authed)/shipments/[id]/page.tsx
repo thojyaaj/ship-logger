@@ -76,11 +76,27 @@ export default async function ShipmentDetailPage({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-line text-sm">
-        <Field label="EPG" value={String(totals.epg)} accent="text-orange" />
-        <Field label="UPS" value={String(totals.ups)} accent="text-blue" />
-        <Field label="DHL" value={String(totals.dhl)} accent="text-amber" />
-        <Field label="Total" value={String(totals.total)} />
+      {/* Courier tally, always 1x4 (mobile and desktop alike) — three
+          color-coded carrier counts plus a Total box styled to stand out
+          (dark fill, same treatment as the scan page's Session Total tile)
+          rather than blending in as a fourth plain Field. */}
+      <div className="grid grid-cols-4 gap-px bg-line text-sm">
+        <Field label="EPG" value={String(totals.epg)} accent="text-orange" tint="bg-orange-dim" />
+        <Field label="UPS" value={String(totals.ups)} accent="text-blue" tint="bg-blue-dim" />
+        <Field label="DHL" value={String(totals.dhl)} accent="text-amber" tint="bg-amber-dim" />
+        <div className="bg-ink text-paper p-3">
+          <div className="tag-label !text-orange">Total</div>
+          <div className="data font-semibold text-lg mt-0.5">{totals.total}</div>
+        </div>
+      </div>
+
+      {/* Shipment metadata — its own grid (the parent's gap-6 supplies the
+          space above), 3-up on mobile wrapping to a second row, 5-up on
+          desktop so a fully populated EPG shipment's AWB/Master UPS
+          tracking/status/Opened/Submitted all land in a single row instead
+          of leaving Submitted stranded alone with an empty filled cell
+          beside it. */}
+      <div className="grid grid-cols-3 md:grid-cols-5 gap-px bg-line text-sm">
         {session.awbNumber && <Field label="AWB" value={session.awbNumber} mono />}
         {session.masterUpsTracking && (
           <Field
@@ -147,16 +163,18 @@ function Field({
   value,
   mono,
   accent,
+  tint,
   href,
 }: {
   label: string;
   value: string;
   mono?: boolean;
   accent?: string;
+  tint?: string;
   href?: string;
 }) {
   return (
-    <div className="bg-paper-panel p-3">
+    <div className={`p-3 ${tint ?? "bg-paper-panel"}`}>
       <div className={`tag-label ${accent ?? ""}`}>{label}</div>
       {href ? (
         <a

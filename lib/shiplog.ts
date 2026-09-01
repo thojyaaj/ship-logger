@@ -130,26 +130,35 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
- * Two packers loading the scan page at the same moment (or a Reset Day
- * racing a second tab's load) could both see zero open sessions and both
- * try to create one. The partial unique index on `status = 'open'`
- * (migration 0003) makes the database reject the loser's INSERT instead of
- * silently creating two open sessions — that loser then just re-reads and
- * returns whichever session actually won, same as if it had seen it up
- * front.
+ * Reads the single shared open session, if one exists — never creates one.
+ * A shipment-day row isn't created until the first scan actually commits
+ * (see `recordScan`/`createOpenSessionRow`), so a packer who opens the scan
+ * page without scanning anything never leaves an OPEN row on the Shipments
+ * Log.
  */
-export async function getOrCreateOpenSession(userId: string): Promise<SessionDashboard> {
+export async function getOpenSession(): Promise<SessionDashboard | null> {
   const openRows = await db
     .select()
     .from(shipmentSession)
     .where(eq(shipmentSession.status, "open"))
     .orderBy(desc(shipmentSession.openedAt))
     .limit(1);
+  if (!openRows[0]) return null;
+  return loadDashboard(openRows[0].id);
+}
 
-  if (openRows[0]) {
-    return loadDashboard(openRows[0].id);
-  }
-
+/**
+ * Creates the shared open session row. Only called from `recordScan`, right
+ * before the first scan of the day actually commits.
+ *
+ * Two packers scanning the day's first parcel at the same moment could both
+ * see zero open sessions and both try to create one. The partial unique
+ * index on `status = 'open'` (migration 0003) makes the database reject the
+ * loser's INSERT instead of silently creating two open sessions — that
+ * loser then just re-reads and adopts whichever session actually won, same
+ * as if it had seen it up front.
+ */
+async function createOpenSessionRow(userId: string): Promise<typeof shipmentSession.$inferSelect> {
   const id = newId();
   try {
     await db.insert(shipmentSession).values({
@@ -166,9 +175,11 @@ export async function getOrCreateOpenSession(userId: string): Promise<SessionDas
       .orderBy(desc(shipmentSession.openedAt))
       .limit(1);
     if (!winner[0]) throw err; // shouldn't happen, but don't swallow a real error
-    return loadDashboard(winner[0].id);
+    return winner[0];
   }
-  return loadDashboard(id);
+  const created = (await db.select().from(shipmentSession).where(eq(shipmentSession.id, id)))[0];
+  if (!created) throw new Error("Failed to load newly created session.");
+  return created;
 }
 
 export async function createBox(sessionId: string): Promise<SessionDashboard> {
@@ -193,7 +204,8 @@ export async function setActiveBox(sessionId: string, boxId: string): Promise<Se
 }
 
 export type RecordScanInput = {
-  sessionId: string;
+  /** null before the day's first scan — the open session doesn't exist yet. */
+  sessionId: string | null;
   userId: string;
   rawTrackingNumber: string;
   forceCarrier?: Carrier;
@@ -264,6 +276,27 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
     .limit(1);
   const existing = existingRows[0];
 
+  let resolvedSession: typeof shipmentSession.$inferSelect | null = null;
+  // A scan committing is the only thing that creates today's shipment-day
+  // row (see `createOpenSessionRow`) — so this resolves the existing open
+  // session if one was passed in, or creates it right here, the moment a
+  // scan is actually about to be recorded. Memoized because both the
+  // admin-override branch below and the normal path after it need the same
+  // resolved session.
+  async function resolveSession(): Promise<typeof shipmentSession.$inferSelect> {
+    if (resolvedSession) return resolvedSession;
+    if (input.sessionId) {
+      const found = (
+        await db.select().from(shipmentSession).where(eq(shipmentSession.id, input.sessionId))
+      )[0];
+      if (!found || found.status !== "open") throw new Error("Session is not open.");
+      resolvedSession = found;
+    } else {
+      resolvedSession = await createOpenSessionRow(input.userId);
+    }
+    return resolvedSession;
+  }
+
   if (existing) {
     if (existing.sessionId === input.sessionId) {
       const existingBox = existing.boxId
@@ -307,14 +340,11 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
     // a few lines below, which meant overriding into a non-open session
     // destroyed the prior shipment's record and *then* threw — the parcel's
     // history was gone and nothing replaced it.
-    await assertSessionOpen(input.sessionId);
+    await resolveSession();
     await db.delete(scan).where(eq(scan.id, existing.id));
   }
 
-  const session = (
-    await db.select().from(shipmentSession).where(eq(shipmentSession.id, input.sessionId))
-  )[0];
-  if (!session || session.status !== "open") throw new Error("Session is not open.");
+  const session = await resolveSession();
 
   let boxId: string | null = null;
   let boxNumber: number | null = null;
@@ -323,16 +353,16 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
       ? (await db.select().from(box).where(eq(box.id, session.activeBoxId)))[0]
       : undefined;
     if (!activeBox) {
-      const existingBoxes = await db.select().from(box).where(eq(box.sessionId, input.sessionId));
+      const existingBoxes = await db.select().from(box).where(eq(box.sessionId, session.id));
       const nextNumber = existingBoxes.reduce((max, b) => Math.max(max, b.boxNumber), 0) + 1;
       const id = newId();
       try {
-        await db.insert(box).values({ id, sessionId: input.sessionId, boxNumber: nextNumber });
+        await db.insert(box).values({ id, sessionId: session.id, boxNumber: nextNumber });
         await db
           .update(shipmentSession)
           .set({ activeBoxId: id })
-          .where(eq(shipmentSession.id, input.sessionId));
-        activeBox = { id, sessionId: input.sessionId, boxNumber: nextNumber, upsTracking: null };
+          .where(eq(shipmentSession.id, session.id));
+        activeBox = { id, sessionId: session.id, boxNumber: nextNumber, upsTracking: null };
       } catch (err) {
         // Two packers scanning the day's first EPG parcel at the same instant
         // both read activeBoxId=null and both compute box 1; the unique index
@@ -345,7 +375,7 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
           await db
             .select()
             .from(box)
-            .where(and(eq(box.sessionId, input.sessionId), eq(box.boxNumber, nextNumber)))
+            .where(and(eq(box.sessionId, session.id), eq(box.boxNumber, nextNumber)))
         )[0];
         if (!winner) throw err;
         activeBox = winner;
@@ -369,7 +399,7 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
   const maxRow = await db
     .select({ max: sql<number | null>`max(${scan.sequence})` })
     .from(scan)
-    .where(eq(scan.sessionId, input.sessionId));
+    .where(eq(scan.sessionId, session.id));
   const sequence = Number(maxRow[0]?.max ?? 0) + 1;
 
   // §9c: a local, no-network lookup against the webhook-fed index (§9b) —
@@ -389,7 +419,7 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
 
   await db.insert(scan).values({
     id: newId(),
-    sessionId: input.sessionId,
+    sessionId: session.id,
     boxId,
     scannedBy: input.userId,
     trackingNumber,
@@ -399,7 +429,7 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
     orderName: orderMatch?.orderName,
   });
 
-  const dashboard = await loadDashboard(input.sessionId);
+  const dashboard = await loadDashboard(session.id);
   return { status: "ok", dashboard, carrier: finalCarrier, boxNumber };
 }
 
@@ -505,7 +535,12 @@ export async function submitSession(input: SubmitInput): Promise<SubmitResult> {
         status: "submitted",
         submittedAt: nowSqlTimestamp(),
         submittedBy: input.userId,
-        shipDate: requestedShipDate || dashboard.session.shipDate,
+        // A shipment's date of record is the day it was submitted, not the
+        // day the session happened to be opened — those can differ (a
+        // session opened late one day and submitted after midnight, for
+        // instance). `today()` here is "right now, at submit time," not the
+        // stale value the session was created with.
+        shipDate: requestedShipDate || today(),
         notes: input.notes,
         awbNumber: input.awbNumber.trim() || null,
         masterUpsTracking: input.masterUpsTracking.trim() || null,
@@ -554,20 +589,24 @@ export async function removeEmptyBox(sessionId: string, boxId: string): Promise<
 }
 
 /**
- * Wipes the current open session's scans and boxes and voids it, then opens
- * a fresh one — "start today over." Deleting (not just voiding) the scan
- * rows matters: `scan.tracking_number` is globally unique, so a voided
- * session that kept its rows would permanently block rescanning the same
- * parcels later today. The voided row itself is kept (with a stamp, same
- * pattern as reopenSession) purely as an audit trail that a reset happened;
+ * Wipes the current open session's scans and boxes and voids it —
+ * "start today over." Deleting (not just voiding) the scan rows matters:
+ * `scan.tracking_number` is globally unique, so a voided session that kept
+ * its rows would permanently block rescanning the same parcels later today.
+ * The voided row itself is kept (with a stamp, same pattern as
+ * reopenSession) purely as an audit trail that a reset happened;
  * `listShipments` already excludes voided sessions, so it never surfaces in
  * history.
+ *
+ * Does not open a replacement session — like any other day, the next OPEN
+ * row isn't created until the first scan after the reset actually commits
+ * (see `createOpenSessionRow`). Returns null for "no open session," same as
+ * `getOpenSession`.
  */
 export async function resetSession(
   sessionId: string,
-  resetByUserId: string,
   resetByUserName: string,
-): Promise<SessionDashboard> {
+): Promise<SessionDashboard | null> {
   await db.transaction(async (tx) => {
     const session = (
       await tx.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId))
@@ -599,7 +638,7 @@ export async function resetSession(
       .where(eq(shipmentSession.id, sessionId));
   });
 
-  return getOrCreateOpenSession(resetByUserId);
+  return null;
 }
 
 export async function reopenSession(sessionId: string, reopenedByName: string): Promise<void> {
