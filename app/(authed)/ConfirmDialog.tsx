@@ -17,7 +17,7 @@ export default function ConfirmDialog({
   onCancel,
 }: {
   title: string;
-  message: string;
+  message: React.ReactNode;
   confirmLabel?: string;
   danger?: boolean;
   onConfirm: () => void;
@@ -33,7 +33,7 @@ export default function ConfirmDialog({
         <div className="route-line pb-3">
           <h2 className="font-stencil text-xl tracking-wide">{title}</h2>
         </div>
-        <p className="text-sm font-condensed whitespace-pre-wrap">{message}</p>
+        <div className="text-sm font-condensed whitespace-pre-wrap">{message}</div>
         <div className="flex items-center gap-3 justify-end">
           <button type="button" onClick={onCancel} className="tag-label hover:!text-ink">
             Cancel

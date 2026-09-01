@@ -6,7 +6,7 @@ import { previewPickupAction, schedulePickupAction, cancelPickupAction } from ".
 import ConfirmDialog from "../../ConfirmDialog";
 import { formatDbTimestamp } from "@/lib/date";
 import { actionErrorMessage } from "@/lib/error-message";
-import { TruckIcon, CheckCircleIcon } from "./icons";
+import { TruckIcon, XCircleIcon } from "./icons";
 
 /**
  * Only rendered when the parent page has already confirmed this shipment is
@@ -100,12 +100,12 @@ export default function DhlPickupPanel({
           type="button"
           disabled={isPending}
           onClick={() => setShowCancelConfirm(true)}
-          title={`Confirmation ${request.dispatchConfirmationNumber} — ${request.parcelCount} parcel(s), ~${request.totalWeightLb} lb, requested ${formatDbTimestamp(request.requestedAt)}`}
-          className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-green text-green-ink hover:bg-red-dim hover:border-red hover:text-red-ink disabled:opacity-50 shrink-0"
+          title={`Confirmation ${request.dispatchConfirmationNumber} — ${request.parcelCount} parcel(s), ~${request.totalWeightLb} lb, requested ${formatDbTimestamp(request.requestedAt)}. Click to cancel.`}
+          className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-red text-red-ink hover:bg-red-dim disabled:opacity-50 shrink-0"
         >
-          <CheckCircleIcon className="w-5 h-5 md:hidden" />
-          <span className="md:hidden">Scheduled</span>
-          <span className="hidden md:inline">DHL Scheduled · {request.dispatchConfirmationNumber}</span>
+          <XCircleIcon className="w-5 h-5 md:hidden" />
+          <span className="md:hidden">Cancel</span>
+          <span className="hidden md:inline">Cancel Pickup · {request.dispatchConfirmationNumber}</span>
         </button>
       ) : schedulingEnabled ? (
         <button
@@ -145,7 +145,20 @@ export default function DhlPickupPanel({
       {showConfirm && preview && (
         <ConfirmDialog
           title="Schedule this DHL pickup?"
-          message={`This books a real pickup with DHL — a truck will be dispatched.\n\n${preview.parcelCount} parcel(s), ~${preview.totalWeightLb} lb (estimated, packages aren't individually weighed)\nReady: ${preview.plannedPickupDateAndTime}\nClose: ${preview.closeTime}\nAddress: ${preview.address}`}
+          message={
+            <>
+              This books a real pickup with DHL — a truck will be dispatched.
+              <span className="block text-base font-semibold text-ink mt-3">
+                {preview.pickupDateLabel}
+              </span>
+              <span className="block text-base font-semibold text-ink">
+                {preview.readyTimeLabel} – {preview.closeTimeLabel}
+              </span>
+              <span className="block text-ink-faint mt-2">
+                {preview.parcelCount} parcel(s), ~{preview.totalWeightLb} lb
+              </span>
+            </>
+          }
           confirmLabel="Schedule pickup"
           onCancel={() => setShowConfirm(false)}
           onConfirm={confirmSchedule}

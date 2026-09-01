@@ -260,12 +260,33 @@ function resolvePickupDate(
   return sameDay ? referenceDate : nextCalendarDate(referenceDate);
 }
 
+/** "17:00" -> "5:00 PM" — packers read a wall clock, not a 24-hour schedule. */
+function formatHHMMTo12Hour(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+/** "2026-08-31" -> "Monday, Aug 31" — pinned to UTC since `date` is already a
+ * plain calendar day (no instant/timezone conversion needed), same approach
+ * as nextCalendarDate. */
+function formatPickupDateLabel(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(Date.UTC(y, m - 1, d)));
+}
+
 export type PreviewPickup = {
   parcelCount: number;
   totalWeightLb: number;
-  plannedPickupDateAndTime: string;
-  closeTime: string;
-  address: string;
+  pickupDateLabel: string;
+  readyTimeLabel: string;
+  closeTimeLabel: string;
 };
 
 export type PreviewPickupResult = { status: "ok"; preview: PreviewPickup } | { status: "error"; message: string };
@@ -306,9 +327,9 @@ export async function previewPickupForSession(sessionId: string): Promise<Previe
     preview: {
       parcelCount,
       totalWeightLb,
-      plannedPickupDateAndTime: warehouseIsoWithOffset(pickupDate, settings.readyTime),
-      closeTime: settings.closeTime,
-      address: `${settings.addressLine1}${settings.addressLine2 ? ", " + settings.addressLine2 : ""}, ${settings.city}, ${settings.state} ${settings.postalCode}`,
+      pickupDateLabel: formatPickupDateLabel(pickupDate),
+      readyTimeLabel: formatHHMMTo12Hour(settings.readyTime),
+      closeTimeLabel: formatHHMMTo12Hour(settings.closeTime),
     },
   };
 }
