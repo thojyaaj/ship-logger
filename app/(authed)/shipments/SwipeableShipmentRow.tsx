@@ -52,6 +52,11 @@ export default function SwipeableShipmentRow({
   const [error, setError] = useState<string | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const touchState = useRef<TouchState | null>(null);
+  // Set the instant a touch sequence is decided as a horizontal drag —
+  // read (and cleared) by handleClick so the browser's synthetic click
+  // that can still follow a touch gesture never falls through to
+  // navigation, regardless of any state-update/render timing race.
+  const suppressNextClick = useRef(false);
 
   // One-time peek on load so a first-time visitor discovers the gesture
   // exists at all — nudges the first row left and back, revealing a sliver
@@ -69,8 +74,15 @@ export default function SwipeableShipmentRow({
   async function startDelete() {
     try {
       await deleteShipmentAction(s.id);
-      setTimeout(() => setRemoved(true), 220);
-      router.refresh();
+      // router.refresh() re-fetches the list from the server, which can
+      // reconcile this row out of existence well before the 220ms
+      // slide-away transition finishes — cutting the animation short and
+      // shifting the rows below it up abruptly mid-flight. Deferred until
+      // after the animation completes instead of firing immediately.
+      setTimeout(() => {
+        setRemoved(true);
+        router.refresh();
+      }, 220);
     } catch (err) {
       setDeleting(false);
       setDragX(0);
@@ -126,11 +138,19 @@ export default function SwipeableShipmentRow({
       setDragX(clamped);
     }
 
-    function onTouchEnd() {
+    function onTouchEnd(e: TouchEvent) {
       const ts = touchState.current;
       touchState.current = null;
       setIsDragging(false);
       if (!ts || !ts.horizontal) return;
+      // preventDefault on touchmove is supposed to already suppress the
+      // browser's compatibility click for this touch sequence, but that's
+      // inconsistent enough across browsers in practice that a drag could
+      // still end in a real click landing on this element — belt-and-
+      // braces it here too, plus the ref flag below that handleClick checks
+      // directly instead of trusting suppression alone.
+      e.preventDefault();
+      suppressNextClick.current = true;
       if (ts.dx <= -HARD_SWIPE_PX) {
         commitDelete();
       } else {
@@ -140,8 +160,8 @@ export default function SwipeableShipmentRow({
 
     el.addEventListener("touchstart", onTouchStart, { passive: true });
     el.addEventListener("touchmove", onTouchMove, { passive: false });
-    el.addEventListener("touchend", onTouchEnd);
-    el.addEventListener("touchcancel", onTouchEnd);
+    el.addEventListener("touchend", onTouchEnd, { passive: false });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: false });
     return () => {
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchmove", onTouchMove);
