@@ -49,7 +49,7 @@ export default async function ShipmentDetailPage({
   }
 
   return (
-    <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
+    <div className="flex-1 flex flex-col gap-6 p-4 pb-20 md:p-6 max-w-5xl mx-auto w-full">
       <div className="flex flex-col gap-3 route-line pb-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -76,12 +76,11 @@ export default async function ShipmentDetailPage({
           </div>
         </div>
 
-        {/* One row, always — flex-nowrap keeps Reopen / Delete / DHL Pickup
-            from wrapping onto a second line; overflow-x-auto is the fallback
-            on the very narrowest phones rather than letting them clip.
-            Export CSV is desktop-only (a mobile browser can't do much with a
-            downloaded CSV) — the remaining buttons collapse to icon +
-            one-word label below md. */}
+        {/* Desktop: one row, always — flex-nowrap keeps Reopen / Delete /
+            DHL Pickup from wrapping onto a second line; overflow-x-auto is
+            the fallback on the very narrowest phones rather than letting
+            them clip. Export CSV is desktop-only (a mobile browser can't do
+            much with a downloaded CSV). */}
         <div className="flex items-center justify-center gap-2 flex-nowrap overflow-x-auto w-full pb-1">
           <a
             href={`/shipments/${session.id}/export`}
@@ -89,17 +88,26 @@ export default async function ShipmentDetailPage({
           >
             Export CSV
           </a>
-          {/* Admin-only, matching reopenSessionAction's requireAdmin — showing
-              it to packers would just render a button that always errors. */}
-          {session.status === "submitted" && user.isAdmin && <ReopenButton sessionId={session.id} />}
-          {user.isAdmin && <DeleteShipmentButton sessionId={session.id} shipDate={session.shipDate} />}
-          {showDhlPickup && (
-            <DhlPickupPanel
-              sessionId={session.id}
-              initialRequest={pickupRequest}
-              schedulingEnabled={dhlSchedulingEnabled}
-            />
-          )}
+          {/* Mobile: a real fixed tab bar docked to the bottom of the
+              viewport instead of sitting inline up here — these are the
+              actions a packer reaches for repeatedly while scrolling a long
+              manifest, not something worth scrolling back up for.
+              md:contents dissolves this wrapper's own box at the desktop
+              breakpoint so the same three buttons just rejoin the row above
+              as plain flex items, unchanged from before. */}
+          <div className="fixed md:contents bottom-0 inset-x-0 z-20 flex items-stretch gap-px bg-ink border-t border-line-strong px-2 py-1.5">
+            {/* Admin-only, matching reopenSessionAction's requireAdmin — showing
+                it to packers would just render a button that always errors. */}
+            {session.status === "submitted" && user.isAdmin && <ReopenButton sessionId={session.id} />}
+            {user.isAdmin && <DeleteShipmentButton sessionId={session.id} shipDate={session.shipDate} />}
+            {showDhlPickup && (
+              <DhlPickupPanel
+                sessionId={session.id}
+                initialRequest={pickupRequest}
+                schedulingEnabled={dhlSchedulingEnabled}
+              />
+            )}
+          </div>
         </div>
       </div>
 
@@ -123,14 +131,20 @@ export default async function ShipmentDetailPage({
           lives as the second line of the status tag above, not its own box.
           2 cols on mobile, 3 on desktop (one line, full width) — Status
           before Tracking (DOM order) so on mobile AWB+Status share row 1
-          and Tracking falls to row 2 on its own, exactly as asked; on
-          desktop all three just sit in the single 3-col row regardless of
-          order. */}
+          and Tracking falls to row 2 on its own, full width there (long
+          tracking numbers need the room) rather than half; on desktop all
+          three just sit in the single 3-col row regardless of order.
+          Centered both ways: text-center for the horizontal axis, and each
+          cell is a centered flex column so a shorter cell's label+value
+          block sits at the same vertical mid-point as Status's taller one
+          (badge + "as of" line) instead of hugging the top. */}
       {(session.awbNumber || session.masterUpsTracking) && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-px bg-line text-sm">
-          {session.awbNumber && <Field label="AWB" value={session.awbNumber} mono />}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-px bg-line text-sm text-center">
+          {session.awbNumber && (
+            <Field label="AWB" value={session.awbNumber} mono className="flex flex-col justify-center" />
+          )}
           {session.masterUpsTracking && (
-            <div className="bg-paper-panel p-3 min-w-0">
+            <div className="bg-paper-panel p-3 min-w-0 flex flex-col justify-center">
               <div className="tag-label">Master UPS Status</div>
               <div className="mt-1">
                 <span
@@ -150,6 +164,7 @@ export default async function ShipmentDetailPage({
               value={session.masterUpsTracking}
               href={trackingUrl("ups", session.masterUpsTracking) ?? undefined}
               mono
+              className="col-span-2 md:col-span-1 flex flex-col justify-center"
             />
           )}
         </div>
