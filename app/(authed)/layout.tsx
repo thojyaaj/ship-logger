@@ -11,7 +11,7 @@ export default async function AuthedLayout({ children }: { children: React.React
   return (
     <CommandPaletteStateProvider>
       <div className="flex flex-col min-h-screen">
-        <header className="sticky top-0 z-10 bg-ink text-paper">
+        <header id="app-header" className="sticky top-0 z-10 bg-ink text-paper">
           <div className="flex items-center justify-between gap-4 px-4 md:px-6 py-3 flex-wrap">
             {/* flex-wrap here too, not just on the outer row — otherwise the
                 logo+nav group overflows the phone's viewport as one rigid
