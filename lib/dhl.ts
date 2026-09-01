@@ -38,17 +38,27 @@ export type PickupAddress = {
   countryCode: string;
 };
 
+export type PickupPackageDimensions = {
+  length: number;
+  width: number;
+  height: number;
+};
+
 export type PickupRequestInput = {
   accountNumber: string;
   /** Full ISO-8601 timestamp with UTC offset, e.g. "2026-07-04T09:00:00-05:00". */
   plannedPickupDateAndTime: string;
   /** Location closing time, "HH:MM". */
   closeTime: string;
+  companyName: string;
   contactName: string;
   contactPhone: string;
   address: PickupAddress;
   parcelCount: number;
   totalWeightLb: number;
+  /** Per-package estimate, inches — required by DHL's pickup API even though
+   * packages here aren't individually measured (see lib/dhl-pickup.ts). */
+  dimensions: PickupPackageDimensions;
   specialInstructions?: string;
 };
 
@@ -90,6 +100,7 @@ export async function requestDhlPickup(input: PickupRequestInput): Promise<Picku
             countryCode: input.address.countryCode,
           },
           contactInformation: {
+            companyName: input.companyName,
             fullName: input.contactName,
             phone: input.contactPhone,
           },
@@ -100,13 +111,22 @@ export async function requestDhlPickup(input: PickupRequestInput): Promise<Picku
           productCode: "P", // DHL Express Worldwide — the general product code
           isCustomsDeclarable: false,
           unitOfMeasurement: "imperial",
-          packages: [{ weight: input.totalWeightLb }],
+          packages: [
+            {
+              weight: input.totalWeightLb,
+              dimensions: {
+                length: input.dimensions.length,
+                width: input.dimensions.width,
+                height: input.dimensions.height,
+              },
+            },
+          ],
           // Some DHL examples carry parcel count at the package level (one
           // entry per package) rather than as a single count field; this app
           // scans up to a few dozen parcels a day, well under any documented
           // batching limit, so one aggregate package entry with the total
-          // weight is used rather than generating input.parcelCount separate
-          // package entries with an assumed per-package weight split.
+          // weight/dimensions is used rather than generating input.parcelCount
+          // separate package entries with an assumed per-package split.
         },
       ],
       ...(input.specialInstructions

@@ -128,6 +128,13 @@ export const shopifyOrderIndex = pgTable("shopify_order_index", {
 export const dhlPickupSettings = pgTable("dhl_pickup_settings", {
   id: text("id").primaryKey(),
   accountNumber: text("account_number").notNull(),
+  // DHL's pickup API rejects shipperDetails.contactInformation without a
+  // companyName — a real DHL Express account is registered to a business,
+  // not an individual, so this is required alongside contactName/Phone.
+  // Default only exists so the migration doesn't fail against the existing
+  // settings row — every write from saveDhlPickupSettings requires a real
+  // value going forward (see the `required` list in lib/dhl-pickup.ts).
+  companyName: text("company_name").notNull().default("OTC Shoppe Express"),
   contactName: text("contact_name").notNull(),
   contactPhone: text("contact_phone").notNull(),
   addressLine1: text("address_line1").notNull(),
@@ -143,6 +150,12 @@ export const dhlPickupSettings = pgTable("dhl_pickup_settings", {
   // parcel count. Editable, not hardcoded, since that average is a business
   // assumption that may need adjusting later.
   avgWeightLbPerParcel: real("avg_weight_lb_per_parcel").notNull().default(1),
+  // Same reasoning as avgWeightLbPerParcel: DHL's pickup API also requires a
+  // package dimensions block, and parcels aren't individually measured, so
+  // this is an editable average-box-size estimate in inches.
+  avgLengthIn: real("avg_length_in").notNull().default(12),
+  avgWidthIn: real("avg_width_in").notNull().default(12),
+  avgHeightIn: real("avg_height_in").notNull().default(12),
   specialInstructions: text("special_instructions"),
   updatedAt: text("updated_at").notNull().default(nowUtcText),
   updatedBy: text("updated_by").references(() => appUser.id),

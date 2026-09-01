@@ -13,6 +13,7 @@ const SETTINGS_ID = "default";
 
 export type DhlPickupSettings = {
   accountNumber: string;
+  companyName: string;
   contactName: string;
   contactPhone: string;
   addressLine1: string;
@@ -24,6 +25,9 @@ export type DhlPickupSettings = {
   readyTime: string;
   closeTime: string;
   avgWeightLbPerParcel: number;
+  avgLengthIn: number;
+  avgWidthIn: number;
+  avgHeightIn: number;
   specialInstructions: string | null;
   updatedAt: string;
 };
@@ -38,6 +42,7 @@ export async function getDhlPickupSettings(): Promise<DhlPickupSettings | null> 
   if (!row) return null;
   return {
     accountNumber: row.accountNumber,
+    companyName: row.companyName,
     contactName: row.contactName,
     contactPhone: row.contactPhone,
     addressLine1: row.addressLine1,
@@ -49,6 +54,9 @@ export async function getDhlPickupSettings(): Promise<DhlPickupSettings | null> 
     readyTime: row.readyTime,
     closeTime: row.closeTime,
     avgWeightLbPerParcel: row.avgWeightLbPerParcel,
+    avgLengthIn: row.avgLengthIn,
+    avgWidthIn: row.avgWidthIn,
+    avgHeightIn: row.avgHeightIn,
     specialInstructions: row.specialInstructions,
     updatedAt: row.updatedAt,
   };
@@ -58,6 +66,7 @@ export type SettingsMutationResult = { status: "ok" } | { status: "error"; messa
 
 export type DhlPickupSettingsInput = {
   accountNumber: string;
+  companyName: string;
   contactName: string;
   contactPhone: string;
   addressLine1: string;
@@ -69,6 +78,9 @@ export type DhlPickupSettingsInput = {
   readyTime: string;
   closeTime: string;
   avgWeightLbPerParcel: number;
+  avgLengthIn: number;
+  avgWidthIn: number;
+  avgHeightIn: number;
   specialInstructions: string;
 };
 
@@ -82,6 +94,7 @@ export async function saveDhlPickupSettings(
 ): Promise<SettingsMutationResult> {
   const required: [string, string][] = [
     ["Account number", input.accountNumber],
+    ["Company name", input.companyName],
     ["Contact name", input.contactName],
     ["Contact phone", input.contactPhone],
     ["Address line 1", input.addressLine1],
@@ -101,6 +114,16 @@ export async function saveDhlPickupSettings(
   if (!Number.isFinite(input.avgWeightLbPerParcel) || input.avgWeightLbPerParcel <= 0) {
     return { status: "error", message: "Average weight per parcel must be a positive number." };
   }
+  const dims: [string, number][] = [
+    ["Average length", input.avgLengthIn],
+    ["Average width", input.avgWidthIn],
+    ["Average height", input.avgHeightIn],
+  ];
+  for (const [label, value] of dims) {
+    if (!Number.isFinite(value) || value <= 0) {
+      return { status: "error", message: `${label} must be a positive number.` };
+    }
+  }
 
   const now = nowSqlTimestamp();
   await db
@@ -108,6 +131,7 @@ export async function saveDhlPickupSettings(
     .values({
       id: SETTINGS_ID,
       accountNumber: input.accountNumber.trim(),
+      companyName: input.companyName.trim(),
       contactName: input.contactName.trim(),
       contactPhone: input.contactPhone.trim(),
       addressLine1: input.addressLine1.trim(),
@@ -119,6 +143,9 @@ export async function saveDhlPickupSettings(
       readyTime: input.readyTime,
       closeTime: input.closeTime,
       avgWeightLbPerParcel: input.avgWeightLbPerParcel,
+      avgLengthIn: input.avgLengthIn,
+      avgWidthIn: input.avgWidthIn,
+      avgHeightIn: input.avgHeightIn,
       specialInstructions: input.specialInstructions.trim() || null,
       updatedAt: now,
       updatedBy,
@@ -127,6 +154,7 @@ export async function saveDhlPickupSettings(
       target: dhlPickupSettings.id,
       set: {
         accountNumber: input.accountNumber.trim(),
+        companyName: input.companyName.trim(),
         contactName: input.contactName.trim(),
         contactPhone: input.contactPhone.trim(),
         addressLine1: input.addressLine1.trim(),
@@ -138,6 +166,9 @@ export async function saveDhlPickupSettings(
         readyTime: input.readyTime,
         closeTime: input.closeTime,
         avgWeightLbPerParcel: input.avgWeightLbPerParcel,
+        avgLengthIn: input.avgLengthIn,
+        avgWidthIn: input.avgWidthIn,
+        avgHeightIn: input.avgHeightIn,
         specialInstructions: input.specialInstructions.trim() || null,
         updatedAt: now,
         updatedBy,
@@ -308,6 +339,7 @@ export async function schedulePickupForSession(
     accountNumber: settings.accountNumber,
     plannedPickupDateAndTime: warehouseIsoWithOffset(pickupDate, settings.readyTime),
     closeTime: settings.closeTime,
+    companyName: settings.companyName,
     contactName: settings.contactName,
     contactPhone: settings.contactPhone,
     address: {
@@ -320,6 +352,11 @@ export async function schedulePickupForSession(
     },
     parcelCount,
     totalWeightLb,
+    dimensions: {
+      length: settings.avgLengthIn,
+      width: settings.avgWidthIn,
+      height: settings.avgHeightIn,
+    },
     specialInstructions: settings.specialInstructions ?? undefined,
   });
 

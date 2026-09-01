@@ -7,6 +7,7 @@ import { actionErrorMessage } from "@/lib/error-message";
 
 const EMPTY: DhlPickupSettingsInput = {
   accountNumber: "",
+  companyName: "",
   contactName: "",
   contactPhone: "",
   addressLine1: "",
@@ -18,6 +19,9 @@ const EMPTY: DhlPickupSettingsInput = {
   readyTime: "09:00",
   closeTime: "17:00",
   avgWeightLbPerParcel: 1,
+  avgLengthIn: 12,
+  avgWidthIn: 12,
+  avgHeightIn: 12,
   specialInstructions: "",
 };
 
@@ -30,6 +34,7 @@ export default function DhlPickupSettingsClient({
     initialSettings
       ? {
           accountNumber: initialSettings.accountNumber,
+          companyName: initialSettings.companyName,
           contactName: initialSettings.contactName,
           contactPhone: initialSettings.contactPhone,
           addressLine1: initialSettings.addressLine1,
@@ -41,6 +46,9 @@ export default function DhlPickupSettingsClient({
           readyTime: initialSettings.readyTime,
           closeTime: initialSettings.closeTime,
           avgWeightLbPerParcel: initialSettings.avgWeightLbPerParcel,
+          avgLengthIn: initialSettings.avgLengthIn,
+          avgWidthIn: initialSettings.avgWidthIn,
+          avgHeightIn: initialSettings.avgHeightIn,
           specialInstructions: initialSettings.specialInstructions ?? "",
         }
       : EMPTY,
@@ -90,6 +98,9 @@ export default function DhlPickupSettingsClient({
 
         <Section title="Pickup contact">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Company name" className="sm:col-span-2">
+              <Input value={form.companyName} onChange={(v) => set("companyName", v)} required />
+            </Field>
             <Field label="Contact name">
               <Input value={form.contactName} onChange={(v) => set("contactName", v)} required />
             </Field>
@@ -165,6 +176,48 @@ export default function DhlPickupSettingsClient({
               className="data border border-line-strong px-3 py-2 bg-paper font-condensed w-32"
             />
           </Field>
+        </Section>
+
+        <Section title="Dimensions estimate">
+          <div className="grid grid-cols-3 gap-3 max-w-sm">
+            <Field label="Length (in)">
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={form.avgLengthIn}
+                onChange={(e) => set("avgLengthIn", Number(e.target.value))}
+                required
+                className="data border border-line-strong px-3 py-2 bg-paper font-condensed w-full"
+              />
+            </Field>
+            <Field label="Width (in)">
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={form.avgWidthIn}
+                onChange={(e) => set("avgWidthIn", Number(e.target.value))}
+                required
+                className="data border border-line-strong px-3 py-2 bg-paper font-condensed w-full"
+              />
+            </Field>
+            <Field label="Height (in)">
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={form.avgHeightIn}
+                onChange={(e) => set("avgHeightIn", Number(e.target.value))}
+                required
+                className="data border border-line-strong px-3 py-2 bg-paper font-condensed w-full"
+              />
+            </Field>
+          </div>
+          <p className="text-xs text-ink-faint font-condensed">
+            Per-parcel average, same estimate approach as weight — packages aren&apos;t individually
+            measured.
+          </p>
         </Section>
 
         <Section title="Special instructions (optional)">
