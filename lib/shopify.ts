@@ -126,10 +126,25 @@ export async function findOrderByName(name: string): Promise<ResolvedOrder | nul
     { query: `name:${quoted}` },
   );
   const node = data.orders.edges[0]?.node;
-  // Shopify's search is fuzzy even when quoted, so confirm the match is the
-  // order we actually asked for rather than trusting first-result ordering.
-  const node2 = node && node.name.replace(/^#/, "") === name.replace(/^#/, "") ? node : null;
-  return node2 ? { gid: node2.id, name: node2.name } : null;
+  if (!node) return null;
+
+  // Confirm the hit is the order we asked for rather than trusting Shopify's
+  // first-result ordering — the point being that a crafted ERef can't steer a
+  // scan onto some other order.
+  //
+  // Compared on a normalized form, NOT raw equality. Raw equality is stricter
+  // than the old unverified behaviour, so it can only ever lose matches, and
+  // ERef comes off a printed label: a difference in case, padding, or the
+  // leading "#" Shopify displays would silently drop a perfectly good match.
+  // Normalizing keeps the safety property (it's still the same order name)
+  // without failing on cosmetics.
+  return orderNameKey(node.name) === orderNameKey(name)
+    ? { gid: node.id, name: node.name }
+    : null;
+}
+
+function orderNameKey(value: string): string {
+  return value.trim().replace(/^#/, "").replace(/\s+/g, "").toUpperCase();
 }
 
 export type OrderDetail = {

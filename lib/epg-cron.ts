@@ -38,7 +38,18 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
     .select()
     .from(scan)
     .where(and(eq(scan.carrier, "epg"), gt(scan.scannedAt, cutoff)));
-  const pending = allRecent.filter((s) => !isTerminal(s.statusLabel));
+
+  // Two reasons to look at a scan: its status isn't final yet, or its Shopify
+  // order still hasn't been resolved.
+  //
+  // The second half is the fix for parcels that permanently lost their order
+  // number. Previously this was only `!isTerminal(...)`, so the moment a parcel
+  // read "Delivered" it dropped out of the candidate set forever — and order
+  // resolution happens *in this same loop*. Any parcel that reached a terminal
+  // status before its order was matched (delivered fast, or the Shopify lookup
+  // failed on the very run that marked it delivered) could never be retried,
+  // no matter how many times the cron ran afterwards.
+  const pending = allRecent.filter((s) => !isTerminal(s.statusLabel) || !s.orderGid);
 
   if (pending.length === 0) {
     return {
@@ -74,9 +85,13 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
     // call in this cron (§8.9: never let one bad thing take the rest down).
     let orderGid: string | null = null;
     let orderName: string | null = null;
-    if (record.externalRef && !s.orderGid) {
+    // Fall back to the ERef already stored from an earlier run. EPG's response
+    // isn't guaranteed to repeat every field on every call, and dropping back
+    // to null for one poll shouldn't cost us a lookup we could still make.
+    const externalRef = record.externalRef ?? s.epgExternalRef;
+    if (externalRef && !s.orderGid) {
       try {
-        const order = await findOrderByName(record.externalRef);
+        const order = await findOrderByName(externalRef);
         if (order) {
           orderGid = order.gid;
           orderName = order.name;
