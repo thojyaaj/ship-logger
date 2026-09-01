@@ -3,7 +3,13 @@ import { db } from "./db";
 import { dhlPickupSettings, dhlPickupRequest, shipmentSession } from "./db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { newId } from "./id";
-import { nowSqlTimestamp, warehouseIsoWithOffset, warehouseLocalTime, nextCalendarDate } from "./date";
+import {
+  nowSqlTimestamp,
+  warehouseIsoWithOffset,
+  warehouseLocalTime,
+  nextCalendarDate,
+  localCalendarDate,
+} from "./date";
 import { requestDhlPickup, cancelDhlPickup } from "./dhl";
 import { getShipmentDetail, ShipmentNotFoundError } from "./shiplog";
 
@@ -218,6 +224,14 @@ function hhmmToMinutes(hhmm: string): number {
  *    same-day pickup — next day instead, using the exact same ready/close
  *    times from settings (only the date moves, never the time-of-day
  *    window).
+ *
+ * "Same day" here always means same day as whichever is later of shipDate
+ * and today — a shipment's `shipDate` is set when its session opens and
+ * doesn't move if packing runs past midnight, so a shipment opened 8/31 but
+ * actually submitted 9/1 still carries shipDate 8/31. Basing the pickup date
+ * on that stale shipDate produces a date already in the past, which DHL's
+ * API rejects outright ("Pickup date is earlier than the current date") —
+ * so the earliest possible pickup day is always today, never earlier.
  */
 function resolvePickupDate(
   shipDate: string,
@@ -229,6 +243,8 @@ function resolvePickupDate(
   // defensive fallback, not an expected path.
   if (!submittedAt) return shipDate;
 
+  const referenceDate = shipDate < localCalendarDate() ? localCalendarDate() : shipDate;
+
   const submittedMinutes = hhmmToMinutes(warehouseLocalTime(submittedAt));
   const oneHourBeforeStart = hhmmToMinutes(settings.readyTime) - 60;
   const threeHoursBeforeEnd = hhmmToMinutes(settings.closeTime) - 180;
@@ -236,7 +252,7 @@ function resolvePickupDate(
   const withinGraceWindow = submittedMinutes <= threeHoursBeforeEnd;
   const sameDay = !missedFirstCutoff || withinGraceWindow;
 
-  return sameDay ? shipDate : nextCalendarDate(shipDate);
+  return sameDay ? referenceDate : nextCalendarDate(referenceDate);
 }
 
 export type PreviewPickup = {
