@@ -18,6 +18,7 @@ import { getShipmentDetail, ShipmentNotFoundError } from "./shiplog";
 const SETTINGS_ID = "default";
 
 export type DhlPickupSettings = {
+  enabled: boolean;
   accountNumber: string;
   companyName: string;
   contactName: string;
@@ -47,6 +48,7 @@ export async function getDhlPickupSettings(): Promise<DhlPickupSettings | null> 
   const row = rows[0];
   if (!row) return null;
   return {
+    enabled: row.enabled,
     accountNumber: row.accountNumber,
     companyName: row.companyName,
     contactName: row.contactName,
@@ -71,6 +73,7 @@ export async function getDhlPickupSettings(): Promise<DhlPickupSettings | null> 
 export type SettingsMutationResult = { status: "ok" } | { status: "error"; message: string };
 
 export type DhlPickupSettingsInput = {
+  enabled: boolean;
   accountNumber: string;
   companyName: string;
   contactName: string;
@@ -136,6 +139,7 @@ export async function saveDhlPickupSettings(
     .insert(dhlPickupSettings)
     .values({
       id: SETTINGS_ID,
+      enabled: input.enabled,
       accountNumber: input.accountNumber.trim(),
       companyName: input.companyName.trim(),
       contactName: input.contactName.trim(),
@@ -159,6 +163,7 @@ export async function saveDhlPickupSettings(
     .onConflictDoUpdate({
       target: dhlPickupSettings.id,
       set: {
+        enabled: input.enabled,
         accountNumber: input.accountNumber.trim(),
         companyName: input.companyName.trim(),
         contactName: input.contactName.trim(),
@@ -274,6 +279,9 @@ export async function previewPickupForSession(sessionId: string): Promise<Previe
   if (!settings) {
     return { status: "error", message: "DHL pickup settings haven't been configured yet." };
   }
+  if (!settings.enabled) {
+    return { status: "error", message: "DHL pickup scheduling is currently disabled by an admin." };
+  }
 
   let dashboard;
   try {
@@ -316,6 +324,9 @@ export async function schedulePickupForSession(
   const settings = await getDhlPickupSettings();
   if (!settings) {
     return { status: "error", message: "DHL pickup settings haven't been configured yet." };
+  }
+  if (!settings.enabled) {
+    return { status: "error", message: "DHL pickup scheduling is currently disabled by an admin." };
   }
 
   const session = (

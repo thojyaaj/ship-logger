@@ -8,7 +8,7 @@ import ReopenButton from "./ReopenButton";
 import DeleteShipmentButton from "./DeleteShipmentButton";
 import ScanTable from "./ScanTable";
 import DhlPickupPanel from "./DhlPickupPanel";
-import { getLatestPickupRequest } from "@/lib/dhl-pickup";
+import { getLatestPickupRequest, getDhlPickupSettings } from "@/lib/dhl-pickup";
 
 export default async function ShipmentDetailPage({
   params,
@@ -32,6 +32,10 @@ export default async function ShipmentDetailPage({
 
   const showDhlPickup = user.isAdmin && session.status === "submitted" && totals.dhl > 0;
   const pickupRequest = showDhlPickup ? await getLatestPickupRequest(session.id) : null;
+  // Defaults to enabled when settings haven't been configured yet — the
+  // schedule attempt itself already surfaces a clear "not configured" error
+  // in that case, so there's nothing extra for the enabled flag to guard.
+  const dhlSchedulingEnabled = showDhlPickup ? ((await getDhlPickupSettings())?.enabled ?? true) : true;
 
   const boxedScans = new Map<string, typeof scans>();
   const unboxedScans: typeof scans = [];
@@ -65,14 +69,16 @@ export default async function ShipmentDetailPage({
           </span>
         </div>
 
-        {/* One row, always — flex-nowrap keeps Export CSV / Reopen /
-            Delete / DHL Pickup from wrapping onto a second line;
-            overflow-x-auto is the fallback on the very narrowest phones
-            rather than letting them clip. */}
+        {/* One row, always — flex-nowrap keeps Reopen / Delete / DHL Pickup
+            from wrapping onto a second line; overflow-x-auto is the fallback
+            on the very narrowest phones rather than letting them clip.
+            Export CSV is desktop-only (a mobile browser can't do much with a
+            downloaded CSV) — the remaining buttons collapse to icon +
+            one-word label below md. */}
         <div className="flex items-center justify-center gap-2 flex-nowrap overflow-x-auto w-full pb-1">
           <a
             href={`/shipments/${session.id}/export`}
-            className="btn px-4 py-2 border border-line-strong text-ink hover:bg-paper-dim shrink-0"
+            className="hidden md:inline-flex btn px-4 py-2 border border-line-strong text-ink hover:bg-paper-dim shrink-0"
           >
             Export CSV
           </a>
@@ -80,7 +86,13 @@ export default async function ShipmentDetailPage({
               it to packers would just render a button that always errors. */}
           {session.status === "submitted" && user.isAdmin && <ReopenButton sessionId={session.id} />}
           {user.isAdmin && <DeleteShipmentButton sessionId={session.id} shipDate={session.shipDate} />}
-          {showDhlPickup && <DhlPickupPanel sessionId={session.id} initialRequest={pickupRequest} />}
+          {showDhlPickup && (
+            <DhlPickupPanel
+              sessionId={session.id}
+              initialRequest={pickupRequest}
+              schedulingEnabled={dhlSchedulingEnabled}
+            />
+          )}
         </div>
       </div>
 
@@ -90,9 +102,9 @@ export default async function ShipmentDetailPage({
           rather than blending in as a fourth plain Field. Centered on
           mobile, left-aligned (the original layout) on desktop. */}
       <div className="grid grid-cols-4 gap-px bg-line text-sm text-center md:text-left">
-        <Field label="EPG" value={String(totals.epg)} accent="!text-orange" tint="bg-orange-dim" />
-        <Field label="UPS" value={String(totals.ups)} accent="!text-blue" tint="bg-blue-dim" />
-        <Field label="DHL" value={String(totals.dhl)} accent="!text-amber" tint="bg-amber-dim" />
+        <Field label="EPG" value={String(totals.epg)} accent="!text-orange" tint="bg-orange-dim" valueClassName="text-lg" />
+        <Field label="UPS" value={String(totals.ups)} accent="!text-blue" tint="bg-blue-dim" valueClassName="text-lg" />
+        <Field label="DHL" value={String(totals.dhl)} accent="!text-amber" tint="bg-amber-dim" valueClassName="text-lg" />
         <div className="bg-ink text-paper p-3">
           <div className="tag-label !text-orange">Total</div>
           <div className="data font-semibold text-lg mt-0.5">{totals.total}</div>
@@ -133,14 +145,20 @@ export default async function ShipmentDetailPage({
             )}
           </div>
         )}
-        <Field label="Opened" value={formatWarehouseTimestamp(session.openedAt)} className="col-span-3 md:col-span-1" />
-        {session.submittedAt && (
-          <Field
-            label="Submitted"
-            value={formatWarehouseTimestamp(session.submittedAt)}
-            className="col-span-3 md:col-span-1"
-          />
-        )}
+        {/* Wrapped so Opened/Submitted sit side by side as their own row on
+            mobile (instead of each spanning the full row and stacking) —
+            md:contents drops the wrapper at the desktop breakpoint so both
+            Fields rejoin the 5-col grid directly, unaffected. */}
+        <div className="col-span-3 grid grid-cols-2 gap-px md:contents">
+          <Field label="Opened" value={formatWarehouseTimestamp(session.openedAt)} className="md:col-span-1" />
+          {session.submittedAt && (
+            <Field
+              label="Submitted"
+              value={formatWarehouseTimestamp(session.submittedAt)}
+              className="md:col-span-1"
+            />
+          )}
+        </div>
       </div>
 
       {session.notes && (
@@ -180,6 +198,7 @@ function Field({
   tint,
   href,
   className,
+  valueClassName,
 }: {
   label: string;
   value: string;
@@ -188,6 +207,7 @@ function Field({
   tint?: string;
   href?: string;
   className?: string;
+  valueClassName?: string;
 }) {
   return (
     // min-w-0: grid items default to min-width:auto, which — same as the
@@ -201,12 +221,14 @@ function Field({
           href={href}
           target="_blank"
           rel="noreferrer"
-          className={`block truncate font-semibold text-blue hover:underline ${mono ? "data text-sm" : "data"}`}
+          className={`block truncate font-semibold text-blue hover:underline ${mono ? "data text-sm" : "data"} ${valueClassName ?? ""}`}
         >
           {value}
         </a>
       ) : (
-        <div className={`truncate font-semibold ${mono ? "data text-sm" : "data"}`}>{value}</div>
+        <div className={`truncate font-semibold ${mono ? "data text-sm" : "data"} ${valueClassName ?? ""}`}>
+          {value}
+        </div>
       )}
     </div>
   );

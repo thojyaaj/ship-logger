@@ -6,6 +6,7 @@ import { reopenSessionAction } from "../../scan-actions";
 import ConfirmDialog from "../../ConfirmDialog";
 import { actionErrorMessage } from "@/lib/error-message";
 import { withTransportRetry } from "@/lib/with-retry";
+import { RotateCcwIcon } from "./icons";
 
 export default function ReopenButton({ sessionId }: { sessionId: string }) {
   const [showConfirm, setShowConfirm] = useState(false);
@@ -19,9 +20,11 @@ export default function ReopenButton({ sessionId }: { sessionId: string }) {
         type="button"
         disabled={isPending}
         onClick={() => setShowConfirm(true)}
-        className="btn px-4 py-2 border border-amber text-amber-ink hover:bg-amber-dim disabled:opacity-50 shrink-0"
+        className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-amber text-amber-ink hover:bg-amber-dim disabled:opacity-50 shrink-0"
       >
-        {isPending ? "Reopening…" : "Reopen for corrections"}
+        <RotateCcwIcon className="w-5 h-5 md:hidden" />
+        <span className="md:hidden">Reopen</span>
+        <span className="hidden md:inline">{isPending ? "Reopening…" : "Reopen for corrections"}</span>
       </button>
 
       {error && (

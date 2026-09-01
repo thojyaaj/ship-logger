@@ -127,6 +127,10 @@ export const shopifyOrderIndex = pgTable("shopify_order_index", {
 // redeploy.
 export const dhlPickupSettings = pgTable("dhl_pickup_settings", {
   id: text("id").primaryKey(),
+  // Admin kill switch — leaves settings/history intact but blocks new
+  // pickups from being previewed or booked (see lib/dhl-pickup.ts). An
+  // already-active pickup can still be cancelled while this is off.
+  enabled: boolean("enabled").notNull().default(true),
   accountNumber: text("account_number").notNull(),
   // DHL's pickup API rejects shipperDetails.contactInformation without a
   // companyName — a real DHL Express account is registered to a business,

@@ -6,6 +6,7 @@ import { previewPickupAction, schedulePickupAction, cancelPickupAction } from ".
 import ConfirmDialog from "../../ConfirmDialog";
 import { formatDbTimestamp } from "@/lib/date";
 import { actionErrorMessage } from "@/lib/error-message";
+import { TruckIcon, CheckCircleIcon } from "./icons";
 
 /**
  * Only rendered when the parent page has already confirmed this shipment is
@@ -17,9 +18,11 @@ import { actionErrorMessage } from "@/lib/error-message";
 export default function DhlPickupPanel({
   sessionId,
   initialRequest,
+  schedulingEnabled,
 }: {
   sessionId: string;
   initialRequest: PickupRequestRecord | null;
+  schedulingEnabled: boolean;
 }) {
   const [request, setRequest] = useState(initialRequest);
   const [preview, setPreview] = useState<PreviewPickup | null>(null);
@@ -98,19 +101,27 @@ export default function DhlPickupPanel({
           disabled={isPending}
           onClick={() => setShowCancelConfirm(true)}
           title={`Confirmation ${request.dispatchConfirmationNumber} — ${request.parcelCount} parcel(s), ~${request.totalWeightLb} lb, requested ${formatDbTimestamp(request.requestedAt)}`}
-          className="btn px-4 py-2 border border-green text-green-ink hover:bg-red-dim hover:border-red hover:text-red-ink disabled:opacity-50 shrink-0"
+          className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-green text-green-ink hover:bg-red-dim hover:border-red hover:text-red-ink disabled:opacity-50 shrink-0"
         >
-          DHL Scheduled · {request.dispatchConfirmationNumber}
+          <CheckCircleIcon className="w-5 h-5 md:hidden" />
+          <span className="md:hidden">Scheduled</span>
+          <span className="hidden md:inline">DHL Scheduled · {request.dispatchConfirmationNumber}</span>
         </button>
-      ) : (
+      ) : schedulingEnabled ? (
         <button
           type="button"
           disabled={isPending}
           onClick={openScheduleDialog}
-          className="btn px-4 py-2 bg-orange text-paper disabled:opacity-50 shrink-0"
+          className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 bg-orange text-paper disabled:opacity-50 shrink-0"
         >
-          {isPending ? "Checking…" : "Schedule DHL Pickup"}
+          <TruckIcon className="w-5 h-5 md:hidden" />
+          <span className="md:hidden">Pickup</span>
+          <span className="hidden md:inline">{isPending ? "Checking…" : "Schedule DHL Pickup"}</span>
         </button>
+      ) : (
+        <p className="text-xs text-ink-faint font-condensed w-full text-center">
+          DHL pickup scheduling is currently disabled by an admin.
+        </p>
       )}
 
       {!active && request?.status === "cancelled" && (

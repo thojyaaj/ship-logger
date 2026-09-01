@@ -43,6 +43,13 @@
       "when": 1788290892152,
       "tag": "0005_add_dhl_pickup_company_and_dimensions",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788293522261,
+      "tag": "0006_dashing_naoko",
+      "breakpoints": true
     }
   ]
 }
