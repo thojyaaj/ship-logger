@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { pageRequireUser } from "@/lib/auth";
 import { getShipmentDetail } from "@/lib/shiplog";
-import { formatDbTimestamp } from "@/lib/date";
+import { formatWarehouseTimestamp } from "@/lib/date";
 import { trackingUrl, statusTone } from "@/lib/carrier";
 import ReopenButton from "./ReopenButton";
 import DeleteShipmentButton from "./DeleteShipmentButton";
@@ -94,9 +94,9 @@ export default async function ShipmentDetailPage({
             )}
           </div>
         )}
-        <Field label="Opened" value={formatDbTimestamp(session.openedAt)} />
+        <Field label="Opened" value={formatWarehouseTimestamp(session.openedAt)} />
         {session.submittedAt && (
-          <Field label="Submitted" value={formatDbTimestamp(session.submittedAt)} />
+          <Field label="Submitted" value={formatWarehouseTimestamp(session.submittedAt)} />
         )}
       </div>
 
