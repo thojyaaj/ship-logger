@@ -16,6 +16,21 @@ import {
 } from "@/lib/shiplog";
 import type { Carrier } from "@/lib/carrier";
 
+// Carriers a packer may manually assign to an unrecognized scan. TypeScript's
+// `Carrier` type is erased at the Server Action boundary and the `carrier`
+// column is plain `text` with no CHECK constraint, so an arbitrary string
+// would persist happily — and every `totals[scan.carrier] += 1` in the
+// dashboard, list, and chart queries would then produce NaN for that session.
+// "unknown" is excluded on purpose: it's a detection outcome, not an
+// assignment the UI ever offers.
+const ASSIGNABLE_CARRIERS = new Set<Carrier>(["epg", "ups", "dhl"]);
+
+function validForceCarrier(value: unknown): Carrier | undefined {
+  return typeof value === "string" && ASSIGNABLE_CARRIERS.has(value as Carrier)
+    ? (value as Carrier)
+    : undefined;
+}
+
 export async function scanAction(
   sessionId: string,
   rawTrackingNumber: string,
@@ -26,7 +41,7 @@ export async function scanAction(
     sessionId,
     userId: user.id,
     rawTrackingNumber,
-    forceCarrier: opts?.forceCarrier,
+    forceCarrier: validForceCarrier(opts?.forceCarrier),
     overrideChecksum: opts?.overrideChecksum,
     // Only admins may push a scan past the previous-shipment duplicate block (§8.4b).
     forcePastDuplicate: opts?.forcePastDuplicate && user.isAdmin,
@@ -66,7 +81,11 @@ export async function submitSessionAction(input: {
 }
 
 export async function reopenSessionAction(sessionId: string): Promise<void> {
-  const user = await requireUser();
+  // Admin-only, like deleteShipment. Reopening a submitted shipment puts
+  // already-shipped history back into an editable state, which is the same
+  // class of capability — it was the one destructive-adjacent action still
+  // reachable by any packer.
+  const user = await requireAdmin();
   await reopenSession(sessionId, user.name);
 }
 

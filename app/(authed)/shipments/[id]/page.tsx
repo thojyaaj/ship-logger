@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { pageRequireUser } from "@/lib/auth";
-import { getShipmentDetail } from "@/lib/shiplog";
+import { getShipmentDetail, ShipmentNotFoundError } from "@/lib/shiplog";
 import { formatWarehouseTimestamp } from "@/lib/date";
 import { trackingUrl, statusTone } from "@/lib/carrier";
 import ReopenButton from "./ReopenButton";
@@ -19,8 +19,12 @@ export default async function ShipmentDetailPage({
   let dashboard;
   try {
     dashboard = await getShipmentDetail(id);
-  } catch {
-    notFound();
+  } catch (err) {
+    // Only a genuinely missing shipment is a 404 — anything else (a dropped
+    // database connection, a query bug) must surface as a real error rather
+    // than be disguised as "no such shipment".
+    if (err instanceof ShipmentNotFoundError) notFound();
+    throw err;
   }
   const { session, boxes, scans, totals, userNames } = dashboard;
 
@@ -60,7 +64,9 @@ export default async function ShipmentDetailPage({
           >
             Export CSV
           </a>
-          {session.status === "submitted" && <ReopenButton sessionId={session.id} />}
+          {/* Admin-only, matching reopenSessionAction's requireAdmin — showing
+              it to packers would just render a button that always errors. */}
+          {session.status === "submitted" && user.isAdmin && <ReopenButton sessionId={session.id} />}
           {user.isAdmin && <DeleteShipmentButton sessionId={session.id} shipDate={session.shipDate} />}
         </div>
       </div>

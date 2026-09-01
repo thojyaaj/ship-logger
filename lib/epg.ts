@@ -14,7 +14,30 @@ import "server-only";
 
 const ENDPOINT = "https://epgtrack.com/TrackingShipment/ShipmentData";
 const BATCH_SIZE = 25; // matches the epgtrack.com UI's own input cap
-const CALL_RE = /transactionDetails\(([\s\S]*?)\)"/g;
+
+// Hard ceiling on a response we're willing to parse. epgtrack.com is an
+// undocumented third party with no contract, so its response size is not
+// something we control. A batch of 25 parcels is a few tens of KB in practice;
+// 2 MB is far above any legitimate response and well below the point where
+// parsing costs real time.
+const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+const MAX_RECORDS = 500; // >> BATCH_SIZE; guards against unbounded array growth
+
+// The captured argument list is bounded three ways, all deliberate:
+//   - `(?=')` — every real call opens with a quoted argument, so this rejects
+//     a bare `transactionDetails(` immediately instead of scanning forward.
+//   - `[^"]` — the call sits inside an onclick="..." attribute, so its
+//     arguments cannot legitimately contain a double quote.
+//   - `{0,16384}` — an explicit length cap, sized well above the largest real
+//     record observed (a 60-event parcel is ~10KB) so nothing is dropped.
+// The previous `([\s\S]*?)` was unbounded, and because it's lazy it rescanned
+// to end-of-input for every `transactionDetails(` that had no following `)"`.
+// That is quadratic: measured 12ms at 38KB, 218ms at 152KB, 3.9s at 608KB, and
+// 32s at 2MB — enough for one bad response from this uncontracted third party
+// to block Node's single event loop and stall the whole instance. Measured
+// after: 2ms on that same garbage, 3.5s on a worst case crafted to defeat the
+// lookahead, and byte-identical output on real-shaped input.
+const CALL_RE = /transactionDetails\((?=')([^"]{0,16384}?)\)"/g;
 const ARG_RE = /'([^']*)'/g;
 
 export type EpgEvent = {
@@ -67,6 +90,7 @@ export function parseEpgResponse(
   let match: RegExpExecArray | null;
   CALL_RE.lastIndex = 0;
   while ((match = CALL_RE.exec(html))) {
+    if (results.length >= MAX_RECORDS) break;
     const args = [...match[1].matchAll(ARG_RE)].map((a) => a[1]);
     if (args.length < 5) continue; // malformed call — skip rather than guess
     const trackingNumber = args[2];
@@ -135,7 +159,16 @@ export async function lookupEpgStatuses(
         signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) continue;
-      const html = await res.text();
+
+      // Reject an oversized body before parsing it. Content-Length is only a
+      // hint (it may be absent, or wrong on a chunked response), so the slice
+      // below is the actual enforcement — truncating rather than parsing
+      // megabytes. A legitimate response never comes close to this.
+      const declaredLength = Number(res.headers.get("content-length") ?? "0");
+      if (declaredLength > MAX_RESPONSE_BYTES) continue;
+      const body = await res.text();
+      const html = body.length > MAX_RESPONSE_BYTES ? body.slice(0, MAX_RESPONSE_BYTES) : body;
+
       for (const { trackingNumber, record } of parseEpgResponse(html)) {
         results.set(trackingNumber, record);
       }

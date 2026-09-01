@@ -22,8 +22,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1",
-    "ts-tracking-number": "^1.0.17",
-    "zod": "^4.5.4"
+    "ts-tracking-number": "^1.0.17"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -37,5 +36,8 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
     "typescript": "^5"
+  },
+  "overrides": {
+    "esbuild": "^0.25.0"
   }
 }

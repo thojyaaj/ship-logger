@@ -9,9 +9,25 @@ import {
   establishSession,
 } from "@/lib/auth";
 
+/**
+ * The rate-limit bucket key. This must not be attacker-chosen: a client can
+ * send its own `X-Forwarded-For`, and proxies *append* rather than replace, so
+ * the leftmost entry is whatever the caller put there. Keying on it let anyone
+ * mint a fresh bucket per request (`X-Forwarded-For: 1.2.3.<n>`) and walk the
+ * whole 4-digit PIN space with neither the 5/min limit nor the lockout firing.
+ *
+ * `x-vercel-forwarded-for` is set by Vercel's edge and strips any client-sent
+ * copy, so it's trustworthy here; `x-real-ip` likewise. Only if both are absent
+ * do we fall back to XFF, and then to its *rightmost* entry — the one appended
+ * by the nearest (trusted) proxy rather than the one the client supplied.
+ */
 async function clientIp(): Promise<string> {
   const h = await headers();
-  return h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? h.get("x-real-ip") ?? "unknown";
+  const trusted = h.get("x-vercel-forwarded-for") ?? h.get("x-real-ip");
+  if (trusted?.trim()) return trusted.trim();
+
+  const chain = h.get("x-forwarded-for")?.split(",").map((s) => s.trim()).filter(Boolean);
+  return chain?.length ? chain[chain.length - 1] : "unknown";
 }
 
 export type LoginResult = { ok: true } | { ok: false; error: string };

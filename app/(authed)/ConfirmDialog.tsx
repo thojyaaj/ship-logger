@@ -1,5 +1,7 @@
 "use client";
 
+import { useDismissable } from "./useDismissable";
+
 /**
  * Themed stand-in for window.confirm() — same corners/bg-paper-panel modal
  * shell as OrderPanel/SubmitDialog/CommandPalette, so destructive actions
@@ -21,6 +23,7 @@ export default function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  useDismissable(onCancel);
   return (
     <div className="fixed inset-0 bg-ink/60 flex items-center justify-center p-4 z-30" onClick={onCancel}>
       <div

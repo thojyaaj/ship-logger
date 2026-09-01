@@ -1,35 +1,23 @@
 import { NextResponse } from "next/server";
-import crypto from "node:crypto";
 import { runEpgStatusCron } from "@/lib/epg-cron";
+import { cronRequestIsAuthorized } from "@/lib/cron-auth";
 
-// Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}` automatically when
-// CRON_SECRET is set — see vercel.json. Locally, hit this with the same header
-// to test manually. Missing CRON_SECRET in dev intentionally leaves this open.
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization") ?? "";
-    const expected = `Bearer ${secret}`;
-    const a = Buffer.from(auth);
-    const b = Buffer.from(expected);
-    // Constant-time compare — a plain !== leaks how many leading characters
-    // matched via response timing, letting the secret be recovered byte by
-    // byte over enough requests.
-    const valid = a.length === b.length && crypto.timingSafeEqual(a, b);
-    if (!valid) {
-      return new NextResponse("Unauthorized", { status: 401 });
-    }
+  if (!cronRequestIsAuthorized(req)) {
+    return new NextResponse("Unauthorized", { status: 401 });
   }
 
   try {
     const result = await runEpgStatusCron();
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
-    // Non-fatal by design (§8.9) — this endpoint failing should never take
-    // the rest of the app down. Report the failure, don't throw.
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Unknown error" },
-      { status: 200 },
-    );
+    // Log the real cause for operators; return only a generic message. The
+    // underlying errors embed upstream response bodies and connection strings
+    // (e.g. "Shopify token exchange failed: 401 {...}", Postgres ENOTFOUND
+    // <db-host>), which is infrastructure disclosure to anyone who can reach
+    // this URL. Status is 500, not 200 — returning 200 on failure made Vercel
+    // report a broken cron as a successful run.
+    console.error("[cron/epg-status] failed:", err);
+    return NextResponse.json({ ok: false, error: "EPG status refresh failed." }, { status: 500 });
   }
 }

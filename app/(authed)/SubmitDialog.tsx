@@ -3,6 +3,9 @@
 import { useState, useTransition } from "react";
 import type { SessionDashboard } from "@/lib/shiplog";
 import { submitSessionAction } from "./scan-actions";
+import { useDismissable } from "./useDismissable";
+import { actionErrorMessage } from "@/lib/error-message";
+import { withTransportRetry } from "@/lib/with-retry";
 
 export default function SubmitDialog({
   dashboard,
@@ -24,6 +27,9 @@ export default function SubmitDialog({
   );
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  // Was the only modal with no Escape and no backdrop close — Cancel was the
+  // sole way out.
+  useDismissable(onClose);
 
   function applyToAllBoxes() {
     const first = dashboard.boxes[0];
@@ -35,25 +41,38 @@ export default function SubmitDialog({
   function submit() {
     setError(null);
     startTransition(async () => {
-      const result = await submitSessionAction({
-        sessionId: dashboard.session.id,
-        awbNumber,
-        masterUpsTracking,
-        shipDate,
-        notes,
-        boxUpsTracking,
-      });
-      if (result.status === "error") {
-        setError(result.message);
-        return;
+      try {
+        // The only mutation that wasn't retried, and the only one with no
+        // catch: a dropped connection reset the button to "Submit" with no
+        // message at all, so a packer couldn't tell whether the day had been
+        // submitted or not.
+        const result = await withTransportRetry(() =>
+          submitSessionAction({
+            sessionId: dashboard.session.id,
+            awbNumber,
+            masterUpsTracking,
+            shipDate,
+            notes,
+            boxUpsTracking,
+          }),
+        );
+        if (result.status === "error") {
+          setError(result.message);
+          return;
+        }
+        onSubmitted();
+      } catch (err) {
+        setError(actionErrorMessage(err, "Submit failed — check the connection and try again."));
       }
-      onSubmitted();
     });
   }
 
   return (
-    <div className="fixed inset-0 bg-ink/60 flex items-center justify-center p-4 z-20">
-      <div className="corners bg-paper-panel p-6 max-w-lg w-full flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-ink/60 flex items-center justify-center p-4 z-20" onClick={onClose}>
+      <div
+        className="corners bg-paper-panel p-6 max-w-lg w-full flex flex-col gap-4 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between route-line pb-3">
           <h2 className="font-stencil text-xl tracking-wide">Submit Shipment</h2>
           <span className="barcode w-16 h-4" />

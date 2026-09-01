@@ -10,39 +10,71 @@ import { eq } from "drizzle-orm";
 const SESSION_COOKIE = "shiplog_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days — kiosk tablet stays signed in
 
+const DEV_FALLBACK_SECRET = "dev-only-insecure-secret-change-me";
+
+/**
+ * The session cookie is a self-contained bearer token signed with this value,
+ * so anyone who knows the secret can mint a cookie for any userId — including
+ * an admin's. The dev fallback below is a literal in a public repository, so
+ * treating "SESSION_SECRET is unset" as merely a warning in production would
+ * mean the whole app is authenticated by a publicly-known key.
+ *
+ * Fails closed instead: thrown lazily at request time (not module scope) so a
+ * production *build*, which legitimately has no runtime env, still succeeds.
+ */
 function sessionSecret(): string {
   const secret = process.env.SESSION_SECRET;
-  if (!secret) {
-    // Phase 1 / local-dev fallback so `npm run dev` works with zero setup.
-    // Set SESSION_SECRET in production so restarts don't invalidate every session.
-    return "dev-only-insecure-secret-change-me";
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "SESSION_SECRET is not set. Refusing to sign sessions with the public dev fallback — see .env.example.",
+    );
   }
-  return secret;
+  return DEV_FALLBACK_SECRET;
 }
 
 function sign(payload: string): string {
   return crypto.createHmac("sha256", sessionSecret()).update(payload).digest("hex");
 }
 
-function packCookie(userId: string, expiresAt: number): string {
-  const payload = `${userId}.${expiresAt}`;
-  return `${payload}.${sign(payload)}`;
+/**
+ * A short digest of the user's current password hash, mixed into the session
+ * signature. This is what makes a PIN reset actually revoke existing sessions:
+ * the cookie is a self-contained 30-day bearer token with no server-side
+ * record, so before this an admin resetting a compromised PIN changed nothing
+ * for whoever already held the cookie — they kept access for the full 30 days.
+ * Changing the PIN changes pinHash, which changes this tag, which invalidates
+ * every signature minted against the old one.
+ *
+ * The tag is never written into the cookie; it's recomputed from the database
+ * row at verification time, so it can't be replayed or forged independently.
+ */
+function credentialTag(pinHash: string): string {
+  return crypto.createHash("sha256").update(pinHash).digest("hex").slice(0, 16);
 }
 
-function unpackCookie(value: string): { userId: string; expiresAt: number } | null {
+function signSession(userId: string, expiresAt: string | number, tag: string): string {
+  return sign(`${userId}.${expiresAt}.${tag}`);
+}
+
+function packCookie(userId: string, expiresAt: number, pinHash: string): string {
+  return `${userId}.${expiresAt}.${signSession(userId, expiresAt, credentialTag(pinHash))}`;
+}
+
+/** Splits the cookie without verifying — the signature needs the DB row. */
+function parseCookie(value: string): { userId: string; expiresAtStr: string; sig: string } | null {
   const parts = value.split(".");
   if (parts.length !== 3) return null;
   const [userId, expiresAtStr, sig] = parts;
-  const payload = `${userId}.${expiresAtStr}`;
-  const expected = sign(payload);
-  const sigBuf = Buffer.from(sig);
-  const expectedBuf = Buffer.from(expected);
-  if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
-    return null;
-  }
   const expiresAt = Number(expiresAtStr);
   if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return null;
-  return { userId, expiresAt };
+  return { userId, expiresAtStr, sig };
+}
+
+function signatureMatches(sig: string, expected: string): boolean {
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 export type SessionUser = {
@@ -55,16 +87,22 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   const store = await cookies();
   const raw = store.get(SESSION_COOKIE)?.value;
   if (!raw) return null;
-  const unpacked = unpackCookie(raw);
-  if (!unpacked) return null;
+  const parsed = parseCookie(raw);
+  if (!parsed) return null;
 
   const rows = await db
     .select()
     .from(appUser)
-    .where(eq(appUser.id, unpacked.userId))
+    .where(eq(appUser.id, parsed.userId))
     .limit(1);
   const user = rows[0];
   if (!user || !user.active) return null;
+
+  // Signature is verified against the row, so a PIN reset invalidates the
+  // cookie. `active` and `isAdmin` are likewise re-read every request, so
+  // deactivation and demotion already take effect immediately.
+  const expected = signSession(parsed.userId, parsed.expiresAtStr, credentialTag(user.pinHash));
+  if (!signatureMatches(parsed.sig, expected)) return null;
 
   return { id: user.id, name: user.name, isAdmin: user.isAdmin };
 }
@@ -100,9 +138,13 @@ export async function pageRequireAdmin(): Promise<SessionUser> {
 }
 
 export async function establishSession(userId: string): Promise<void> {
+  const rows = await db.select().from(appUser).where(eq(appUser.id, userId)).limit(1);
+  const user = rows[0];
+  if (!user) throw new Error("Cannot establish a session for an unknown user.");
+
   const store = await cookies();
   const expiresAt = Date.now() + SESSION_TTL_SECONDS * 1000;
-  store.set(SESSION_COOKIE, packCookie(userId, expiresAt), {
+  store.set(SESSION_COOKIE, packCookie(userId, expiresAt, user.pinHash), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -192,13 +234,18 @@ export function recordFailedAttempt(ip: string): void {
   const windowExpired = !entry || now - entry.windowStart > WINDOW_MS;
 
   const cumulativeFailures = (entry?.cumulativeFailures ?? 0) + 1;
-  const lockedUntil = cumulativeFailures >= LOCKOUT_AFTER ? now + LOCKOUT_MS : (entry?.lockedUntil ?? 0);
+  const tripsLockout = cumulativeFailures >= LOCKOUT_AFTER;
 
   attempts.set(ip, {
     windowCount: windowExpired ? 1 : entry.windowCount + 1,
     windowStart: windowExpired ? now : entry.windowStart,
-    cumulativeFailures,
-    lockedUntil,
+    // Serving the lockout resets the counter. Without this, cumulativeFailures
+    // stays >= LOCKOUT_AFTER forever, so every *subsequent* failure re-trips a
+    // fresh 15-minute lock — one packer fat-fingering their PIN 10 times would
+    // pin the warehouse's shared egress IP to one attempt per 15 minutes
+    // indefinitely, since only a successful login clears the entry.
+    cumulativeFailures: tripsLockout ? 0 : cumulativeFailures,
+    lockedUntil: tripsLockout ? now + LOCKOUT_MS : (entry?.lockedUntil ?? 0),
   });
 }
 

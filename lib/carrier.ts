@@ -15,6 +15,16 @@ export type CarrierDetection = {
 const EPG_PATTERN = /^EPG\d{15}$/;
 
 /**
+ * A run of one repeated digit ("0000000000") satisfies DHL's mod-7 check digit
+ * often enough to be accepted silently, but is never a real serial — it's a
+ * test barcode, a placeholder label, or a misfired scanner. Cheap to exclude,
+ * and it cannot reject a genuine parcel.
+ */
+function isDegenerateSerial(value: string): boolean {
+  return /^(\d)\1+$/.test(value);
+}
+
+/**
  * The one normalization every tracking number goes through before it's
  * compared, stored, or looked up anywhere in the app — scan-time detection,
  * the Shopify order index (webhook + backfill), duplicate checks. Two
@@ -56,8 +66,15 @@ export function detectCarrier(raw: string): CarrierDetection {
 
   // DHL Express serials run 10-11 digits (jkeen/tracking_number_data); don't
   // hard-code 10 or valid numbers like "73891051146" get rejected outright.
+  //
+  // Caveat worth knowing: DHL's check digit is mod-7 over 10 digits, so it only
+  // rejects ~9 of every 10 wrong numbers. Measured against this library, 10.1%
+  // of random 10-digit strings are accepted as valid DHL with no warning at all
+  // — e.g. "4085551234", a phone number. That is inherent to the format, not
+  // something a stricter regex can fix, so scanning a stray 10-digit barcode
+  // (an order number, a UPC) can still book a phantom parcel. Undo removes it.
   const dhlMatch = getTracking(trackingNumber, [dhlData]);
-  if (dhlMatch && /^\d{10,11}$/.test(trackingNumber)) {
+  if (dhlMatch && /^\d{10,11}$/.test(trackingNumber) && !isDegenerateSerial(trackingNumber)) {
     return { carrier: "dhl", trackingNumber, checksumValid: true };
   }
   if (/^\d{10,11}$/.test(trackingNumber)) {

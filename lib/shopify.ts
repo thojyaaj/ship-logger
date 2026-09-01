@@ -23,6 +23,12 @@
 
 const API_VERSION = "2026-10";
 
+// Matches the EPG and UPS clients, which both already set one. Without a
+// timeout a single hung socket parks the caller indefinitely — and the EPG
+// cron calls findOrderByName sequentially, once per pending scan, so one
+// stalled connection would hold the whole run until the platform kills it.
+const SHOPIFY_TIMEOUT_MS = 15_000;
+
 function store(): string {
   const value = process.env.SHOPIFY_STORE;
   if (!value) throw new Error("SHOPIFY_STORE is not set.");
@@ -50,9 +56,10 @@ async function getAccessToken(): Promise<string> {
       client_secret: clientSecret,
       grant_type: "client_credentials",
     }),
+    signal: AbortSignal.timeout(SHOPIFY_TIMEOUT_MS),
   });
   if (!res.ok) {
-    throw new Error(`Shopify token exchange failed: ${res.status} ${await res.text()}`);
+    throw new Error(`Shopify token exchange failed: ${res.status}`);
   }
   const data = (await res.json()) as { access_token: string; expires_in: number };
 
@@ -78,9 +85,10 @@ export async function shopifyGraphql<T>(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(SHOPIFY_TIMEOUT_MS),
   });
   if (!res.ok) {
-    throw new Error(`Shopify API error: ${res.status} ${await res.text()}`);
+    throw new Error(`Shopify API error: ${res.status}`);
   }
   const json = (await res.json()) as ShopifyGraphqlResult<T>;
   if (json.errors?.length) {
@@ -98,6 +106,15 @@ export type ResolvedOrder = { gid: string; name: string };
  * supported orders() filter, so this needs no webhook index.
  */
 export async function findOrderByName(name: string): Promise<ResolvedOrder | null> {
+  // `name` is EPG's ERef — a value from a third party, echoed off a printed
+  // label. It goes into Shopify's *search DSL*, not the GraphQL document (the
+  // document uses a $query variable, so the query structure is never at risk),
+  // but the DSL has its own operators: an ERef of `x OR financial_status:paid`
+  // would change which order `orders(first: 1)` returns and link a scan to an
+  // attacker-chosen order. Quoting the term makes Shopify treat it as a single
+  // literal phrase; the backslash-escape keeps a quote in the value from
+  // closing that phrase early.
+  const quoted = `"${name.replace(/["\\]/g, (ch) => `\\${ch}`)}"`;
   const data = await shopifyGraphql<{
     orders: { edges: { node: { id: string; name: string } }[] };
   }>(
@@ -106,10 +123,13 @@ export async function findOrderByName(name: string): Promise<ResolvedOrder | nul
         edges { node { id name } }
       }
     }`,
-    { query: `name:${name}` },
+    { query: `name:${quoted}` },
   );
   const node = data.orders.edges[0]?.node;
-  return node ? { gid: node.id, name: node.name } : null;
+  // Shopify's search is fuzzy even when quoted, so confirm the match is the
+  // order we actually asked for rather than trusting first-result ordering.
+  const node2 = node && node.name.replace(/^#/, "") === name.replace(/^#/, "") ? node : null;
+  return node2 ? { gid: node2.id, name: node2.name } : null;
 }
 
 export type OrderDetail = {

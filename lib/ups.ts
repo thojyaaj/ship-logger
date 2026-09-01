@@ -61,9 +61,14 @@ async function getAccessToken(): Promise<string> {
   const data = (await res.json()) as { access_token: string; expires_in: string | number };
 
   // Refresh 5 minutes early so a long-running request never straddles expiry.
+  // Guard the parse: an absent or non-numeric expires_in made this NaN, and
+  // `NaN > Date.now()` is false, so the cache never hit and every single call
+  // re-minted a token. Falls back to UPS's documented 4-hour lifetime.
+  const lifetimeSeconds = Number(data.expires_in);
+  const safeLifetime = Number.isFinite(lifetimeSeconds) && lifetimeSeconds > 0 ? lifetimeSeconds : 4 * 60 * 60;
   cachedToken = {
     token: data.access_token,
-    expiresAt: Date.now() + Number(data.expires_in) * 1000 - 5 * 60 * 1000,
+    expiresAt: Date.now() + safeLifetime * 1000 - 5 * 60 * 1000,
   };
   return cachedToken.token;
 }

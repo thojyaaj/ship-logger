@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { OrderDetail } from "@/lib/shopify";
 import { getOrderDetailAction } from "./order-actions";
+import { useDismissable } from "./useDismissable";
 
 /**
  * §9c click-through — "any tracking in history opens an order panel: order
@@ -12,6 +13,7 @@ import { getOrderDetailAction } from "./order-actions";
  */
 export default function OrderPanel({ orderGid, onClose }: { orderGid: string; onClose: () => void }) {
   const [order, setOrder] = useState<OrderDetail | null | undefined>(undefined);
+  useDismissable(onClose);
 
   useEffect(() => {
     let cancelled = false;
@@ -24,8 +26,11 @@ export default function OrderPanel({ orderGid, onClose }: { orderGid: string; on
   }, [orderGid]);
 
   return (
-    <div className="fixed inset-0 bg-ink/60 flex items-center justify-center p-4 z-30">
-      <div className="corners bg-paper-panel p-6 max-w-md w-full flex flex-col gap-4 max-h-[85vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-ink/60 flex items-center justify-center p-4 z-30" onClick={onClose}>
+      <div
+        className="corners bg-paper-panel p-6 max-w-md w-full flex flex-col gap-4 max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between route-line pb-3">
           <h2 className="font-stencil text-xl tracking-wide">
             {order === undefined ? "Loading…" : (order?.name ?? "Not found")}

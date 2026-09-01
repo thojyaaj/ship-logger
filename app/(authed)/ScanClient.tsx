@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import type { SessionDashboard } from "@/lib/shiplog";
 import type { SessionUser } from "@/lib/auth";
 import { carrierLabel, type Carrier } from "@/lib/carrier";
@@ -17,6 +17,8 @@ import SubmitDialog from "./SubmitDialog";
 import OrderPanel from "./OrderPanel";
 import ConfirmDialog from "./ConfirmDialog";
 import { useCommandPaletteState } from "./CommandPaletteState";
+import { actionErrorMessage } from "@/lib/error-message";
+import { withTransportRetry } from "@/lib/with-retry";
 
 type Banner =
   | { kind: "unrecognized"; trackingNumber: string }
@@ -150,18 +152,56 @@ export default function ScanClient({
 
   const { open: paletteOpen } = useCommandPaletteState();
 
+  // Monotonic id for dashboard-mutating requests. Every server response
+  // carries a full dashboard snapshot, so an older response landing after a
+  // newer one silently rewinds the manifest — scan A and scan B in flight
+  // together, A resolves second, and B disappears from the list even though
+  // it committed. Applying a snapshot only when its request is still the
+  // newest also fixes the mirror-image bug on the rollback paths, where a
+  // failed action restored a `previous` captured before a *later* action had
+  // already succeeded.
+  const requestSeq = useRef(0);
+  const beginRequest = useCallback(() => {
+    const id = ++requestSeq.current;
+    return () => id === requestSeq.current;
+  }, []);
+
+  const overlayOpen = Boolean(showSubmit || openOrderGid || showResetConfirm || paletteOpen);
+  const overlayOpenRef = useRef(overlayOpen);
+  // useLayoutEffect, not useEffect: this ref is read from a setTimeout
+  // scheduled in onBlur. Layout effects flush synchronously on commit, so the
+  // ref is already current by the time that macrotask runs; a passive effect
+  // is not guaranteed to be.
+  useLayoutEffect(() => {
+    overlayOpenRef.current = overlayOpen;
+  }, [overlayOpen]);
+
   const focusInput = useCallback(() => {
     // Never steal focus back while the submit dialog, order panel, reset
     // confirmation, or command palette is open — otherwise every
     // click/keystroke into their fields gets immediately yanked back to
     // this input via onBlur.
-    if (showSubmit || openOrderGid || showResetConfirm || paletteOpen) return;
+    //
+    // Reads a ref rather than the captured state values: onBlur fires before
+    // the click that caused it has updated state, so a closure captured at
+    // render time still sees every overlay as closed. Deferring the call
+    // alone (setTimeout) didn't fix that — it deferred *when* the stale
+    // closure ran, not *what* it saw.
+    if (overlayOpenRef.current) return;
     inputRef.current?.focus();
-  }, [showSubmit, openOrderGid, showResetConfirm, paletteOpen]);
+  }, []);
 
   useEffect(() => {
-    focusInput();
-  }, [focusInput]);
+    if (!overlayOpen) inputRef.current?.focus();
+  }, [overlayOpen]);
+
+  // Any pending scanner-burst timer must not outlive the component — it would
+  // fire submitScan for an unmounted screen after a mid-scan navigation.
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, []);
 
   const submitScan = useCallback(
     (raw: string, opts?: { forceCarrier?: Carrier; overrideChecksum?: boolean; forcePastDuplicate?: boolean }) => {
@@ -169,17 +209,25 @@ export default function ScanClient({
       if (!trimmed) return;
       setValue("");
       keyTimestamps.current = [];
+      const isNewest = beginRequest();
       startTransition(async () => {
         try {
-          const result = await scanAction(dashboard.session.id, trimmed, opts);
+          const result = await withTransportRetry(() => scanAction(dashboard.session.id, trimmed, opts));
           switch (result.status) {
             case "ok": {
-              setDashboard(result.dashboard);
-              setBanner(null);
-              const newest = result.dashboard.scans[0];
-              if (newest) {
-                setFlashScanId(newest.id);
-                setTimeout(() => setFlashScanId(null), 600);
+              // The tone and the accepted-scan flash always fire — this scan
+              // really did commit, and the packer is listening for that. Only
+              // the full-dashboard write is gated, because a snapshot from an
+              // older in-flight request would drop a newer scan from the list.
+              // A newer request's snapshot already contains this one.
+              if (isNewest()) {
+                setDashboard(result.dashboard);
+                setBanner(null);
+                const newest = result.dashboard.scans[0];
+                if (newest) {
+                  setFlashScanId(newest.id);
+                  setTimeout(() => setFlashScanId(null), 600);
+                }
               }
               playTone(ACCEPT_TONE_BY_CARRIER[result.carrier]);
               break;
@@ -199,6 +247,13 @@ export default function ScanClient({
               break;
             case "duplicate_in_session":
               playTone("duplicate");
+              // withTransportRetry wraps this call, and recordScan is not
+              // idempotent: if the first attempt committed but its response was
+              // dropped, the retry sees the row it just wrote and reports a
+              // duplicate. The scan really is recorded, so refresh from the
+              // server rather than leaving the manifest missing a parcel the
+              // packer just scanned.
+              if (result.dashboard && isNewest()) setDashboard(result.dashboard);
               setBanner({
                 kind: "duplicate_in_session",
                 trackingNumber: result.trackingNumber,
@@ -225,7 +280,7 @@ export default function ScanClient({
           // watching the parcel, not the screen, needs a loud signal that
           // this one didn't record, not a scan that vanishes with no trace.
           playTone("blocked");
-          const message = err instanceof Error ? err.message : "Scan failed — please rescan.";
+          const message = actionErrorMessage(err, "Scan failed — please rescan.");
           setBanner({ kind: "error", message: `"${trimmed}" — ${message}` });
           // Only refill the input if the packer hasn't already moved on to
           // scanning something else while this request was in flight.
@@ -234,7 +289,7 @@ export default function ScanClient({
         focusInput();
       });
     },
-    [dashboard.session.id, focusInput],
+    [dashboard.session.id, focusInput, beginRequest],
   );
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -267,6 +322,7 @@ export default function ScanClient({
   function undo(scanId: string) {
     const sessionId = dashboard.session.id;
     const previous = dashboard;
+    const isNewest = beginRequest();
     const target = previous.scans.find((s) => s.id === scanId);
     if (!target) return;
     setDashboard((d) => ({
@@ -279,21 +335,33 @@ export default function ScanClient({
     }));
     startTransition(async () => {
       try {
-        const updated = await undoScanAction(sessionId, scanId);
-        setDashboard(updated);
+        const updated = await withTransportRetry(() => undoScanAction(sessionId, scanId));
+        if (isNewest()) setDashboard(updated);
       } catch (err) {
-        setDashboard(previous);
+        // Only roll back if nothing newer has landed — `previous` predates any
+        // action the packer took while this one was in flight, so restoring it
+        // unconditionally would silently undo their newer, successful change.
+        if (isNewest()) setDashboard(previous);
         playTone("blocked");
-        setBanner({ kind: "error", message: err instanceof Error ? err.message : "Undo failed — please retry." });
+        setBanner({ kind: "error", message: actionErrorMessage(err, "Undo failed — please retry.") });
       }
       focusInput();
     });
   }
 
   function newBox() {
+    const isNewest = beginRequest();
     startTransition(async () => {
-      const updated = await createBoxAction(dashboard.session.id);
-      setDashboard(updated);
+      try {
+        const updated = await createBoxAction(dashboard.session.id);
+        if (isNewest()) setDashboard(updated);
+      } catch (err) {
+        // Previously unguarded: two packers pressing "New Box" at the same
+        // instant collide on the unique (session, box_number) index, and the
+        // loser's rejection surfaced as the button simply doing nothing.
+        playTone("blocked");
+        setBanner({ kind: "error", message: actionErrorMessage(err, "Couldn't add a box — please retry.") });
+      }
       focusInput();
     });
   }
@@ -301,15 +369,16 @@ export default function ScanClient({
   function activateBox(boxId: string) {
     const sessionId = dashboard.session.id;
     const previous = dashboard;
+    const isNewest = beginRequest();
     setDashboard((d) => ({ ...d, session: { ...d.session, activeBoxId: boxId } }));
     startTransition(async () => {
       try {
-        const updated = await setActiveBoxAction(sessionId, boxId);
-        setDashboard(updated);
+        const updated = await withTransportRetry(() => setActiveBoxAction(sessionId, boxId));
+        if (isNewest()) setDashboard(updated);
       } catch (err) {
-        setDashboard(previous);
+        if (isNewest()) setDashboard(previous);
         playTone("blocked");
-        setBanner({ kind: "error", message: err instanceof Error ? err.message : "Couldn't switch box — please retry." });
+        setBanner({ kind: "error", message: actionErrorMessage(err, "Couldn't switch box — please retry.") });
       }
       focusInput();
     });
@@ -318,6 +387,7 @@ export default function ScanClient({
   function removeBox(boxId: string) {
     const sessionId = dashboard.session.id;
     const previous = dashboard;
+    const isNewest = beginRequest();
     setDashboard((d) => ({
       ...d,
       boxes: d.boxes.filter((b) => b.id !== boxId),
@@ -325,12 +395,12 @@ export default function ScanClient({
     }));
     startTransition(async () => {
       try {
-        const updated = await removeEmptyBoxAction(sessionId, boxId);
-        setDashboard(updated);
+        const updated = await withTransportRetry(() => removeEmptyBoxAction(sessionId, boxId));
+        if (isNewest()) setDashboard(updated);
       } catch (err) {
-        setDashboard(previous);
+        if (isNewest()) setDashboard(previous);
         playTone("blocked");
-        setBanner({ kind: "error", message: err instanceof Error ? err.message : "Couldn't remove box — please retry." });
+        setBanner({ kind: "error", message: actionErrorMessage(err, "Couldn't remove box — please retry.") });
       }
       focusInput();
     });
@@ -338,10 +408,20 @@ export default function ScanClient({
 
   function confirmResetDay() {
     setShowResetConfirm(false);
+    const isNewest = beginRequest();
     startTransition(async () => {
-      const updated = await resetSessionAction(dashboard.session.id);
-      setDashboard(updated);
-      setBanner(null);
+      try {
+        const updated = await resetSessionAction(dashboard.session.id);
+        if (isNewest()) {
+          setDashboard(updated);
+          setBanner(null);
+        }
+      } catch (err) {
+        // Reset Day wipes the session; failing it silently left the packer
+        // believing the day had been cleared when it hadn't.
+        playTone("blocked");
+        setBanner({ kind: "error", message: actionErrorMessage(err, "Reset failed — please retry.") });
+      }
       focusInput();
     });
   }
@@ -438,15 +518,13 @@ export default function ScanClient({
             value={value}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            // Deferred, not called directly: onBlur fires before the click
-            // that caused it updates state (e.g. tapping a manifest row's
-            // order button), so focusInput() would still see the *old*
-            // openOrderGid/showSubmit/etc. and steal focus back before that
-            // click's own state update lands — on touch devices, refocusing
-            // mid-blur can cancel the pending click outright, which read as
-            // "tapping an order just scrolls back to the input" instead of
-            // opening the modal. Deferring to the next tick lets the click's
-            // state update (and re-render) finish first.
+            // Deferred to the next macrotask so the click that caused the blur
+            // can land first: refocusing synchronously during blur cancels the
+            // pending click outright on touch devices, which read as "tapping
+            // an order just scrolls back to the input" instead of opening the
+            // panel. focusInput itself reads overlay state from a ref, so by
+            // the time this runs it sees the click's committed state rather
+            // than the stale closure it would otherwise have captured.
             onBlur={() => setTimeout(focusInput, 0)}
             autoFocus
             placeholder="Scan or type a tracking number, then press Enter"

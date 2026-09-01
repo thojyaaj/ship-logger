@@ -43,6 +43,16 @@ export async function POST(req: Request) {
     return new NextResponse("Invalid signature", { status: 401 });
   }
 
+  // Defence in depth behind the HMAC: this app serves exactly one store, so a
+  // correctly-signed delivery for any other shop domain is not something we
+  // should index. Cheap, and it means a future multi-store credential mix-up
+  // can't quietly write another store's fulfilments into this order index.
+  const shopDomain = req.headers.get("x-shopify-shop-domain");
+  const expectedShop = process.env.SHOPIFY_STORE;
+  if (expectedShop && shopDomain && shopDomain !== expectedShop) {
+    return new NextResponse("Unexpected shop domain", { status: 401 });
+  }
+
   let payload: FulfillmentWebhookPayload;
   try {
     payload = JSON.parse(rawBody);

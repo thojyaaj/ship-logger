@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { deleteShipmentAction } from "../../scan-actions";
 import ConfirmDialog from "../../ConfirmDialog";
+import { actionErrorMessage } from "@/lib/error-message";
+import { withTransportRetry } from "@/lib/with-retry";
 
 export default function DeleteShipmentButton({ sessionId, shipDate }: { sessionId: string; shipDate: string }) {
   const [showConfirm, setShowConfirm] = useState(false);
@@ -44,11 +46,11 @@ export default function DeleteShipmentButton({ sessionId, shipDate }: { sessionI
             setDeleted(true);
             startTransition(async () => {
               try {
-                await deleteShipmentAction(sessionId);
+                await withTransportRetry(() => deleteShipmentAction(sessionId));
                 router.push("/shipments");
               } catch (err) {
                 setDeleted(false);
-                setError(err instanceof Error ? err.message : "Failed to delete shipment.");
+                setError(actionErrorMessage(err, "Failed to delete shipment."));
               }
             });
           }}

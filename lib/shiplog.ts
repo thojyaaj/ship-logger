@@ -11,6 +11,14 @@ function today(): string {
   return localCalendarDate();
 }
 
+/**
+ * Distinguishes "this shipment id doesn't exist" from "the database is down".
+ * Callers used to `catch {}` every error into a 404, so a connection failure
+ * rendered as a clean "not found" page — hiding a real outage behind a result
+ * that looks like normal, expected behaviour.
+ */
+export class ShipmentNotFoundError extends Error {}
+
 export type BoxSummary = {
   id: string;
   boxNumber: number;
@@ -50,7 +58,7 @@ async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
     .where(eq(shipmentSession.id, sessionId))
     .limit(1);
   const session = sessionRows[0];
-  if (!session) throw new Error("Session not found.");
+  if (!session) throw new ShipmentNotFoundError("Session not found.");
 
   const boxRows = await db.select().from(box).where(eq(box.sessionId, sessionId));
   const scanRows = await db
@@ -103,6 +111,16 @@ async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
   }
 
   return { session, boxes, scans, totals, userNames };
+}
+
+/**
+ * `%` and `_` are wildcards inside a LIKE/ILIKE pattern. Values searched here
+ * are user-typed tracking numbers and AWBs, so they must match literally.
+ * Backslash is Postgres's default LIKE escape character and has to be escaped
+ * first, or it would escape the escapes we add.
+ */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
 const POSTGRES_UNIQUE_VIOLATION = "23505";
@@ -193,6 +211,14 @@ export type RecordScanResult =
       trackingNumber: string;
       boxNumber: number | null;
       carrier: Carrier;
+      /**
+       * Current server state. recordScan is not idempotent but the client
+       * retries it on transport failures, so a first attempt that committed
+       * and then lost its response comes back here as a "duplicate". Returning
+       * the dashboard lets the client show the scan that really was recorded
+       * instead of silently dropping it from the manifest.
+       */
+      dashboard: SessionDashboard;
     }
   | {
       status: "duplicate_previous_shipment";
@@ -248,6 +274,7 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
         trackingNumber,
         boxNumber: existingBox?.boxNumber ?? null,
         carrier: finalCarrier,
+        dashboard: await loadDashboard(input.sessionId),
       };
     }
 
@@ -275,6 +302,12 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
     // Admin override: the old row is deleted so the unique constraint on
     // tracking_number can be satisfied by the new one. The record of it
     // having shipped before only lived in that other session's row anyway.
+    //
+    // The session-open check has to happen BEFORE this delete. It used to run
+    // a few lines below, which meant overriding into a non-open session
+    // destroyed the prior shipment's record and *then* threw — the parcel's
+    // history was gone and nothing replaced it.
+    await assertSessionOpen(input.sessionId);
     await db.delete(scan).where(eq(scan.id, existing.id));
   }
 
@@ -293,24 +326,51 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
       const existingBoxes = await db.select().from(box).where(eq(box.sessionId, input.sessionId));
       const nextNumber = existingBoxes.reduce((max, b) => Math.max(max, b.boxNumber), 0) + 1;
       const id = newId();
-      await db.insert(box).values({ id, sessionId: input.sessionId, boxNumber: nextNumber });
-      await db
-        .update(shipmentSession)
-        .set({ activeBoxId: id })
-        .where(eq(shipmentSession.id, input.sessionId));
-      activeBox = { id, sessionId: input.sessionId, boxNumber: nextNumber, upsTracking: null };
+      try {
+        await db.insert(box).values({ id, sessionId: input.sessionId, boxNumber: nextNumber });
+        await db
+          .update(shipmentSession)
+          .set({ activeBoxId: id })
+          .where(eq(shipmentSession.id, input.sessionId));
+        activeBox = { id, sessionId: input.sessionId, boxNumber: nextNumber, upsTracking: null };
+      } catch (err) {
+        // Two packers scanning the day's first EPG parcel at the same instant
+        // both read activeBoxId=null and both compute box 1; the unique index
+        // on (session_id, box_number) rejects the loser. That rejection used
+        // to propagate out of recordScan *before* the scan row was inserted —
+        // so the parcel was physically in the box with no record of it, the
+        // worst possible outcome here. Adopt the box the winner created.
+        if (!isUniqueViolation(err)) throw err;
+        const winner = (
+          await db
+            .select()
+            .from(box)
+            .where(and(eq(box.sessionId, input.sessionId), eq(box.boxNumber, nextNumber)))
+        )[0];
+        if (!winner) throw err;
+        activeBox = winner;
+      }
     }
     boxId = activeBox.id;
     boxNumber = activeBox.boxNumber;
   }
 
-  const countRow = await db
-    .select({ count: sql<number>`count(*)` })
+  // Highest sequence so far, not count(*). With count(*) the number was reused
+  // after any undo — scan three parcels (1,2,3), undo #2, and the next scan
+  // computed count=2 → sequence 3, colliding with the existing #3. There is no
+  // unique index on (session_id, sequence) to catch it, and loadDashboard
+  // orders by sequence, so two parcels rendered as the same number in an
+  // arbitrary order. max()+1 is monotonic across undos and matches how box
+  // numbers are already allocated.
+  //
+  // postgres-js returns aggregates as strings (bigint-safe) — Number() before
+  // arithmetic or string concatenation silently misbehaves. max() is null on
+  // an empty session, hence the ?? 0.
+  const maxRow = await db
+    .select({ max: sql<number | null>`max(${scan.sequence})` })
     .from(scan)
     .where(eq(scan.sessionId, input.sessionId));
-  // postgres-js returns count(*) as a string (bigint-safe) — Number() it
-  // before arithmetic, or string concatenation silently misbehaves.
-  const sequence = Number(countRow[0]?.count ?? 0) + 1;
+  const sequence = Number(maxRow[0]?.max ?? 0) + 1;
 
   // §9c: UPS/DHL enrichment is a local, no-network lookup against the
   // webhook-fed index (§9b) — never a live Shopify call at scan time. EPG
@@ -338,10 +398,32 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
   return { status: "ok", dashboard, carrier: finalCarrier, boxNumber };
 }
 
+/**
+ * Editing history is an admin-only capability (deleteShipment is gated behind
+ * requireAdmin). The per-scan/per-box edit actions are only requireUser, so
+ * they must refuse to touch a session that is no longer open — otherwise any
+ * packer can open a *submitted* shipment, read every scan id straight out of
+ * the RSC payload, and undo them one by one to empty it, reaching the same
+ * destructive end state the admin gate exists to prevent.
+ */
+async function assertSessionOpen(sessionId: string): Promise<void> {
+  const session = (
+    await db.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId))
+  )[0];
+  if (!session) throw new Error("Shipment not found.");
+  if (session.status !== "open") {
+    throw new Error("This shipment is no longer open — reopen it before editing.");
+  }
+}
+
 export async function undoScan(sessionId: string, scanId: string): Promise<SessionDashboard> {
+  await assertSessionOpen(sessionId);
   const target = (await db.select().from(scan).where(eq(scan.id, scanId)))[0];
-  if (!target || target.sessionId !== sessionId) throw new Error("Scan not found in this session.");
-  await db.delete(scan).where(eq(scan.id, scanId));
+  if (target && target.sessionId !== sessionId) throw new Error("Scan not found in this session.");
+  // No `target` at all means a retried request after a dropped response
+  // landed here once the first attempt already undid it — already the
+  // desired end state, not an error.
+  if (target) await db.delete(scan).where(eq(scan.id, scanId));
   return loadDashboard(sessionId);
 }
 
@@ -387,41 +469,81 @@ export async function submitSession(input: SubmitInput): Promise<SubmitResult> {
     };
   }
 
-  for (const [boxId, tracking] of Object.entries(input.boxUpsTracking)) {
-    if (tracking.trim()) {
-      await db.update(box).set({ upsTracking: tracking.trim() }).where(eq(box.id, boxId));
-    }
+  // shipDate is stored as plain text and drives `listShipments`' equality
+  // filter and the daily-volume chart's zero-fill lookup, so a malformed value
+  // doesn't error — it silently makes the whole day disappear from both.
+  const requestedShipDate = input.shipDate.trim();
+  if (requestedShipDate && !/^\d{4}-\d{2}-\d{2}$/.test(requestedShipDate)) {
+    return { status: "error", message: "Ship date must be in YYYY-MM-DD format." };
   }
 
-  await db
-    .update(shipmentSession)
-    .set({
-      status: "submitted",
-      submittedAt: nowSqlTimestamp(),
-      submittedBy: input.userId,
-      shipDate: input.shipDate || dashboard.session.shipDate,
-      notes: input.notes,
-      awbNumber: input.awbNumber.trim() || null,
-      masterUpsTracking: input.masterUpsTracking.trim() || null,
-    })
-    .where(eq(shipmentSession.id, input.sessionId));
+  // One transaction: previously the per-box tracking writes committed
+  // individually before the session update, so a failure partway left boxes
+  // stamped with tracking numbers on a still-open shipment.
+  const submitted = await db.transaction(async (tx) => {
+    for (const [boxId, tracking] of Object.entries(input.boxUpsTracking)) {
+      if (tracking.trim()) {
+        // Scoped to this session's boxes, not just `box.id`. boxUpsTracking is
+        // a client-supplied map and Server Actions are callable directly, so an
+        // unscoped update let any packer write tracking numbers onto boxes
+        // belonging to someone else's shipment.
+        await tx
+          .update(box)
+          .set({ upsTracking: tracking.trim() })
+          .where(and(eq(box.id, boxId), eq(box.sessionId, input.sessionId)));
+      }
+    }
+
+    const rows = await tx
+      .update(shipmentSession)
+      .set({
+        status: "submitted",
+        submittedAt: nowSqlTimestamp(),
+        submittedBy: input.userId,
+        shipDate: requestedShipDate || dashboard.session.shipDate,
+        notes: input.notes,
+        awbNumber: input.awbNumber.trim() || null,
+        masterUpsTracking: input.masterUpsTracking.trim() || null,
+      })
+      // `status = open` in the WHERE, not just the id: the check at the top of
+      // this function reads through a separate query, so two packers pressing
+      // Submit together both passed it and both wrote, last-write-wins. Now the
+      // second update matches zero rows and is reported as already submitted.
+      .where(and(eq(shipmentSession.id, input.sessionId), eq(shipmentSession.status, "open")))
+      .returning({ id: shipmentSession.id });
+
+    return rows.length > 0;
+  });
+
+  if (!submitted) {
+    return { status: "error", message: "This shipment was already submitted." };
+  }
 
   return { status: "ok" };
 }
 
 export async function removeEmptyBox(sessionId: string, boxId: string): Promise<SessionDashboard> {
+  await assertSessionOpen(sessionId);
   const target = (await db.select().from(box).where(eq(box.id, boxId)))[0];
-  if (!target || target.sessionId !== sessionId) throw new Error("Box not found in this session.");
-  const countRow = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(scan)
-    .where(eq(scan.boxId, boxId));
-  if ((countRow[0]?.count ?? 0) > 0) throw new Error("Box has scans — cannot remove.");
+  if (target && target.sessionId !== sessionId) throw new Error("Box not found in this session.");
+  // No `target` at all means a retried request after a dropped response
+  // landed here once the first attempt already removed it — already the
+  // desired end state, not an error.
+  if (target) {
+    const countRow = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(scan)
+      .where(eq(scan.boxId, boxId));
+    // Number() like every other count in this file — postgres-js returns
+    // count(*) as a string, and `"0" > 0` only happens to work via JS numeric
+    // coercion. This was the one comparison still relying on that.
+    if (Number(countRow[0]?.count ?? 0) > 0) throw new Error("Box has scans — cannot remove.");
 
-  const session = (await db.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId)))[0];
-  await db.delete(box).where(eq(box.id, boxId));
-  if (session?.activeBoxId === boxId) {
-    await db.update(shipmentSession).set({ activeBoxId: null }).where(eq(shipmentSession.id, sessionId));
+    const session = (await db.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId)))[0];
+    await db.delete(box).where(eq(box.id, boxId));
+    if (session?.activeBoxId === boxId) {
+      await db.update(shipmentSession).set({ activeBoxId: null }).where(eq(shipmentSession.id, sessionId));
+    }
   }
   return loadDashboard(sessionId);
 }
@@ -477,7 +599,12 @@ export async function resetSession(
 
 export async function reopenSession(sessionId: string, reopenedByName: string): Promise<void> {
   const session = (await db.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId)))[0];
-  if (!session || session.status !== "submitted") throw new Error("Only a submitted session can be reopened.");
+  if (!session) throw new Error("Shipment not found.");
+  // A retried request after a dropped response lands here once the first
+  // attempt already went through — the desired end state is already true,
+  // so this is success, not "only a submitted session can be reopened."
+  if (session.status === "open") return;
+  if (session.status !== "submitted") throw new Error("Only a submitted session can be reopened.");
 
   // Only one session can be "open" at a time — that's what makes "the open
   // session" an unambiguous concept for scanning. Block reopening a second
@@ -490,13 +617,22 @@ export async function reopenSession(sessionId: string, reopenedByName: string): 
   }
 
   const stamp = `[Reopened by ${reopenedByName} at ${nowSqlTimestamp()} UTC]`;
-  await db
-    .update(shipmentSession)
-    .set({
-      status: "open",
-      notes: session.notes ? `${session.notes}\n${stamp}` : stamp,
-    })
-    .where(eq(shipmentSession.id, sessionId));
+  try {
+    await db
+      .update(shipmentSession)
+      .set({
+        status: "open",
+        notes: session.notes ? `${session.notes}\n${stamp}` : stamp,
+      })
+      .where(eq(shipmentSession.id, sessionId));
+  } catch (err) {
+    // The "is anything else open?" check above is a separate read, so two
+    // reopens racing each other both pass it. A partial unique index on
+    // status='open' correctly rejects the loser — but the raw 23505 used to
+    // surface to the packer as an unreadable Postgres error.
+    if (!isUniqueViolation(err)) throw err;
+    throw new Error("Another shipment was opened at the same time — refresh and try again.");
+  }
 }
 
 /**
@@ -511,7 +647,9 @@ export async function deleteShipment(sessionId: string): Promise<void> {
     const session = (
       await tx.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId))
     )[0];
-    if (!session) throw new Error("Shipment not found.");
+    // A retried request after a dropped response lands here once the first
+    // attempt already deleted it — that's the desired end state, not an error.
+    if (!session) return;
     if (session.status === "open") {
       throw new Error("Cannot delete the open session — use Reset Day instead.");
     }
@@ -552,7 +690,7 @@ export async function listShipments(opts?: ListShipmentsOptions): Promise<Shipme
     const matches = await db
       .select({ sessionId: scan.sessionId })
       .from(scan)
-      .where(sql`upper(${scan.trackingNumber}) LIKE ${"%" + normalized + "%"}`);
+      .where(sql`upper(${scan.trackingNumber}) LIKE ${"%" + escapeLikePattern(normalized) + "%"}`);
     sessionIds = [...new Set(matches.map((m) => m.sessionId))];
     if (sessionIds.length === 0) return [];
   }
@@ -611,13 +749,16 @@ export type ShipmentPaletteHit = {
 export async function searchShipmentsForPalette(query: string, limit = 8): Promise<ShipmentPaletteHit[]> {
   const term = query.trim();
   if (term.length < 2) return [];
-  const like = `%${term}%`;
+  // Escape LIKE metacharacters. Drizzle parameterizes the value so there's no
+  // injection risk, but an unescaped `%` or `_` in a searched AWB or tracking
+  // number is still treated as a wildcard, silently widening the match.
+  const like = `%${escapeLikePattern(term)}%`;
 
   const normalizedTracking = term.toUpperCase().replace(/\s+/g, "");
   const trackingMatches = await db
     .select({ sessionId: scan.sessionId })
     .from(scan)
-    .where(sql`upper(${scan.trackingNumber}) LIKE ${"%" + normalizedTracking + "%"}`);
+    .where(sql`upper(${scan.trackingNumber}) LIKE ${"%" + escapeLikePattern(normalizedTracking) + "%"}`);
   const trackingSessionIds = [...new Set(trackingMatches.map((m) => m.sessionId))];
 
   const sessions = await db
