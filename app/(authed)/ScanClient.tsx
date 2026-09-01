@@ -16,6 +16,7 @@ import {
 import SubmitDialog from "./SubmitDialog";
 import OrderPanel from "./OrderPanel";
 import ConfirmDialog from "./ConfirmDialog";
+import SwipeableScanRow from "./SwipeableScanRow";
 import { useCommandPaletteState } from "./CommandPaletteState";
 import { actionErrorMessage } from "@/lib/error-message";
 import { withTransportRetry } from "@/lib/with-retry";
@@ -41,7 +42,7 @@ type Banner =
 // silently render as tag-label's default ink-faint gray instead of the
 // intended carrier color, which is why every other accent color in this app
 // already uses the `!` prefix.
-const CARRIER_COLOR: Record<Carrier, string> = {
+export const CARRIER_COLOR: Record<Carrier, string> = {
   epg: "bg-orange-dim !text-orange-ink",
   ups: "bg-blue-dim !text-blue-ink",
   dhl: "bg-amber-dim !text-amber-ink",
@@ -69,7 +70,7 @@ const CARRIER_TINT: Record<Carrier, string> = {
 // tile's label nearly touched its edges while its neighbors had room to
 // spare) and shifted the manifest's tracking-number column per row. Fixed
 // three-letter codes here match the Shipments Log's EPG/UPS/DHL convention.
-const CARRIER_SHORT_LABEL: Record<Carrier, string> = {
+export const CARRIER_SHORT_LABEL: Record<Carrier, string> = {
   epg: "EPG",
   ups: "UPS",
   dhl: "DHL",
@@ -150,7 +151,7 @@ function playTone(kind: ToneKind) {
   }
 }
 
-function timeAgo(dbTimestamp: string): string {
+export function timeAgo(dbTimestamp: string): string {
   const diff = Date.now() - parseDbTimestamp(dbTimestamp).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "just now";
@@ -179,6 +180,21 @@ export default function ScanClient({
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { open: paletteOpen } = useCommandPaletteState();
+
+  // Scan input / session row / box chips stick just below the app header
+  // instead of scrolling away — measured rather than hardcoded since the
+  // header's own height isn't fixed (it wraps on narrow widths, and the
+  // barcode strip/operator label change what's visible at each breakpoint).
+  const [headerHeight, setHeaderHeight] = useState(0);
+  useEffect(() => {
+    const header = document.getElementById("app-header");
+    if (!header) return;
+    const update = () => setHeaderHeight(header.offsetHeight);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
 
   // Monotonic id for dashboard-mutating requests. Every server response
   // carries a full dashboard snapshot, so an older response landing after a
@@ -473,110 +489,116 @@ export default function ScanClient({
 
   return (
     <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
-      {/* Scan input. A hardware scanner types into this like a keyboard and
-          ends with Enter (§8.3) — the button is a manual-entry fallback for
-          testing and for typing a number in by hand. First thing on the
-          page, right under the app header — the one control a packer is
-          using nonstop, not something to scroll past every time. */}
-      <div className="flex flex-col gap-2">
-        <span className="tag-label">Scan input</span>
-        <div className="corners flex gap-px bg-line">
-          <input
-            ref={inputRef}
-            value={value}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            // Deferred to the next macrotask so the click that caused the blur
-            // can land first: refocusing synchronously during blur cancels the
-            // pending click outright on touch devices, which read as "tapping
-            // an order just scrolls back to the input" instead of opening the
-            // panel. focusInput itself reads overlay state from a ref, so by
-            // the time this runs it sees the click's committed state rather
-            // than the stale closure it would otherwise have captured.
-            onBlur={() => setTimeout(focusInput, 0)}
-            autoFocus
-            placeholder="Scan or type a tracking number, then press Enter"
-            // min-w-0 overrides a flex item's default min-width:auto — without
-            // it, this input refuses to shrink below its content's intrinsic
-            // width and pushes the row past a phone's viewport (measured
-            // 422px content in a 375px viewport before this).
-            className="data flex-1 min-w-0 text-2xl px-4 py-4 bg-paper-panel focus:bg-white outline-none placeholder:text-ink-faint placeholder:text-base placeholder:font-condensed"
-          />
-          <button
-            type="button"
-            onClick={() => submitScan(value)}
-            disabled={!value.trim()}
-            className="btn px-6 bg-ink text-paper text-lg disabled:opacity-30"
-          >
-            Add
-          </button>
-        </div>
-        {isPending && <span className="text-sm text-ink-faint data">PROCESSING…</span>}
-      </div>
-
-      <div className="flex items-baseline justify-between route-line pb-2">
-        <span className="tag-label">Session {dashboard ? dashboard.session.id.slice(0, 8) : "—"}</span>
-        <div className="flex items-baseline gap-4">
-          <span className="tag-label">{dashboard?.session.shipDate ?? localCalendarDate()}</span>
-          {dashboard && (
+      {/* Static top section — scan input, session row, and box chips stay
+          put under the app header at all times; everything from Banners
+          down scrolls normally underneath. bg-paper keeps manifest rows
+          from showing through once this is stuck mid-scroll. */}
+      <div className="sticky z-[5] bg-paper flex flex-col gap-6 pb-2" style={{ top: headerHeight }}>
+        {/* Scan input. A hardware scanner types into this like a keyboard and
+            ends with Enter (§8.3) — the button is a manual-entry fallback for
+            testing and for typing a number in by hand. First thing on the
+            page, right under the app header — the one control a packer is
+            using nonstop, not something to scroll past every time. */}
+        <div className="flex flex-col gap-2">
+          <span className="tag-label">Scan input</span>
+          <div className="corners flex gap-px bg-line">
+            <input
+              ref={inputRef}
+              value={value}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              // Deferred to the next macrotask so the click that caused the blur
+              // can land first: refocusing synchronously during blur cancels the
+              // pending click outright on touch devices, which read as "tapping
+              // an order just scrolls back to the input" instead of opening the
+              // panel. focusInput itself reads overlay state from a ref, so by
+              // the time this runs it sees the click's committed state rather
+              // than the stale closure it would otherwise have captured.
+              onBlur={() => setTimeout(focusInput, 0)}
+              autoFocus
+              placeholder="Scan or type a tracking number, then press Enter"
+              // min-w-0 overrides a flex item's default min-width:auto — without
+              // it, this input refuses to shrink below its content's intrinsic
+              // width and pushes the row past a phone's viewport (measured
+              // 422px content in a 375px viewport before this).
+              className="data flex-1 min-w-0 text-2xl px-4 py-4 bg-paper-panel focus:bg-white outline-none placeholder:text-ink-faint placeholder:text-base placeholder:font-condensed"
+            />
             <button
               type="button"
-              onClick={() => setShowResetConfirm(true)}
-              className="tag-label !text-red hover:!text-red-ink"
-              title="Discard all of today's scans and start over"
+              onClick={() => submitScan(value)}
+              disabled={!value.trim()}
+              className="btn px-6 bg-ink text-paper text-lg disabled:opacity-30"
             >
-              Reset Day
+              Add
             </button>
-          )}
+          </div>
+          {isPending && <span className="text-sm text-ink-faint data">PROCESSING…</span>}
         </div>
-      </div>
 
-      {/* EPG box chips (§8.6) */}
-      <div className="flex flex-wrap items-center gap-2">
-        {dashboard &&
-          dashboard.boxes.map((b) => (
-            <div key={b.id} className="flex items-stretch">
+        <div className="flex items-baseline justify-between route-line pb-2">
+          <span className="tag-label">Session {dashboard ? dashboard.session.id.slice(0, 8) : "—"}</span>
+          <div className="flex items-baseline gap-4">
+            <span className="tag-label">{dashboard?.session.shipDate ?? localCalendarDate()}</span>
+            {dashboard && (
               <button
                 type="button"
-                onClick={() => activateBox(b.id)}
-                className={`data px-4 py-2 font-semibold text-base border ${
-                  dashboard.session.activeBoxId === b.id
-                    ? "border-orange bg-orange text-paper"
-                    : "border-line-strong bg-paper-panel text-ink hover:border-ink"
-                }`}
+                onClick={() => setShowResetConfirm(true)}
+                className="tag-label !text-red hover:!text-red-ink"
+                title="Discard all of today's scans and start over"
               >
-                BOX {String(b.boxNumber).padStart(2, "0")} <span className="opacity-60">·</span> {b.scanCount}
+                Reset Day
               </button>
-              {b.scanCount === 0 && (
+            )}
+          </div>
+        </div>
+
+        {/* EPG box chips (§8.6) */}
+        <div className="flex flex-wrap items-center gap-2">
+          {dashboard &&
+            dashboard.boxes.map((b) => (
+              <div key={b.id} className="flex items-stretch">
                 <button
                   type="button"
-                  onClick={() => removeBox(b.id)}
-                  title="Remove empty box"
-                  className={`px-2 border border-l-0 text-sm ${
+                  onClick={() => activateBox(b.id)}
+                  className={`data px-4 py-2 font-semibold text-base border ${
                     dashboard.session.activeBoxId === b.id
                       ? "border-orange bg-orange text-paper"
-                      : "border-line-strong bg-paper-panel text-ink-soft"
+                      : "border-line-strong bg-paper-panel text-ink hover:border-ink"
                   }`}
                 >
-                  ✕
+                  BOX {String(b.boxNumber).padStart(2, "0")} <span className="opacity-60">·</span> {b.scanCount}
                 </button>
-              )}
-            </div>
-          ))}
-        <button
-          type="button"
-          onClick={newBox}
-          disabled={!dashboard}
-          title={dashboard ? undefined : "Scan a parcel first to start today's shipment"}
-          className="data px-4 py-2 font-semibold text-base border border-dashed border-line-strong text-ink-soft hover:border-ink hover:text-ink disabled:opacity-30 disabled:hover:border-line-strong disabled:hover:text-ink-soft"
-        >
-          + New Box
-        </button>
-        {boxSumMismatch && (
-          <span className="text-red font-semibold text-sm ml-2 data">
-            ⚠ Box counts ({boxCountSum}) ≠ EPG total ({dashboard.totals.epg})
-          </span>
-        )}
+                {b.scanCount === 0 && (
+                  <button
+                    type="button"
+                    onClick={() => removeBox(b.id)}
+                    title="Remove empty box"
+                    className={`px-2 border border-l-0 text-sm ${
+                      dashboard.session.activeBoxId === b.id
+                        ? "border-orange bg-orange text-paper"
+                        : "border-line-strong bg-paper-panel text-ink-soft"
+                    }`}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          <button
+            type="button"
+            onClick={newBox}
+            disabled={!dashboard}
+            title={dashboard ? undefined : "Scan a parcel first to start today's shipment"}
+            className="data px-4 py-2 font-semibold text-base border border-dashed border-line-strong text-ink-soft hover:border-ink hover:text-ink disabled:opacity-30 disabled:hover:border-line-strong disabled:hover:text-ink-soft"
+          >
+            + New Box
+          </button>
+          {boxSumMismatch && (
+            <span className="text-red font-semibold text-sm ml-2 data">
+              ⚠ Box counts ({boxCountSum}) ≠ EPG total ({dashboard.totals.epg})
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Banners */}
@@ -606,48 +628,14 @@ export default function ScanClient({
         <ul className="flex flex-col border-t border-line">
           {dashboard &&
             dashboard.scans.map((s) => (
-              <li
+              <SwipeableScanRow
                 key={s.id}
-                className={`flex items-center gap-3 px-3 py-2.5 border-b border-line transition-colors ${
-                  flashScanId === s.id ? "bg-green-dim" : "bg-paper-panel"
-                }`}
-              >
-                <span
-                  className={`tag-label !text-[0.6rem] px-1.5 py-1 w-12 shrink-0 text-center ${CARRIER_COLOR[s.carrier]}`}
-                >
-                  {CARRIER_SHORT_LABEL[s.carrier]}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => s.orderGid && setOpenOrderGid(s.orderGid)}
-                  disabled={!s.orderGid}
-                  className="flex-1 flex flex-col items-start text-left min-w-0"
-                >
-                  <span className="data text-sm">{s.trackingNumber}</span>
-                  {s.orderName ? (
-                    <span className="text-xs text-blue hover:underline">{s.orderName}</span>
-                  ) : s.carrier === "ups" || s.carrier === "dhl" ? (
-                    <span className="text-xs text-ink-faint">no order match yet</span>
-                  ) : null}
-                </button>
-                {s.boxNumber && (
-                  <span className="tag-label">BOX {String(s.boxNumber).padStart(2, "0")}</span>
-                )}
-                {/* Who/when is useful context but not essential to a packer's
-                    next tap — dropped on narrow screens so the tracking number
-                    and Undo button (the two things actually needed mid-pack)
-                    keep real room instead of getting squeezed. */}
-                <span className="hidden sm:inline tag-label !normal-case !tracking-normal !text-ink-soft">
-                  {dashboard.userNames[s.scannedBy] ?? "?"} · {timeAgo(s.scannedAt)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => undo(s.id)}
-                  className="tag-label !text-red hover:!text-red-ink"
-                >
-                  Undo
-                </button>
-              </li>
+                scan={s}
+                scannedByName={dashboard.userNames[s.scannedBy] ?? "?"}
+                isFlashing={flashScanId === s.id}
+                onOpenOrder={setOpenOrderGid}
+                onUndo={undo}
+              />
             ))}
           {(!dashboard || dashboard.scans.length === 0) && (
             <li className="text-ink-faint text-sm py-8 text-center border-b border-line data">
