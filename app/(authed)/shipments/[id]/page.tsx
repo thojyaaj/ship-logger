@@ -58,15 +58,22 @@ export default async function ShipmentDetailPage({
             </Link>
             <h1 className="font-stencil text-2xl tracking-wide mt-1">{session.shipDate}</h1>
           </div>
-          <span
-            className={`tag-label px-3 py-1 shrink-0 ${
+          {/* Bigger than the standard tag-label size (0.65rem) so status
+              — the thing a packer scans this page for — actually stands
+              out, with the submitted timestamp as a quieter second line
+              rather than its own metadata box further down the page. */}
+          <div
+            className={`flex flex-col items-end gap-0.5 px-3 py-2 shrink-0 ${
               session.status === "submitted"
                 ? "bg-green-dim !text-green-ink"
                 : "bg-amber-dim !text-amber-ink"
             }`}
           >
-            {session.status}
-          </span>
+            <span className="tag-label !text-base">{session.status}</span>
+            {session.status === "submitted" && session.submittedAt && (
+              <span className="font-condensed text-xs">{formatWarehouseTimestamp(session.submittedAt)}</span>
+            )}
+          </div>
         </div>
 
         {/* One row, always — flex-nowrap keeps Reopen / Delete / DHL Pickup
@@ -111,55 +118,42 @@ export default async function ShipmentDetailPage({
         </div>
       </div>
 
-      {/* Shipment metadata — its own grid (the parent's gap-6 supplies the
-          space above), 3-up on mobile wrapping to a second row, 5-up on
-          desktop so a fully populated EPG shipment's AWB/Master UPS
-          tracking/status/Opened/Submitted all land in a single row.
-          Opened/Submitted span the full row on mobile instead of packing
-          into the 3-column grid — with 5 items that leaves an empty
-          trailing cell that reads as a 6th, blank box. Centered on desktop
-          per the metadata grid's own alignment (independent of the courier
-          grid above). */}
-      <div className="grid grid-cols-3 md:grid-cols-5 gap-px bg-line text-sm md:text-center">
-        {session.awbNumber && <Field label="AWB" value={session.awbNumber} mono />}
-        {session.masterUpsTracking && (
-          <Field
-            label="Master UPS tracking"
-            value={session.masterUpsTracking}
-            href={trackingUrl("ups", session.masterUpsTracking) ?? undefined}
-            mono
-          />
-        )}
-        {session.masterUpsTracking && (
-          <div className="bg-paper-panel p-3 min-w-0">
-            <div className="tag-label">Master UPS Status</div>
-            <div className="mt-1">
-              <span
-                className={`tag-label !text-[0.65rem] px-1.5 py-0.5 inline-block ${statusTone(session.masterUpsStatusLabel)}`}
-              >
-                {session.masterUpsStatusLabel ?? "STATUS PENDING"}
-              </span>
+      {/* Shipment metadata — AWB/Master UPS status/tracking only. Opened is
+          just noise (nobody's asked when packing started) and Submitted now
+          lives as the second line of the status tag above, not its own box.
+          2 cols on mobile, 3 on desktop (one line, full width) — Status
+          before Tracking (DOM order) so on mobile AWB+Status share row 1
+          and Tracking falls to row 2 on its own, exactly as asked; on
+          desktop all three just sit in the single 3-col row regardless of
+          order. */}
+      {(session.awbNumber || session.masterUpsTracking) && (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-px bg-line text-sm">
+          {session.awbNumber && <Field label="AWB" value={session.awbNumber} mono />}
+          {session.masterUpsTracking && (
+            <div className="bg-paper-panel p-3 min-w-0">
+              <div className="tag-label">Master UPS Status</div>
+              <div className="mt-1">
+                <span
+                  className={`tag-label !text-[0.65rem] px-1.5 py-0.5 inline-block ${statusTone(session.masterUpsStatusLabel)}`}
+                >
+                  {session.masterUpsStatusLabel ?? "STATUS PENDING"}
+                </span>
+              </div>
+              {session.masterUpsStatusAt && (
+                <div className="data text-xs text-ink-faint mt-1">as of {session.masterUpsStatusAt}</div>
+              )}
             </div>
-            {session.masterUpsStatusAt && (
-              <div className="data text-xs text-ink-faint mt-1">as of {session.masterUpsStatusAt}</div>
-            )}
-          </div>
-        )}
-        {/* Wrapped so Opened/Submitted sit side by side as their own row on
-            mobile (instead of each spanning the full row and stacking) —
-            md:contents drops the wrapper at the desktop breakpoint so both
-            Fields rejoin the 5-col grid directly, unaffected. */}
-        <div className="col-span-3 grid grid-cols-2 gap-px md:contents">
-          <Field label="Opened" value={formatWarehouseTimestamp(session.openedAt)} className="md:col-span-1" />
-          {session.submittedAt && (
+          )}
+          {session.masterUpsTracking && (
             <Field
-              label="Submitted"
-              value={formatWarehouseTimestamp(session.submittedAt)}
-              className="md:col-span-1"
+              label="Master UPS tracking"
+              value={session.masterUpsTracking}
+              href={trackingUrl("ups", session.masterUpsTracking) ?? undefined}
+              mono
             />
           )}
         </div>
-      </div>
+      )}
 
       {session.notes && (
         <div className="border-l-4 border-line-strong bg-paper-dim p-3 text-sm whitespace-pre-wrap font-condensed">
