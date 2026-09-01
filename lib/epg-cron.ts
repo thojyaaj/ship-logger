@@ -20,6 +20,13 @@ export type EpgCronResult = {
   ordersResolved: number;
   orderResolutionMisses: number; // ERef present but no matching Shopify order — a real data problem (§9a)
   orderResolutionErrors: number; // Shopify lookup itself failed (rate limit, transient API error) — retried next run
+  /**
+   * Parcels EPG returned no data for at all. Distinguishes "EPG hasn't ingested
+   * this label yet / doesn't know it" from "we fetched it but couldn't match an
+   * order" — without this the two are indistinguishable in the response, and
+   * they have completely different causes and fixes.
+   */
+  epgNoRecord: number;
 };
 
 /**
@@ -59,6 +66,7 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
       ordersResolved: 0,
       orderResolutionMisses: 0,
       orderResolutionErrors: 0,
+      epgNoRecord: 0,
     };
   }
 
@@ -69,10 +77,33 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
   let ordersResolved = 0;
   let orderResolutionMisses = 0;
   let orderResolutionErrors = 0;
+  let epgNoRecord = 0;
   const now = nowSqlTimestamp();
   for (const s of pending) {
     const record = results.get(s.trackingNumber);
     if (!record) {
+      epgNoRecord += 1;
+      // EPG returned nothing for this parcel on this poll. That used to end
+      // the iteration outright — but if a previous poll already stored an
+      // ERef, we can still resolve the Shopify order from it without EPG
+      // telling us anything new. Skipping that was why a parcel could sit
+      // with a known ERef and permanently no order number.
+      if (s.epgExternalRef && !s.orderGid) {
+        try {
+          const order = await findOrderByName(s.epgExternalRef);
+          if (order) {
+            await db
+              .update(scan)
+              .set({ orderGid: order.gid, orderName: order.name, statusCheckedAt: now })
+              .where(eq(scan.id, s.id));
+            ordersResolved += 1;
+            continue;
+          }
+          orderResolutionMisses += 1;
+        } catch {
+          orderResolutionErrors += 1;
+        }
+      }
       await db.update(scan).set({ statusCheckedAt: now }).where(eq(scan.id, s.id));
       continue;
     }
@@ -109,8 +140,10 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
     await db
       .update(scan)
       .set({
-        epgExternalRef: record.externalRef,
-        epgFinalMile: record.finalMileTracking,
+        // Never overwrite a known ERef with null. EPG omitting the field on one
+        // poll shouldn't erase the value a later run needs to match the order.
+        epgExternalRef: externalRef,
+        epgFinalMile: record.finalMileTracking ?? s.epgFinalMile,
         statusCode: record.latestEvent ? String(record.latestEvent.categoryId) : null,
         statusLabel: record.latestEvent?.event ?? null,
         statusAt: record.latestEvent?.eventAt ?? null,
@@ -128,5 +161,6 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
     ordersResolved,
     orderResolutionMisses,
     orderResolutionErrors,
+    epgNoRecord,
   };
 }

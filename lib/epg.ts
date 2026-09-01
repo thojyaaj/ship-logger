@@ -23,21 +23,23 @@ const BATCH_SIZE = 25; // matches the epgtrack.com UI's own input cap
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_RECORDS = 500; // >> BATCH_SIZE; guards against unbounded array growth
 
-// The captured argument list is bounded three ways, all deliberate:
-//   - `(?=')` — every real call opens with a quoted argument, so this rejects
-//     a bare `transactionDetails(` immediately instead of scanning forward.
-//   - `[^"]` — the call sits inside an onclick="..." attribute, so its
-//     arguments cannot legitimately contain a double quote.
-//   - `{0,16384}` — an explicit length cap, sized well above the largest real
-//     record observed (a 60-event parcel is ~10KB) so nothing is dropped.
-// The previous `([\s\S]*?)` was unbounded, and because it's lazy it rescanned
-// to end-of-input for every `transactionDetails(` that had no following `)"`.
-// That is quadratic: measured 12ms at 38KB, 218ms at 152KB, 3.9s at 608KB, and
-// 32s at 2MB — enough for one bad response from this uncontracted third party
-// to block Node's single event loop and stall the whole instance. Measured
-// after: 2ms on that same garbage, 3.5s on a worst case crafted to defeat the
-// lookahead, and byte-identical output on real-shaped input.
-const CALL_RE = /transactionDetails\((?=')([^"]{0,16384}?)\)"/g;
+// Character class and laziness are IDENTICAL to the original `([\s\S]*?)`.
+// The one and only change is the `{0,16384}` length cap.
+//
+// The original was unbounded, and being lazy it rescanned to end-of-input for
+// every `transactionDetails(` with no following `)"` — quadratic, measured at
+// 32s on a 2MB body, enough for one bad response from this uncontracted third
+// party to block Node's event loop and stall the instance. Capping the scan
+// window fixes that: 3.4s on the same 2MB worst case.
+//
+// An earlier attempt also added `(?=')` and `[^"]` to narrow the scan further.
+// Both were wrong: they assumed the call always opens with a single quote and
+// never contains a double quote, and each silently dropped parcels whose real
+// markup differed (`transactionDetails( '…` with a space, or any `"` in the
+// arguments). A dropped match means a parcel gets no status and no order
+// number at all, which is far worse than the DoS those extra guards bought —
+// especially since the length cap alone already provides the bound.
+const CALL_RE = /transactionDetails\(([\s\S]{0,16384}?)\)"/g;
 const ARG_RE = /'([^']*)'/g;
 
 export type EpgEvent = {
