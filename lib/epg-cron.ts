@@ -19,6 +19,7 @@ export type EpgCronResult = {
   stillPending: number;
   ordersResolved: number;
   orderResolutionMisses: number; // ERef present but no matching Shopify order — a real data problem (§9a)
+  orderResolutionErrors: number; // Shopify lookup itself failed (rate limit, transient API error) — retried next run
 };
 
 /**
@@ -40,7 +41,14 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
   const pending = allRecent.filter((s) => !isTerminal(s.statusLabel));
 
   if (pending.length === 0) {
-    return { candidates: allRecent.length, updated: 0, stillPending: 0, ordersResolved: 0, orderResolutionMisses: 0 };
+    return {
+      candidates: allRecent.length,
+      updated: 0,
+      stillPending: 0,
+      ordersResolved: 0,
+      orderResolutionMisses: 0,
+      orderResolutionErrors: 0,
+    };
   }
 
   const trackingNumbers = pending.map((s) => s.trackingNumber);
@@ -49,6 +57,7 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
   let updated = 0;
   let ordersResolved = 0;
   let orderResolutionMisses = 0;
+  let orderResolutionErrors = 0;
   const now = nowSqlTimestamp();
   for (const s of pending) {
     const record = results.get(s.trackingNumber);
@@ -59,18 +68,26 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
 
     // §9a: resolve the Shopify order via ERef once EPG has ingested it.
     // Skip if already resolved on a prior run — ERef doesn't change once set.
+    // findOrderByName hits the Shopify Admin API and can throw (rate limit,
+    // transient 5xx) — caught per-scan so one bad lookup doesn't abort the
+    // rest of this batch's status updates, matching every other external
+    // call in this cron (§8.9: never let one bad thing take the rest down).
     let orderGid: string | null = null;
     let orderName: string | null = null;
     if (record.externalRef && !s.orderGid) {
-      const order = await findOrderByName(record.externalRef);
-      if (order) {
-        orderGid = order.gid;
-        orderName = order.name;
-        ordersResolved += 1;
-      } else {
-        // ERef present but no matching order — a genuine data problem
-        // (mislabeled parcel, wrong order name format), not a transient miss.
-        orderResolutionMisses += 1;
+      try {
+        const order = await findOrderByName(record.externalRef);
+        if (order) {
+          orderGid = order.gid;
+          orderName = order.name;
+          ordersResolved += 1;
+        } else {
+          // ERef present but no matching order — a genuine data problem
+          // (mislabeled parcel, wrong order name format), not a transient miss.
+          orderResolutionMisses += 1;
+        }
+      } catch {
+        orderResolutionErrors += 1;
       }
     }
 
@@ -95,5 +112,6 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
     stillPending: pending.length - updated,
     ordersResolved,
     orderResolutionMisses,
+    orderResolutionErrors,
   };
 }

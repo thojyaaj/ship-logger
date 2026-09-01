@@ -438,7 +438,16 @@ export default function ScanClient({
             value={value}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            onBlur={focusInput}
+            // Deferred, not called directly: onBlur fires before the click
+            // that caused it updates state (e.g. tapping a manifest row's
+            // order button), so focusInput() would still see the *old*
+            // openOrderGid/showSubmit/etc. and steal focus back before that
+            // click's own state update lands — on touch devices, refocusing
+            // mid-blur can cancel the pending click outright, which read as
+            // "tapping an order just scrolls back to the input" instead of
+            // opening the modal. Deferring to the next tick lets the click's
+            // state update (and re-render) finish first.
+            onBlur={() => setTimeout(focusInput, 0)}
             autoFocus
             placeholder="Scan or type a tracking number, then press Enter"
             // min-w-0 overrides a flex item's default min-width:auto — without
