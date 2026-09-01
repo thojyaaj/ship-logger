@@ -30,9 +30,9 @@ export default function ScanTable({
     <div className="overflow-x-auto border border-line">
       <table className="w-full text-sm table-fixed">
         <colgroup>
-          <col className="w-[38%] md:w-[20%]" />
-          <col className="w-[24%] md:w-[14%]" />
-          <col className="w-[38%] md:w-[28%]" />
+          <col className="w-[60%] md:w-[20%]" />
+          <col className="w-[40%] md:w-[14%]" />
+          <col className="hidden md:table-column md:w-[28%]" />
           <col className="hidden md:table-column md:w-[13%]" />
           <col className="hidden md:table-column md:w-[25%]" />
         </colgroup>
@@ -40,10 +40,10 @@ export default function ScanTable({
           <tr>
             <th className="text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
             <th className="text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Status</th>
-            {/* Scanned By/At are useful on desktop for auditing but just
-                crowd the tracking/order columns on a phone-width screen —
-                dropped there rather than shrunk further. */}
+            {/* Status/Scanned By/At are useful on desktop for auditing but
+                just crowd the tracking/order columns on a phone-width
+                screen — dropped there rather than shrunk further. */}
+            <th className="hidden md:table-cell text-left px-3 py-2 tag-label !text-ink-faint">Status</th>
             <th className="hidden md:table-cell text-left px-3 py-2 tag-label !text-ink-faint">Scanned By</th>
             <th className="hidden md:table-cell text-left px-3 py-2 tag-label !text-ink-faint">Scanned At</th>
           </tr>
@@ -75,7 +75,7 @@ export default function ScanTable({
                     <span className="text-ink-faint">—</span>
                   )}
                 </td>
-                <td className="px-3 py-2 text-ink-faint data">{r.statusLabel ?? "—"}</td>
+                <td className="hidden md:table-cell px-3 py-2 text-ink-faint data">{r.statusLabel ?? "—"}</td>
                 <td className="hidden md:table-cell px-3 py-2 font-condensed truncate">
                   {userNames[r.scannedBy] ?? "?"}
                 </td>
