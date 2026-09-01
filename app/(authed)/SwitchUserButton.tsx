@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { switchUser } from "./actions";
 
-export default function SwitchUserButton() {
+export default function SwitchUserButton({ className }: { className?: string }) {
   const router = useRouter();
   return (
     <button
@@ -13,7 +13,7 @@ export default function SwitchUserButton() {
         router.replace("/login");
         router.refresh();
       }}
-      className="btn border border-paper/30 text-paper/70 hover:text-paper hover:border-paper/60 px-3 py-1.5"
+      className={`btn border border-paper/30 text-paper/70 hover:text-paper hover:border-paper/60 px-3 py-1.5 ${className ?? ""}`}
     >
       Switch
     </button>

@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useDismissable } from "./useDismissable";
+import { switchUser } from "./actions";
 
 export default function MobileNav({
   isAdmin,
@@ -51,6 +53,7 @@ function MobileNavDrawer({
   // the app (SubmitDialog, ConfirmDialog, OrderPanel) — this component only
   // mounts while the drawer is open, matching what the hook expects.
   useDismissable(onClose);
+  const router = useRouter();
 
   return (
     <div className="fixed inset-0 z-30 md:hidden" role="dialog" aria-modal="true">
@@ -86,6 +89,20 @@ function MobileNavDrawer({
             DHL Pickup
           </MobileNavLink>
         )}
+        {/* Desktop keeps this as its own header button — here on mobile it's
+            just another drawer action, same treatment as the nav links. */}
+        <button
+          type="button"
+          onClick={async () => {
+            onClose();
+            await switchUser();
+            router.replace("/login");
+            router.refresh();
+          }}
+          className="px-3 py-2.5 text-left text-paper/70 hover:text-paper hover:bg-paper/10 transition-colors font-condensed font-semibold uppercase text-sm tracking-widest"
+        >
+          Switch user
+        </button>
       </div>
     </div>
   );

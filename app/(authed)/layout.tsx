@@ -34,7 +34,9 @@ export default async function AuthedLayout({ children }: { children: React.React
                 <span className="text-paper font-semibold">{user.name}</span>
               </span>
               <CommandPalette isAdmin={user.isAdmin} />
-              <SwitchUserButton />
+              {/* Mobile gets this as an entry inside the hamburger drawer
+                  instead — see MobileNav.tsx. */}
+              <SwitchUserButton className="hidden md:inline-flex" />
               <MobileNav isAdmin={user.isAdmin} operatorName={user.name} />
             </div>
           </div>
