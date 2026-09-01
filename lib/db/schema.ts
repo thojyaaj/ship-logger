@@ -4,6 +4,7 @@ import {
   text,
   integer,
   boolean,
+  real,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
@@ -115,3 +116,71 @@ export const shopifyOrderIndex = pgTable("shopify_order_index", {
   destination: text("destination"),
   updatedAt: text("updated_at").notNull().default(nowUtcText),
 });
+
+// Single settings row for DHL Express pickup scheduling — one warehouse, one
+// pickup address/account, so a fixed-id singleton rather than a keyed table
+// (see lib/dhl-pickup.ts's SETTINGS_ID). Deliberately does NOT hold API
+// credentials: DHL_CLIENT_ID/DHL_CLIENT_SECRET are real secrets and follow
+// this app's existing env-var-only convention (UPS_CLIENT_ID/SECRET,
+// SHOPIFY_CLIENT_ID/SECRET) — nothing here is sensitive enough to need that,
+// it's business configuration an admin should be able to edit without a
+// redeploy.
+export const dhlPickupSettings = pgTable("dhl_pickup_settings", {
+  id: text("id").primaryKey(),
+  accountNumber: text("account_number").notNull(),
+  contactName: text("contact_name").notNull(),
+  contactPhone: text("contact_phone").notNull(),
+  addressLine1: text("address_line1").notNull(),
+  addressLine2: text("address_line2"),
+  city: text("city").notNull(),
+  state: text("state").notNull(),
+  postalCode: text("postal_code").notNull(),
+  countryCode: text("country_code").notNull().default("US"),
+  readyTime: text("ready_time").notNull(), // "HH:MM", warehouse-local
+  closeTime: text("close_time").notNull(), // "HH:MM", warehouse-local
+  // We don't weigh individual packages — DHL's pickup request wants a total
+  // weight, so this is a per-parcel estimate multiplied by the day's DHL
+  // parcel count. Editable, not hardcoded, since that average is a business
+  // assumption that may need adjusting later.
+  avgWeightLbPerParcel: real("avg_weight_lb_per_parcel").notNull().default(1),
+  specialInstructions: text("special_instructions"),
+  updatedAt: text("updated_at").notNull().default(nowUtcText),
+  updatedBy: text("updated_by").references(() => appUser.id),
+});
+
+// One row per DHL pickup request attempt against a submitted shipment.
+// Deliberately NOT part of shipment_session — a shipment can accumulate
+// multiple rows across retries (a failed attempt, then a successful one; a
+// successful one, then cancelled and re-requested), and this keeps that
+// history instead of overwriting it.
+export const dhlPickupRequest = pgTable(
+  "dhl_pickup_request",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => shipmentSession.id),
+    requestedBy: text("requested_by")
+      .notNull()
+      .references(() => appUser.id),
+    requestedAt: text("requested_at").notNull().default(nowUtcText),
+    status: text("status", { enum: ["requested", "failed", "cancelled"] }).notNull(),
+    dispatchConfirmationNumber: text("dispatch_confirmation_number"),
+    parcelCount: integer("parcel_count").notNull(),
+    totalWeightLb: real("total_weight_lb").notNull(),
+    errorMessage: text("error_message"),
+    cancelledAt: text("cancelled_at"),
+    cancelledBy: text("cancelled_by").references(() => appUser.id),
+  },
+  // At most one *active* (successfully booked, not yet cancelled) pickup per
+  // shipment — DHL's own docs note that cancelling a pickup cancels the whole
+  // consolidated pickup, not one shipment within it, so silently allowing two
+  // live bookings for the same shipment would be a real, hard-to-untangle
+  // mistake. A failed attempt or a cancelled one doesn't hold this lock, so
+  // retrying after either is unaffected.
+  (t) => [
+    uniqueIndex("dhl_pickup_request_one_active_idx")
+      .on(t.sessionId)
+      .where(sql`${t.status} = 'requested'`),
+  ],
+);

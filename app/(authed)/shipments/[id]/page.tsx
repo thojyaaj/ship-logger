@@ -7,6 +7,8 @@ import { trackingUrl, statusTone } from "@/lib/carrier";
 import ReopenButton from "./ReopenButton";
 import DeleteShipmentButton from "./DeleteShipmentButton";
 import ScanTable from "./ScanTable";
+import DhlPickupPanel from "./DhlPickupPanel";
+import { getLatestPickupRequest } from "@/lib/dhl-pickup";
 
 export default async function ShipmentDetailPage({
   params,
@@ -27,6 +29,9 @@ export default async function ShipmentDetailPage({
     throw err;
   }
   const { session, boxes, scans, totals, userNames } = dashboard;
+
+  const showDhlPickup = user.isAdmin && session.status === "submitted" && totals.dhl > 0;
+  const pickupRequest = showDhlPickup ? await getLatestPickupRequest(session.id) : null;
 
   const boxedScans = new Map<string, typeof scans>();
   const unboxedScans: typeof scans = [];
@@ -105,6 +110,8 @@ export default async function ShipmentDetailPage({
           <Field label="Submitted" value={formatWarehouseTimestamp(session.submittedAt)} />
         )}
       </div>
+
+      {showDhlPickup && <DhlPickupPanel sessionId={session.id} initialRequest={pickupRequest} />}
 
       {session.notes && (
         <div className="border-l-4 border-line-strong bg-paper-dim p-3 text-sm whitespace-pre-wrap font-condensed">

@@ -63,3 +63,41 @@ export function localCalendarDate(date: Date = new Date()): string {
   // way to get that shape straight out of Intl without hand-assembling it.
   return new Intl.DateTimeFormat("en-CA", { timeZone: WAREHOUSE_TZ }).format(date);
 }
+
+/**
+ * Combines a calendar date and a "HH:MM" wall-clock time into a full
+ * ISO-8601 timestamp carrying the warehouse's *actual* UTC offset for that
+ * specific date — e.g. "2026-07-04T09:00:00-05:00" in CDT vs
+ * "2026-01-04T09:00:00-06:00" in CST. Needed by anything that hands a
+ * timestamp to an external API expecting a real offset (DHL's pickup
+ * scheduling), not just a bare local time.
+ *
+ * Not a fixed "-06:00" constant: `America/Chicago` observes daylight saving,
+ * so the correct offset depends on which side of the DST transition the date
+ * falls on. Getting this wrong doesn't error, it just puts the pickup window
+ * an hour off — the kind of bug that's invisible until enough of the year has
+ * passed to hit the other side of the transition, which is exactly why it's
+ * computed here from Intl rather than hardcoded.
+ */
+export function warehouseIsoWithOffset(shipDate: string, hhmm: string): string {
+  // A local Date constructed from the same wall-clock values, purely to ask
+  // Intl "what offset does the warehouse zone use around this date" — the
+  // constructed Date's own zone is irrelevant, only the y/m/d/h/m values are
+  // used to answer that question for the correct side of any DST transition.
+  const [y, m, d] = shipDate.split("-").map(Number);
+  const [hh, mm] = hhmm.split(":").map(Number);
+  const probe = new Date(y, m - 1, d, hh, mm);
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: WAREHOUSE_TZ,
+    timeZoneName: "shortOffset",
+  }).formatToParts(probe);
+  // e.g. "GMT-5" or "GMT-6" — never fractional for this zone.
+  const raw = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT+0";
+  const match = /GMT([+-])(\d{1,2})(?::?(\d{2}))?/.exec(raw);
+  const sign = match?.[1] ?? "+";
+  const offsetH = (match?.[2] ?? "0").padStart(2, "0");
+  const offsetM = (match?.[3] ?? "00").padStart(2, "0");
+
+  return `${shipDate}T${hhmm}:00${sign}${offsetH}:${offsetM}`;
+}

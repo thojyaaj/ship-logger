@@ -24,6 +24,7 @@ export default async function AuthedLayout({ children }: { children: React.React
                 <NavLink href="/">Scan</NavLink>
                 <NavLink href="/shipments">Shipments</NavLink>
                 {user.isAdmin && <NavLink href="/admin/users">Admin</NavLink>}
+                {user.isAdmin && <NavLink href="/admin/dhl-pickup">DHL Pickup</NavLink>}
               </nav>
             </div>
             <div className="flex items-center gap-3 text-sm shrink-0">

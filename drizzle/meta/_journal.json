@@ -29,6 +29,13 @@
       "when": 1788189279305,
       "tag": "0003_shipment_session_one_open",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788279172605,
+      "tag": "0004_dhl_pickup",
+      "breakpoints": true
     }
   ]
 }
