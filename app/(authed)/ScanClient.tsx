@@ -46,23 +46,49 @@ const CARRIER_ACCENT: Record<Carrier, string> = {
   unknown: "text-ink-faint",
 };
 
-type ToneKind = "accept" | "duplicate" | "checksum_warning" | "unrecognized" | "blocked";
+type ToneKind =
+  | "accept_epg"
+  | "accept_ups"
+  | "accept_dhl"
+  | "duplicate"
+  | "checksum_warning"
+  | "unrecognized"
+  | "blocked";
 
 // Each error kind gets a genuinely different sound, not just "warning" for
 // everything — a packer looking at the box, not the screen, needs to tell
 // "already scanned, fine" apart from "stop, this already shipped" by ear.
 // Pleasant tones use a sine wave; error tones use a buzzier square wave, and
 // severity increases with note count/duration (§8.4).
+//
+// Accept tones are split per carrier so a packer can hear *which* courier
+// just got scanned without looking up — each is a calm sine chime (neutral,
+// not alarming) but shaped differently (register + note count) so the three
+// are easy to tell apart by ear, not just by pitch.
 const TONES: Record<ToneKind, { freqs: number[]; wave: OscillatorType; gain: number; step: number }> = {
-  accept: { freqs: [1568, 2093], wave: "sine", gain: 0.3, step: 0.08 },
+  accept_epg: { freqs: [1568, 2093], wave: "sine", gain: 0.3, step: 0.08 },
+  accept_ups: { freqs: [1319, 1760], wave: "sine", gain: 0.3, step: 0.09 },
+  accept_dhl: { freqs: [1175, 1568, 1976], wave: "sine", gain: 0.3, step: 0.06 },
   duplicate: { freqs: [1046, 1046], wave: "sine", gain: 0.3, step: 0.1 },
   // Sawtooth is the brightest/harshest standard waveform — full harmonic
   // series vs. triangle's mellow, fast-decaying one — hence "sharper."
   checksum_warning: { freqs: [1200, 700], wave: "sawtooth", gain: 0.4, step: 0.1 },
   unrecognized: { freqs: [900, 500, 900, 500], wave: "square", gain: 0.4, step: 0.1 },
-  // Siren wail: fast alternation over a wide range, loudest and longest of
-  // the set — this is the one blocking a mis-scan from shipping again (§8.4b).
-  blocked: { freqs: [1400, 700, 1400, 700, 1400, 700], wave: "square", gain: 0.45, step: 0.09 },
+  // Deliberately ugly "wrong buzzer": low, dissonant (near-tritone) sawtooth
+  // alternation — the opposite register and timbre of the accept chimes
+  // above, so it reads as unmistakably bad, not just "another notification."
+  // This is the one blocking a mis-scan from shipping again (§8.4b).
+  blocked: { freqs: [196, 138, 196, 138, 196, 138], wave: "sawtooth", gain: 0.5, step: 0.1 },
+};
+
+// A successful scan's carrier is always a real courier, never "unknown"
+// (that path returns "unrecognized" instead) — the fallback here only
+// guards against that invariant changing, so it never goes silent.
+const ACCEPT_TONE_BY_CARRIER: Record<Carrier, ToneKind> = {
+  epg: "accept_epg",
+  ups: "accept_ups",
+  dhl: "accept_dhl",
+  unknown: "accept_epg",
 };
 
 function playTone(kind: ToneKind) {
@@ -155,7 +181,7 @@ export default function ScanClient({
                 setFlashScanId(newest.id);
                 setTimeout(() => setFlashScanId(null), 600);
               }
-              playTone("accept");
+              playTone(ACCEPT_TONE_BY_CARRIER[result.carrier]);
               break;
             }
             case "unrecognized":
