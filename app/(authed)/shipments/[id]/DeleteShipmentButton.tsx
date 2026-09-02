@@ -25,9 +25,12 @@ export default function DeleteShipmentButton({ sessionId, shipDate }: { sessionI
         type="button"
         disabled={isPending || deleted}
         onClick={() => setShowConfirm(true)}
-        className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-red text-red-ink hover:bg-red-dim disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
+        // Mobile: solid fill, no border — see ReopenButton for why red-ink
+        // text alone didn't hold up against this bar's bg-ink. Desktop
+        // keeps the original outline pill, unchanged.
+        className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1.5 md:gap-1 px-3 md:px-4 py-3.5 md:py-2 bg-red text-paper hover:bg-red-ink md:bg-transparent md:border md:border-red md:text-red-ink md:hover:bg-red-dim disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
       >
-        <TrashIcon className="w-5 h-5 md:hidden" />
+        <TrashIcon className="w-7 h-7 md:hidden" />
         <span className="hidden md:inline">{deleted ? "Deleted" : "Delete"}</span>
       </button>
 

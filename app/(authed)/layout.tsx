@@ -4,47 +4,56 @@ import SwitchUserButton from "./SwitchUserButton";
 import CommandPalette from "./CommandPalette";
 import { CommandPaletteStateProvider } from "./CommandPaletteState";
 import MobileNav from "./MobileNav";
+import ScanHeaderMobileActions from "./ScanHeaderMobileActions";
+import { ScanHeaderStateProvider } from "./ScanHeaderState";
 
 export default async function AuthedLayout({ children }: { children: React.ReactNode }) {
   const user = await pageRequireUser();
 
   return (
-    <CommandPaletteStateProvider>
-      <div className="flex flex-col min-h-screen">
-        <header id="app-header" className="sticky top-0 z-10 bg-ink text-paper">
-          <div className="flex items-center justify-between gap-4 px-4 md:px-6 py-3 flex-wrap">
-            {/* flex-wrap here too, not just on the outer row — otherwise the
-                logo+nav group overflows the phone's viewport as one rigid
-                unrelated to whether the outer row wraps around it. */}
-            <div className="flex items-center gap-3 sm:gap-6 md:gap-8 flex-wrap">
-              <Link href="/" className="flex items-baseline gap-2 shrink-0">
-                <span className="font-stencil text-xl tracking-wide">SHIP LOGGER</span>
-                <span className="tag-label !text-orange hidden sm:inline">MANIFEST SYS.</span>
-              </Link>
-              <nav className="hidden md:flex flex-wrap gap-1 text-sm">
-                <NavLink href="/">Scan</NavLink>
-                <NavLink href="/shipments">Shipments</NavLink>
-                {user.isAdmin && <NavLink href="/admin/users">Admin</NavLink>}
-                {user.isAdmin && <NavLink href="/admin/dhl-pickup">DHL Pickup</NavLink>}
-              </nav>
+    <ScanHeaderStateProvider>
+      <CommandPaletteStateProvider>
+        <div className="flex flex-col min-h-screen">
+          <header id="app-header" className="sticky top-0 z-10 bg-ink text-paper">
+            <div className="flex items-center justify-between gap-4 px-4 md:px-6 py-3 flex-wrap">
+              {/* flex-wrap here too, not just on the outer row — otherwise the
+                  logo+nav group overflows the phone's viewport as one rigid
+                  unrelated to whether the outer row wraps around it. */}
+              <div className="flex items-center gap-3 sm:gap-6 md:gap-8 flex-wrap">
+                <Link href="/" className="flex items-baseline gap-2 shrink-0">
+                  <span className="font-stencil text-xl tracking-wide">SHIP LOGGER</span>
+                  <span className="tag-label !text-orange hidden sm:inline">MANIFEST SYS.</span>
+                </Link>
+                <nav className="hidden md:flex flex-wrap gap-1 text-sm">
+                  <NavLink href="/">Scan</NavLink>
+                  <NavLink href="/shipments">Shipments</NavLink>
+                  {user.isAdmin && <NavLink href="/analytics">Analytics</NavLink>}
+                  {user.isAdmin && <NavLink href="/admin/users">Admin</NavLink>}
+                  {user.isAdmin && <NavLink href="/admin/dhl-pickup">DHL Pickup</NavLink>}
+                </nav>
+              </div>
+              <div className="flex items-center gap-3 text-sm shrink-0">
+                <span className="hidden sm:flex items-baseline gap-1.5 data text-xs text-paper/60">
+                  <span className="tag-label !text-paper/40">OPERATOR</span>
+                  <span className="text-paper font-semibold">{user.name}</span>
+                </span>
+                <CommandPalette isAdmin={user.isAdmin} />
+                {/* Scan page only: swaps in for the search+hamburger pair
+                    above/below while ScanClient is mounted — see
+                    ScanHeaderState. */}
+                <ScanHeaderMobileActions />
+                {/* Mobile gets this as an entry inside the hamburger drawer
+                    instead — see MobileNav.tsx. */}
+                <SwitchUserButton className="hidden md:inline-flex" />
+                <MobileNav isAdmin={user.isAdmin} operatorName={user.name} />
+              </div>
             </div>
-            <div className="flex items-center gap-3 text-sm shrink-0">
-              <span className="hidden sm:flex items-baseline gap-1.5 data text-xs text-paper/60">
-                <span className="tag-label !text-paper/40">OPERATOR</span>
-                <span className="text-paper font-semibold">{user.name}</span>
-              </span>
-              <CommandPalette isAdmin={user.isAdmin} />
-              {/* Mobile gets this as an entry inside the hamburger drawer
-                  instead — see MobileNav.tsx. */}
-              <SwitchUserButton className="hidden md:inline-flex" />
-              <MobileNav isAdmin={user.isAdmin} operatorName={user.name} />
-            </div>
-          </div>
-          <div className="barcode h-1" />
-        </header>
-        <main className="flex-1 flex flex-col">{children}</main>
-      </div>
-    </CommandPaletteStateProvider>
+            <div className="barcode h-1" />
+          </header>
+          <main className="flex-1 flex flex-col">{children}</main>
+        </div>
+      </CommandPaletteStateProvider>
+    </ScanHeaderStateProvider>
   );
 }
 

@@ -19,6 +19,7 @@ import ConfirmDialog from "./ConfirmDialog";
 import SwipeableScanRow from "./SwipeableScanRow";
 import { MaximizeIcon, MinimizeIcon } from "./icons";
 import { useCommandPaletteState } from "./CommandPaletteState";
+import { useScanHeaderState } from "./ScanHeaderState";
 import { actionErrorMessage } from "@/lib/error-message";
 import { withTransportRetry } from "@/lib/with-retry";
 
@@ -181,6 +182,20 @@ export default function ScanClient({
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { open: paletteOpen } = useCommandPaletteState();
+  const { setSubmit } = useScanHeaderState();
+
+  // Publishes Submit's enabled state and click handler up to the app header,
+  // which renders the actual button on mobile (see ScanHeaderMobileActions)
+  // — cleared on unmount so a packer who navigates away doesn't leave a
+  // dangling Submit control other pages don't know what to do with.
+  useEffect(() => {
+    setSubmit({
+      canSubmit: !!dashboard && dashboard.totals.total > 0,
+      totalCount: dashboard?.totals.total ?? 0,
+      onSubmit: () => setShowSubmit(true),
+    });
+    return () => setSubmit(null);
+  }, [dashboard, setSubmit]);
 
   // Header height — measured rather than hardcoded since it isn't fixed (it
   // wraps on narrow widths, and the barcode strip/operator label change
@@ -225,18 +240,6 @@ export default function ScanClient({
     const el = topRef.current;
     if (!el) return;
     const update = () => setTopHeight(el.offsetHeight);
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  const [footerHeight, setFooterHeight] = useState(0);
-  const footerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = footerRef.current;
-    if (!el) return;
-    const update = () => setFooterHeight(el.offsetHeight);
     update();
     const observer = new ResizeObserver(update);
     observer.observe(el);
@@ -561,20 +564,43 @@ export default function ScanClient({
     </>
   );
 
+  // Per-carrier totals + Total, always one row of 4 (no responsive column
+  // collapse — kept compact instead). Shared between mobile, where it sits
+  // right under the scan input, and desktop, where it stays down in the
+  // footer above Submit exactly as before.
+  const totalsGrid = (
+    <div className="grid grid-cols-4 gap-px bg-line">
+      {(["epg", "ups", "dhl"] as const).map((c) => (
+        <div key={c} className={`corners p-2 text-center ${CARRIER_TINT[c]}`}>
+          <div className={`tag-label !text-[0.6rem] ${CARRIER_ACCENT[c]}`}>{CARRIER_SHORT_LABEL[c]}</div>
+          <div className="data text-xl font-semibold">{dashboard?.totals[c] ?? 0}</div>
+        </div>
+      ))}
+      <div className="corners bg-ink text-paper p-2 text-center">
+        <div className="tag-label !text-[0.6rem] !text-orange">Total</div>
+        <div className="data text-xl font-semibold">{dashboard?.totals.total ?? 0}</div>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
-      {/* Top controls — mobile: position:fixed directly under the header, no
-          sticky/overflow/dvh-calc indirection. Desktop: sticky, unchanged
-          from before. Banners live inside this same measured block (not
-          the manifest below) so the manifest's fixed `top` offset — which
-          reads this block's own rendered height — shifts down
-          automatically the instant a banner appears or clears. */}
+    <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
+      {/* Top controls. Desktop: plain in-flow block, unchanged from before —
+          no sticky, no fixed positioning, nothing app-shell about it.
+          Mobile: position:fixed directly under the header, no
+          sticky/overflow/dvh-calc indirection. Banners live inside this same
+          measured block (not the manifest below) so the manifest's fixed
+          `top` offset — which reads this block's own rendered height —
+          shifts down automatically the instant a banner appears or clears.
+          The totals grid lives here on both breakpoints now (right under
+          the scan input), and Submit no longer sits in a footer either —
+          mobile's moved up into the app header (see
+          ScanHeaderMobileActions), desktop's moved onto the box-chips row
+          below, right-aligned. Neither breakpoint has a footer anymore. */}
       <div
         ref={topRef}
-        className={`bg-paper flex flex-col gap-6 pb-2 shrink-0 ${
-          isDesktop ? "sticky z-[5]" : "fixed inset-x-0 z-[5] px-4 pt-4"
-        }`}
-        style={{ top: headerHeight }}
+        className={isDesktop ? "flex flex-col gap-6" : "fixed inset-x-0 z-[5] px-4 pt-4 bg-paper flex flex-col gap-6 pb-2"}
+        style={isDesktop ? undefined : { top: headerHeight }}
       >
         {/* Scan input. A hardware scanner types into this like a keyboard and
             ends with Enter (§8.3) — the button is a manual-entry fallback for
@@ -616,6 +642,10 @@ export default function ScanClient({
           </div>
           {isPending && <span className="text-sm text-ink-faint data">PROCESSING…</span>}
         </div>
+
+        {/* Right under the scan input on both breakpoints now — desktop no
+            longer parks this down in a footer. */}
+        {totalsGrid}
 
         <div className="flex items-baseline justify-between route-line pb-2">
           <span className="tag-label">Session {dashboard ? dashboard.session.id.slice(0, 8) : "—"}</span>
@@ -680,6 +710,21 @@ export default function ScanClient({
               ⚠ Box counts ({boxCountSum}) ≠ EPG total ({dashboard.totals.epg})
             </span>
           )}
+          {/* Desktop only — mobile's Submit lives in the app header instead
+              (see ScanHeaderMobileActions). Right-aligned via ml-auto in the
+              same row as the box chips rather than its own row/footer: box
+              counts stay low in practice (rarely more than 4 at a time), so
+              there's always room without wrapping awkwardly. */}
+          {isDesktop && (
+            <button
+              type="button"
+              onClick={() => setShowSubmit(true)}
+              disabled={!dashboard || dashboard.totals.total === 0}
+              className="btn ml-auto px-6 py-2 bg-orange text-paper text-base disabled:opacity-30"
+            >
+              Submit Shipment →
+            </button>
+          )}
         </div>
 
         {/* Banners */}
@@ -704,29 +749,34 @@ export default function ScanClient({
         )}
       </div>
 
-      {/* Manifest — mobile: position:fixed, top/bottom set directly from the
-          top block's and footer's own measured heights, so its available
-          height (and thus its internal scroll) is exactly the gap between
-          them — no dvh arithmetic, no scrolling-ancestor assumptions.
-          Desktop: unchanged, flows with the page like before. The expand
+      {/* Manifest — desktop: unchanged, flows with the page like before, no
+          measurement or fixed positioning involved. Mobile: position:fixed,
+          top set from the top block's own measured height and bottom
+          flush against the literal viewport edge — there's no mobile
+          footer anymore for it to leave room for (Submit lives in the
+          header now, totals moved up under the scan input). The expand
           button blows it up to fill the screen for reviewing a long list. */}
       <div
-        className={`relative flex flex-col gap-1 ${isDesktop ? "" : "fixed inset-x-0 px-4"}`}
-        style={isDesktop ? undefined : { top: headerHeight + topHeight, bottom: footerHeight }}
+        className={isDesktop ? "flex-1 flex flex-col gap-1 min-h-0" : "relative flex flex-col gap-1 fixed inset-x-0 px-4"}
+        style={isDesktop ? undefined : { top: headerHeight + topHeight, bottom: 0 }}
       >
         <h2 className="tag-label shrink-0">Manifest — {dashboard?.scans.length ?? 0} scanned</h2>
-        <div className={isDesktop ? "" : "flex-1 min-h-0 overflow-y-auto border border-line"}>
+        {isDesktop ? (
           <ul className="flex flex-col border-t border-line">{manifestRows}</ul>
-        </div>
-        {!isDesktop && (
-          <button
-            type="button"
-            onClick={() => setManifestFullscreen(true)}
-            title="Expand manifest"
-            className="absolute bottom-2 right-2 p-2 rounded-full bg-ink text-paper shadow-md"
-          >
-            <MaximizeIcon className="w-4 h-4" />
-          </button>
+        ) : (
+          <>
+            <div className="flex-1 min-h-0 overflow-y-auto border border-line">
+              <ul className="flex flex-col border-t border-line">{manifestRows}</ul>
+            </div>
+            <button
+              type="button"
+              onClick={() => setManifestFullscreen(true)}
+              title="Expand manifest"
+              className="absolute bottom-2 right-2 p-2 rounded-full bg-ink text-paper shadow-md"
+            >
+              <MaximizeIcon className="w-4 h-4" />
+            </button>
+          </>
         )}
       </div>
 
@@ -753,39 +803,6 @@ export default function ScanClient({
           </div>
         </div>
       )}
-
-      {/* Footer — per-carrier totals + Total (always one row of 4, no
-          responsive collapse) docked above Submit. Mobile: position:fixed
-          flush to the literal bottom of the viewport, no bottom padding —
-          both stay visible with nothing hidden below the fold. Desktop:
-          sticky, unchanged from before. */}
-      <div
-        ref={footerRef}
-        className={`bg-paper pt-2 route-line flex flex-col gap-2 shrink-0 ${
-          isDesktop ? "sticky bottom-0 pb-4" : "fixed inset-x-0 bottom-0 z-[5] px-4"
-        }`}
-      >
-        <div className="grid grid-cols-4 gap-px bg-line">
-          {(["epg", "ups", "dhl"] as const).map((c) => (
-            <div key={c} className={`corners p-2 text-center ${CARRIER_TINT[c]}`}>
-              <div className={`tag-label !text-[0.6rem] ${CARRIER_ACCENT[c]}`}>{CARRIER_SHORT_LABEL[c]}</div>
-              <div className="data text-xl font-semibold">{dashboard?.totals[c] ?? 0}</div>
-            </div>
-          ))}
-          <div className="corners bg-ink text-paper p-2 text-center">
-            <div className="tag-label !text-[0.6rem] !text-orange">Total</div>
-            <div className="data text-xl font-semibold">{dashboard?.totals.total ?? 0}</div>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowSubmit(true)}
-          disabled={!dashboard || dashboard.totals.total === 0}
-          className="btn w-full py-4 bg-orange text-paper text-xl disabled:opacity-30"
-        >
-          Submit Shipment →
-        </button>
-      </div>
 
       {showSubmit && dashboard && (
         <SubmitDialog

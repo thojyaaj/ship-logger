@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useDismissable } from "./useDismissable";
+import { useScanHeaderState } from "./ScanHeaderState";
 import { switchUser } from "./actions";
 
 export default function MobileNav({
@@ -20,6 +21,9 @@ export default function MobileNav({
   // transition ever gets a frame to play.
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
+  // The scan page shows its own shipment-logs/Submit pair in this slot on
+  // mobile instead — see ScanHeaderMobileActions. Desktop is untouched.
+  const { submit } = useScanHeaderState();
 
   function openDrawer() {
     setMounted(true);
@@ -42,7 +46,7 @@ export default function MobileNav({
         onClick={openDrawer}
         aria-label="Open menu"
         aria-expanded={open}
-        className="md:hidden flex flex-col justify-center gap-1 w-8 h-8 -m-1 shrink-0"
+        className={submit ? "hidden" : "md:hidden flex flex-col justify-center gap-1 w-8 h-8 -m-1 shrink-0"}
       >
         <span className="block h-0.5 w-5 bg-paper" />
         <span className="block h-0.5 w-5 bg-paper" />
@@ -117,6 +121,11 @@ function MobileNavDrawer({
         <MobileNavLink href="/shipments" onNavigate={onClose}>
           Shipments
         </MobileNavLink>
+        {isAdmin && (
+          <MobileNavLink href="/analytics" onNavigate={onClose}>
+            Analytics
+          </MobileNavLink>
+        )}
         {isAdmin && (
           <MobileNavLink href="/admin/users" onNavigate={onClose}>
             Admin

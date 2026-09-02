@@ -95,7 +95,7 @@ export default async function ShipmentDetailPage({
               md:contents dissolves this wrapper's own box at the desktop
               breakpoint so the same three buttons just rejoin the row above
               as plain flex items, unchanged from before. */}
-          <div className="fixed md:contents bottom-0 inset-x-0 z-20 flex items-stretch gap-px bg-ink border-t border-line-strong px-2 py-1.5">
+          <div className="fixed md:contents bottom-0 inset-x-0 z-20 flex items-stretch gap-2 bg-ink border-t border-line-strong px-3 py-2">
             {/* Admin-only, matching reopenSessionAction's requireAdmin — showing
                 it to packers would just render a button that always errors. */}
             {session.status === "submitted" && user.isAdmin && <ReopenButton sessionId={session.id} />}

@@ -20,9 +20,14 @@ export default function ReopenButton({ sessionId }: { sessionId: string }) {
         type="button"
         disabled={isPending}
         onClick={() => setShowConfirm(true)}
-        className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-amber text-amber-ink hover:bg-amber-dim disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
+        // Mobile: solid fill, no border — the amber-ink text this used to
+        // pair with a bare outline was tuned for sitting on a light -dim
+        // chip, and read as barely-visible dark-brown-on-near-black against
+        // this bar's bg-ink. Desktop keeps the original outline pill,
+        // unchanged.
+        className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1.5 md:gap-1 px-3 md:px-4 py-3.5 md:py-2 bg-amber text-paper hover:bg-amber-ink md:bg-transparent md:border md:border-amber md:text-amber-ink md:hover:bg-amber-dim disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
       >
-        <RotateCcwIcon className="w-5 h-5 md:hidden" />
+        <RotateCcwIcon className="w-7 h-7 md:hidden" />
         <span className="hidden md:inline">{isPending ? "Reopening…" : "Reopen for corrections"}</span>
       </button>
 

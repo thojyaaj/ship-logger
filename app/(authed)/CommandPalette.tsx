@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { switchUser } from "./actions";
 import { searchShipmentsPaletteAction } from "./palette-actions";
 import { useCommandPaletteState } from "./CommandPaletteState";
+import { useScanHeaderState } from "./ScanHeaderState";
 import type { ShipmentPaletteHit } from "@/lib/shiplog";
 import { SearchIcon } from "./icons";
 
@@ -73,6 +74,9 @@ function Highlighted({ text, indices }: { text: string; indices: number[] }) {
 
 export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
   const { open, setOpen } = useCommandPaletteState();
+  // The scan page swaps this button out for its own shipment-logs/Submit
+  // pair on mobile — see ScanHeaderMobileActions. Desktop is untouched.
+  const { submit } = useScanHeaderState();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [shipmentHits, setShipmentHits] = useState<ShipmentPaletteHit[]>([]);
@@ -226,7 +230,11 @@ export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
         // Icon-only on mobile — a hamburger-nav header has no room for a
         // "⌘K" label that means nothing without a physical keyboard anyway;
         // desktop keeps the label since ⌘K/Ctrl+K is the real shortcut there.
-        className="btn border border-paper/30 text-paper/70 hover:text-paper hover:border-paper/60 p-2 md:px-3 md:py-1.5 flex items-center gap-1.5"
+        // Hidden entirely on mobile on the scan page, which shows its own
+        // shipment-logs/Submit pair in this slot instead (desktop unaffected).
+        className={`btn border border-paper/30 text-paper/70 hover:text-paper hover:border-paper/60 p-2 md:px-3 md:py-1.5 items-center gap-1.5 ${
+          submit ? "hidden md:flex" : "flex"
+        }`}
         title="Open command palette (⌘K / Ctrl+K, or / when not typing in a field)"
       >
         <SearchIcon className="w-4 h-4 md:hidden" />

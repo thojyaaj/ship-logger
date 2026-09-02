@@ -101,9 +101,12 @@ export default function DhlPickupPanel({
           disabled={isPending}
           onClick={() => setShowCancelConfirm(true)}
           title={`Confirmation ${request.dispatchConfirmationNumber} — ${request.parcelCount} parcel(s), ~${request.totalWeightLb} lb, requested ${formatDbTimestamp(request.requestedAt)}. Click to cancel.`}
-          className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 border border-red text-red-ink hover:bg-red-dim disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
+          // Mobile: solid fill, no border — see ReopenButton for why
+          // red-ink text alone didn't hold up against this bar's bg-ink.
+          // Desktop keeps the original outline pill, unchanged.
+          className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1.5 md:gap-1 px-3 md:px-4 py-3.5 md:py-2 bg-red text-paper hover:bg-red-ink md:bg-transparent md:border md:border-red md:text-red-ink md:hover:bg-red-dim disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
         >
-          <XCircleIcon className="w-5 h-5 md:hidden" />
+          <XCircleIcon className="w-7 h-7 md:hidden" />
           <span className="hidden md:inline">Cancel Pickup · {request.dispatchConfirmationNumber}</span>
         </button>
       ) : schedulingEnabled ? (
@@ -111,38 +114,45 @@ export default function DhlPickupPanel({
           type="button"
           disabled={isPending}
           onClick={openScheduleDialog}
-          className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1 px-3 md:px-4 py-2 bg-orange text-paper disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
+          className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1.5 md:gap-1 px-3 md:px-4 py-3.5 md:py-2 bg-orange text-paper hover:bg-orange-ink disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
         >
-          <TruckIcon className="w-5 h-5 md:hidden" />
+          <TruckIcon className="w-7 h-7 md:hidden" />
           <span className="hidden md:inline">{isPending ? "Checking…" : "Schedule DHL Pickup"}</span>
         </button>
       ) : (
-        <p className="text-xs text-ink-faint font-condensed w-full text-center">
+        // Floats flush on top of the fixed tab bar on mobile (same pattern
+        // as the status messages below) instead of sitting inline as a
+        // washed-out filler where the button would be — amber-dim gives it
+        // a background distinct from both the page and the dark bar so it
+        // actually reads as a message, not empty space. Desktop keeps the
+        // original plain inline line.
+        <p className="absolute bottom-full left-0 right-0 md:static text-xs text-amber-ink font-condensed w-full text-center bg-amber-dim md:bg-transparent px-3 py-2 md:px-0 md:py-0">
           DHL pickup scheduling is currently disabled by an admin.
         </p>
       )}
 
-      {/* absolute here floats these above the mobile tab bar (its fixed
-          parent's box) instead of squeezing in as extra tabs; md:static
-          reverts to plain inline messages under the buttons on desktop. */}
+      {/* absolute here floats these flush on top of the mobile tab bar (its
+          fixed parent's box, no gap) instead of squeezing in as extra tabs;
+          md:static reverts to plain inline messages under the buttons on
+          desktop. */}
       {!active && request?.status === "cancelled" && (
-        <p className="absolute bottom-full left-0 right-0 mb-2 md:static md:mb-0 text-xs text-ink-faint font-condensed w-full text-center bg-paper-panel md:bg-transparent px-3 py-2 md:px-0 md:py-0">
+        <p className="absolute bottom-full left-0 right-0 md:static text-xs text-ink-faint font-condensed w-full text-center bg-paper-dim md:bg-transparent px-3 py-2 md:px-0 md:py-0">
           Previous pickup {request.dispatchConfirmationNumber} was cancelled
           {request.cancelledAt ? ` ${formatDbTimestamp(request.cancelledAt)}` : ""}.
         </p>
       )}
       {!active && request?.status === "failed" && request.errorMessage && (
-        <p className="absolute bottom-full left-0 right-0 mb-2 md:static md:mb-0 text-xs text-red-ink font-condensed w-full text-center bg-red-dim px-3 py-2">
+        <p className="absolute bottom-full left-0 right-0 md:static text-xs text-red-ink font-condensed w-full text-center bg-red-dim px-3 py-2">
           Last attempt failed: {request.errorMessage}
         </p>
       )}
       {previewError && (
-        <p className="absolute bottom-full left-0 right-0 mb-2 md:static md:mb-0 border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm w-full">
+        <p className="absolute bottom-full left-0 right-0 md:static border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm w-full">
           {previewError}
         </p>
       )}
       {error && (
-        <p className="absolute bottom-full left-0 right-0 mb-2 md:static md:mb-0 border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm w-full">
+        <p className="absolute bottom-full left-0 right-0 md:static border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm w-full">
           {error}
         </p>
       )}
