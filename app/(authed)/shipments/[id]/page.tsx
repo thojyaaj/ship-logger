@@ -153,13 +153,23 @@ export default async function ShipmentDetailPage({
           cell is a centered flex column so a shorter cell's label+value
           block sits at the same vertical mid-point as Status's taller one
           (badge + "as of" line) instead of hugging the top. */}
+      {/* Mobile: real gaps + a border per cell reads as separate bento-tray
+          compartments rather than one pierced-line sheet — bg-line drops
+          out since there's no longer a hairline gap for it to show through.
+          md: reverts to the original touching-cells grid (gap-px on a
+          bg-line backdrop, no per-cell border) unchanged. */}
       {(session.awbNumber || session.masterUpsTracking) && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-px bg-line text-sm text-center">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-px bg-transparent md:bg-line text-sm text-center">
           {session.awbNumber && (
-            <Field label="AWB" value={session.awbNumber} mono className="flex flex-col justify-center" />
+            <Field
+              label="AWB"
+              value={session.awbNumber}
+              mono
+              className="border border-line md:border-0 flex flex-col justify-center"
+            />
           )}
           {session.masterUpsTracking && (
-            <div className="bg-paper-panel p-3 min-w-0 flex flex-col justify-center">
+            <div className="bg-paper-panel border border-line md:border-0 p-3 min-w-0 flex flex-col justify-center">
               <div className="tag-label">Master UPS Status</div>
               <div className="mt-1">
                 <span
@@ -181,7 +191,7 @@ export default async function ShipmentDetailPage({
               value={session.masterUpsTracking}
               href={trackingUrl("ups", session.masterUpsTracking) ?? undefined}
               mono
-              className="col-span-2 md:col-span-1 flex flex-col justify-center"
+              className="col-span-2 md:col-span-1 border border-line md:border-0 flex flex-col justify-center"
             />
           )}
         </div>

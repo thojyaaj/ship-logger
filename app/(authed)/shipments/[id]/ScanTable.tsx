@@ -25,8 +25,8 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
         <colgroup>
           <col className="w-[60%] md:w-[20%]" />
           <col className="w-[40%] md:w-[14%]" />
-          <col className="hidden md:table-column md:w-[25%]" />
           <col className="hidden md:table-column md:w-[41%]" />
+          <col className="hidden md:table-column md:w-[25%]" />
         </colgroup>
         <thead className="bg-paper-dim text-ink-faint">
           <tr>
@@ -34,9 +34,16 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
             <th className="text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
             {/* Status/At are useful on desktop for auditing but
                 just crowd the tracking/order columns on a phone-width
-                screen — dropped there rather than shrunk further. */}
+                screen — dropped there rather than shrunk further. Scanned
+                At is pinned to the right edge (md:sticky) rather than
+                sharing the table-fixed split evenly — a timestamp doesn't
+                need much room, and pinning it frees the space for Status,
+                whose carrier-status labels ("DEPARTED FROM FACILITY") are
+                the ones that actually need it. */}
             <th className="hidden md:table-cell text-left px-3 py-2 tag-label !text-ink-faint">Status</th>
-            <th className="hidden md:table-cell text-left px-3 py-2 tag-label !text-ink-faint">Scanned At</th>
+            <th className="hidden md:table-cell md:sticky md:right-0 md:z-10 text-left px-3 py-2 tag-label !text-ink-faint bg-paper-dim border-l border-line">
+              Scanned At
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -67,7 +74,7 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                   )}
                 </td>
                 <td className="hidden md:table-cell px-3 py-2 text-ink-faint data">{r.statusLabel ?? "—"}</td>
-                <td className="hidden md:table-cell px-3 py-2 text-ink-faint data truncate">
+                <td className="hidden md:table-cell md:sticky md:right-0 md:z-10 px-3 py-2 text-ink-faint data truncate bg-paper-panel border-l border-line">
                   {formatDbTimestamp(r.scannedAt)}
                 </td>
               </tr>
