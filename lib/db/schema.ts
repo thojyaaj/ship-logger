@@ -52,6 +52,12 @@ export const shipmentSession = pgTable(
     // kept here (rather than only in client state) so a hard refresh mid-session
     // reopens on the same box instead of defaulting back to Box 1.
     activeBoxId: text("active_box_id"),
+    // Soft-delete: set when an admin deletes a submitted shipment from the
+    // UI. The row (and its scans/boxes) stay in place — trashed shipments
+    // are just filtered out of the normal shipments list — so a mistaken
+    // delete can be restored from the Trash page. Only cleared by
+    // restoreShipment, or turned into a real DELETE by the 30-day purge cron.
+    deletedAt: text("deleted_at"),
   },
   // At most one row can be "open" at a time — that's what makes "the open
   // session" unambiguous. A partial unique index on `status` (filtered to
@@ -185,6 +191,13 @@ export const dhlPickupRequest = pgTable(
     dispatchConfirmationNumber: text("dispatch_confirmation_number"),
     parcelCount: integer("parcel_count").notNull(),
     totalWeightLb: real("total_weight_lb").notNull(),
+    // The actual calendar day booked with DHL (only set on a successful
+    // "requested" row) — not derived by recomputing resolvePickupDate()
+    // against the settings' current ready/close times, since an admin
+    // editing those later would silently reinterpret an already-booked
+    // pickup's date. Nullable: rows from before this column existed have no
+    // value and just don't show a scheduled-date message.
+    pickupDate: text("pickup_date"),
     errorMessage: text("error_message"),
     cancelledAt: text("cancelled_at"),
     cancelledBy: text("cancelled_by").references(() => appUser.id),

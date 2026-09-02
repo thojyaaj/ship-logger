@@ -50,6 +50,13 @@
       "when": 1788293522261,
       "tag": "0006_dashing_naoko",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788321914231,
+      "tag": "0007_add_trash_and_pickup_date",
+      "breakpoints": true
     }
   ]
 }

@@ -30,6 +30,7 @@ export default async function AuthedLayout({ children }: { children: React.React
                   {user.isAdmin && <NavLink href="/analytics">Analytics</NavLink>}
                   {user.isAdmin && <NavLink href="/admin/users">Admin</NavLink>}
                   {user.isAdmin && <NavLink href="/admin/dhl-pickup">DHL Pickup</NavLink>}
+                  {user.isAdmin && <NavLink href="/admin/trash">Trash</NavLink>}
                 </nav>
               </div>
               <div className="flex items-center gap-3 text-sm shrink-0">

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import type { PickupRequestRecord, PreviewPickup } from "@/lib/dhl-pickup";
 import { previewPickupAction, schedulePickupAction, cancelPickupAction } from "./dhl-pickup-actions";
 import ConfirmDialog from "../../ConfirmDialog";
+import Toast from "../../Toast";
 import { formatDbTimestamp } from "@/lib/date";
 import { actionErrorMessage } from "@/lib/error-message";
 import { TruckIcon, XCircleIcon } from "./icons";
@@ -30,6 +31,7 @@ export default function DhlPickupPanel({
   const [showConfirm, setShowConfirm] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showScheduledToast, setShowScheduledToast] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const active = request?.status === "requested";
@@ -70,7 +72,11 @@ export default function DhlPickupPanel({
           requestedAt: new Date().toISOString(),
           errorMessage: null,
           cancelledAt: null,
+          pickupDateLabel: result.pickupDateLabel,
+          readyTimeLabel: result.readyTimeLabel,
+          closeTimeLabel: result.closeTimeLabel,
         });
+        setShowScheduledToast(true);
       } catch (err) {
         setError(actionErrorMessage(err, "Pickup scheduling failed — please retry."));
       }
@@ -135,6 +141,11 @@ export default function DhlPickupPanel({
           fixed parent's box, no gap) instead of squeezing in as extra tabs;
           md:static reverts to plain inline messages under the buttons on
           desktop. */}
+      {active && request?.pickupDateLabel && (
+        <p className="absolute bottom-full left-0 right-0 md:static text-xs text-orange-ink font-condensed w-full text-center bg-orange-dim md:bg-transparent px-3 py-2 md:px-0 md:py-0">
+          Pickup scheduled for {request.pickupDateLabel} · {request.readyTimeLabel}–{request.closeTimeLabel}
+        </p>
+      )}
       {!active && request?.status === "cancelled" && (
         <p className="absolute bottom-full left-0 right-0 md:static text-xs text-ink-faint font-condensed w-full text-center bg-paper-dim md:bg-transparent px-3 py-2 md:px-0 md:py-0">
           Previous pickup {request.dispatchConfirmationNumber} was cancelled
@@ -189,6 +200,10 @@ export default function DhlPickupPanel({
           onCancel={() => setShowCancelConfirm(false)}
           onConfirm={confirmCancel}
         />
+      )}
+
+      {showScheduledToast && (
+        <Toast message="DHL pickup scheduled" onDismiss={() => setShowScheduledToast(false)} />
       )}
     </>
   );
