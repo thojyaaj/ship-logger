@@ -61,7 +61,7 @@ export default function PinPad() {
   }, [press]);
 
   return (
-    <div className="flex flex-col items-center gap-8">
+    <div className="flex flex-col items-center gap-5 md:gap-8">
       <div className="flex gap-3" aria-label="PIN entry" role="status">
         {[0, 1, 2, 3].map((i) => (
           <div

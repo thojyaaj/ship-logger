@@ -82,9 +82,9 @@ export default function DhlPickupSettingsClient({
   }
 
   return (
-    <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-2xl mx-auto w-full">
+    <div className="flex flex-col gap-6">
       <div className="route-line pb-2">
-        <h1 className="font-stencil text-2xl tracking-wide">DHL Pickup Settings</h1>
+        <h2 className="font-stencil text-xl tracking-wide">DHL Pickup Settings</h2>
         <p className="tag-label !normal-case !tracking-normal text-ink-faint mt-1">
           Controls what gets sent to DHL when a pickup is scheduled from a submitted shipment.
           Doesn&apos;t schedule anything by itself.

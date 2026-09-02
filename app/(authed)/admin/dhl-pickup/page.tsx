@@ -1,9 +1,9 @@
-import { pageRequireAdmin } from "@/lib/auth";
-import { getDhlPickupSettings } from "@/lib/dhl-pickup";
-import DhlPickupSettingsClient from "./DhlPickupSettingsClient";
+import { redirect } from "next/navigation";
 
-export default async function DhlPickupSettingsPage() {
-  await pageRequireAdmin();
-  const settings = await getDhlPickupSettings();
-  return <DhlPickupSettingsClient initialSettings={settings} />;
+// DHL pickup settings moved onto the main Admin page (admin/users/page.tsx)
+// — "one place to set those settings" rather than a separate nav
+// destination. Redirects rather than 404s for anyone with the old URL
+// bookmarked or typed from memory.
+export default function DhlPickupSettingsRedirect() {
+  redirect("/admin/users");
 }
