@@ -3,7 +3,19 @@
 import { useRouter } from "next/navigation";
 import { switchUser } from "./actions";
 
-export default function SwitchUserButton({ className }: { className?: string }) {
+// Content and sizing come entirely from the caller (children/className) —
+// the desktop header passes plain "Switch" text, the mobile header passes
+// an icon-only padlock (see layout.tsx), and `label` covers the
+// accessible name an icon-only variant doesn't get for free from its text.
+export default function SwitchUserButton({
+  className,
+  label,
+  children,
+}: {
+  className?: string;
+  label?: string;
+  children: React.ReactNode;
+}) {
   const router = useRouter();
   return (
     <button
@@ -13,9 +25,11 @@ export default function SwitchUserButton({ className }: { className?: string }) 
         router.replace("/login");
         router.refresh();
       }}
-      className={`btn border border-paper/30 text-paper/70 hover:text-paper hover:border-paper/60 px-3 py-1.5 ${className ?? ""}`}
+      aria-label={label}
+      title={label}
+      className={`btn border border-paper/30 text-paper/70 hover:text-paper hover:border-paper/60 ${className ?? ""}`}
     >
-      Switch
+      {children}
     </button>
   );
 }
