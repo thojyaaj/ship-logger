@@ -55,6 +55,7 @@ export type SessionDashboard = {
   scans: ScanRow[];
   totals: { epg: number; ups: number; dhl: number; unknown: number; total: number };
   userNames: Record<string, string>;
+  userCodes: Record<string, string>;
 };
 
 const RESET_RESTORE_WINDOW_MS = 30 * 60 * 1000;
@@ -115,15 +116,20 @@ async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
 
   // The submitter may not be among the scan rows (for example, a lead can
   // close out a shipment another packer scanned), so include them explicitly
-  // for the shipment record's Submitted-by badge.
+  // for lookups keyed off session.submittedBy (e.g. the packer-code suffix
+  // shown on the shipment's short ID).
   const userIds = [...new Set([...scans.map((s) => s.scannedBy), ...(session.submittedBy ? [session.submittedBy] : [])])];
   const userNames: Record<string, string> = {};
+  const userCodes: Record<string, string> = {};
   if (userIds.length > 0) {
     const users = await db.select().from(appUser).where(inArray(appUser.id, userIds));
-    for (const u of users) userNames[u.id] = u.name;
+    for (const u of users) {
+      userNames[u.id] = u.name;
+      if (u.packerCode) userCodes[u.id] = u.packerCode;
+    }
   }
 
-  return { session, boxes, scans, totals, userNames };
+  return { session, boxes, scans, totals, userNames, userCodes };
 }
 
 /**
@@ -796,6 +802,10 @@ export async function listTrashedShipments(): Promise<TrashedShipmentItem[]> {
       status: s.status,
       openedAt: s.openedAt,
       submittedAt: s.submittedAt,
+      // Not shown on the Trash page (TrashClient only displays shipDate),
+      // so a real lookup isn't worth it here — null satisfies the shared
+      // ShipmentListItem shape without pretending to know the submitter.
+      submittedByCode: null,
       awbNumber: s.awbNumber,
       masterUpsTracking: s.masterUpsTracking,
       masterUpsStatusLabel: s.masterUpsStatusLabel,
@@ -838,6 +848,7 @@ export type ShipmentListItem = {
   status: string;
   openedAt: string;
   submittedAt: string | null;
+  submittedByCode: string | null;
   awbNumber: string | null;
   masterUpsTracking: string | null;
   masterUpsStatusLabel: string | null;
@@ -882,6 +893,16 @@ export async function listShipments(opts?: ListShipmentsOptions): Promise<Shipme
     )
     .orderBy(desc(shipmentSession.shipDate), desc(shipmentSession.openedAt));
 
+  // Batched once for the whole page rather than per-row — same submitter
+  // shows up across many rows, and this is a small, bounded lookup (one
+  // row per distinct submitter, not per shipment).
+  const submitterIds = [...new Set(sessions.map((s) => s.submittedBy).filter((id): id is string => id !== null))];
+  const submitterCodes: Record<string, string> = {};
+  if (submitterIds.length > 0) {
+    const submitters = await db.select().from(appUser).where(inArray(appUser.id, submitterIds));
+    for (const u of submitters) if (u.packerCode) submitterCodes[u.id] = u.packerCode;
+  }
+
   const results: ShipmentListItem[] = [];
   for (const s of sessions) {
     const scanRows = await db.select().from(scan).where(eq(scan.sessionId, s.id));
@@ -894,6 +915,7 @@ export async function listShipments(opts?: ListShipmentsOptions): Promise<Shipme
       status: s.status,
       openedAt: s.openedAt,
       submittedAt: s.submittedAt,
+      submittedByCode: s.submittedBy ? (submitterCodes[s.submittedBy] ?? null) : null,
       awbNumber: s.awbNumber,
       masterUpsTracking: s.masterUpsTracking,
       masterUpsStatusLabel: s.masterUpsStatusLabel,

@@ -124,7 +124,7 @@ export default function DhlPickupPanel({
           className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1.5 md:gap-1 px-3 md:px-4 py-3.5 md:py-2 bg-red text-paper hover:bg-red-ink md:bg-transparent md:border md:border-red md:text-red-ink md:hover:bg-red-dim disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
         >
           <XCircleIcon className="w-7 h-7 md:hidden" />
-          <span className="hidden md:inline">Cancel Pickup · {request.dispatchConfirmationNumber}</span>
+          <span className="hidden md:inline">Cancel Pickup</span>
         </button>
       ) : schedulingEnabled ? (
         <button

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { pageRequireUser } from "@/lib/auth";
 import { getShipmentDetail, ShipmentNotFoundError } from "@/lib/shiplog";
@@ -28,7 +27,8 @@ export default async function ShipmentDetailPage({
     if (err instanceof ShipmentNotFoundError) notFound();
     throw err;
   }
-  const { session, boxes, scans, totals, userNames } = dashboard;
+  const { session, boxes, scans, totals, userCodes } = dashboard;
+  const submitterCode = session.submittedBy ? userCodes[session.submittedBy] : undefined;
 
   const showDhlPickup = user.isAdmin && session.status === "submitted" && totals.dhl > 0;
   const pickupRequest = showDhlPickup ? await getLatestPickupRequest(session.id) : null;
@@ -49,30 +49,25 @@ export default async function ShipmentDetailPage({
   }
 
   return (
-    <div className="flex-1 flex flex-col gap-6 p-4 pb-20 md:p-6 max-w-5xl mx-auto w-full">
-      <div className="flex flex-col gap-3 route-line pb-3">
+    <div className="flex-1 flex flex-col gap-4 md:gap-6 p-4 pb-20 md:p-6 max-w-5xl mx-auto w-full">
+      <div className="flex flex-col gap-2 md:gap-3 route-line pb-2 md:pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            {/* Mobile: redundant now that the header itself has a
-                back-to-shipments-log icon (see
-                ShipmentDetailHeaderMobileActions) — desktop has no header
-                equivalent, so it keeps this breadcrumb. */}
-            <Link href="/shipments" className="hidden md:inline tag-label hover:!text-ink">
-              ← Shipments
-            </Link>
-            <div className="tag-label mt-1">Session ID</div>
+            <div className="tag-label">Session ID</div>
             {/* Same first-8-hex-chars convention as the scan page's
                 "Session <id>" tag (see ScanClient.tsx) — the full UUID is
                 too long to be a useful at-a-glance label, and packers
-                already recognize this short form from the scan sheet. */}
-            <h1 className="data text-lg tracking-wide" title={session.id}>
+                already recognize this short form from the scan sheet.
+                Sized/weighted to roughly match the status badge's own
+                two-line height rather than sitting small next to it.
+                Submitted shipments get the submitter's 2-digit crew code
+                affixed ("<id>-<code>") instead of a separate "Submitted by
+                <name>" line, which never read well at any size — this
+                fits into the id itself with no extra vertical space. */}
+            <h1 className="data text-3xl font-bold leading-tight tracking-wide" title={session.id}>
               {session.id.slice(0, 8).toUpperCase()}
+              {session.status === "submitted" && submitterCode ? `-${submitterCode}` : ""}
             </h1>
-            {session.status === "submitted" && session.submittedBy && (
-              <div className="mt-1 -mx-1 px-1.5 py-0.5 bg-paper-dim text-green-ink font-condensed text-xs inline-block">
-                Submitted by {userNames[session.submittedBy] ?? "Unknown"}
-              </div>
-            )}
           </div>
             {/* Bigger than the standard tag-label size (0.65rem) so status
               — the thing a packer scans this page for — actually stands
@@ -144,11 +139,15 @@ export default async function ShipmentDetailPage({
       {/* Shipment metadata — AWB/Master UPS status/tracking only. Opened is
           just noise (nobody's asked when packing started) and Submitted now
           lives as the second line of the status tag above, not its own box.
-          2 cols on mobile, 3 on desktop (one line, full width) — Status
+          Masonry 1fr/2fr split on mobile (3 equal cols on desktop) — Status
           before Tracking (DOM order) so on mobile AWB+Status share row 1
           and Tracking falls to row 2 on its own, full width there (long
           tracking numbers need the room) rather than half; on desktop all
-          three just sit in the single 3-col row regardless of order.
+          three just sit in the single 3-col row regardless of order. AWB is
+          a short fixed-format number that never needs much room, while
+          Status carries a badge plus an "as of <date/time>" line that was
+          wrapping in an even 50/50 split — giving it the extra share fits
+          that on one line instead.
           Centered both ways: text-center for the horizontal axis, and each
           cell is a centered flex column so a shorter cell's label+value
           block sits at the same vertical mid-point as Status's taller one
@@ -159,17 +158,26 @@ export default async function ShipmentDetailPage({
           md: reverts to the original touching-cells grid (gap-px on a
           bg-line backdrop, no per-cell border) unchanged. */}
       {(session.awbNumber || session.masterUpsTracking) && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-px bg-transparent md:bg-line text-sm text-center">
+        <div className="grid grid-cols-[1fr_2fr] md:grid-cols-3 gap-2 md:gap-px bg-transparent md:bg-line text-sm text-center">
           {session.awbNumber && (
             <Field
               label="AWB"
               value={session.awbNumber}
               mono
-              className="border border-line md:border-0 flex flex-col justify-center"
+              className="col-start-1 md:col-start-auto border border-line md:border-0 flex flex-col justify-center"
             />
           )}
           {session.masterUpsTracking && (
-            <div className="bg-paper-panel border border-line md:border-0 p-3 min-w-0 flex flex-col justify-center">
+            // col-start-2 pins Status into the wide 2fr track next to AWB;
+            // when AWB isn't rendered at all (a UPS-only session — no DHL,
+            // so no master AWB), col-span-2 instead so Status fills the row
+            // rather than leaving an empty bordered tile where AWB would
+            // have sat. md: releases both back to plain 3-col auto-flow.
+            <div
+              className={`bg-paper-panel border border-line md:border-0 p-3 min-w-0 flex flex-col justify-center ${
+                session.awbNumber ? "col-start-2" : "col-span-2"
+              } md:col-start-auto md:col-span-1`}
+            >
               <div className="tag-label">Master UPS Status</div>
               <div className="mt-1">
                 <span

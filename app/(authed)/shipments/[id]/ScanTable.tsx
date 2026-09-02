@@ -41,7 +41,7 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                 whose carrier-status labels ("DEPARTED FROM FACILITY") are
                 the ones that actually need it. */}
             <th className="hidden md:table-cell text-left px-3 py-2 tag-label !text-ink-faint">Status</th>
-            <th className="hidden md:table-cell md:sticky md:right-0 md:z-10 text-left px-3 py-2 tag-label !text-ink-faint bg-paper-dim border-l border-line">
+            <th className="hidden md:table-cell md:sticky md:right-0 md:z-10 text-center px-3 py-2 tag-label !text-ink-faint bg-paper-dim border-l border-line">
               Scanned At
             </th>
           </tr>
@@ -73,8 +73,13 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                     <span className="text-ink-faint">—</span>
                   )}
                 </td>
-                <td className="hidden md:table-cell px-3 py-2 text-ink-faint data">{r.statusLabel ?? "—"}</td>
-                <td className="hidden md:table-cell md:sticky md:right-0 md:z-10 px-3 py-2 text-ink-faint data truncate bg-paper-panel border-l border-line">
+                <td
+                  className="hidden md:table-cell px-3 py-2 text-ink-faint data truncate"
+                  title={r.statusLabel ?? undefined}
+                >
+                  {r.statusLabel ?? "—"}
+                </td>
+                <td className="hidden md:table-cell md:sticky md:right-0 md:z-10 text-center px-3 py-2 text-ink-faint data truncate bg-paper-panel border-l border-line">
                   {formatDbTimestamp(r.scannedAt)}
                 </td>
               </tr>

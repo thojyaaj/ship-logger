@@ -267,6 +267,7 @@ export default function SwipeableShipmentRow({
           <div className="flex items-center justify-between gap-2 w-full sm:block sm:w-48 sm:shrink-0">
             <div className="data font-semibold" title={s.id}>
               {s.id.slice(0, 8).toUpperCase()}
+              {s.status === "submitted" && s.submittedByCode ? `-${s.submittedByCode}` : ""}
             </div>
             <span
               className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block whitespace-nowrap sm:mt-0.5 ${

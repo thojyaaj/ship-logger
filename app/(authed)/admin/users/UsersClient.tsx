@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { UserListItem } from "@/lib/users";
 import { addUserAction, resetPinAction, setAdminAction, setActiveAction } from "./actions";
 import { actionErrorMessage } from "@/lib/error-message";
+import { KeyIcon, ShieldIcon, ShieldOffIcon, UserXIcon, UserCheckIcon } from "./icons";
 
 export default function UsersClient({
   initialUsers,
@@ -152,44 +153,73 @@ export default function UsersClient({
             }`}
           >
             <div className="flex-1 min-w-[140px]">
-              <div className="font-semibold font-condensed">
+              <div className="font-semibold font-condensed flex items-center gap-2 flex-wrap">
                 {u.name}
-                {u.id === currentUserId && (
-                  <span className="tag-label ml-2">You</span>
-                )}
+                {/* Crew code — same 2-digit id affixed to a session's short
+                    ID when this packer submits it (see the shipment detail
+                    page), surfaced here so admins have somewhere to look it
+                    up. */}
+                {u.packerCode && <span className="tag-label !text-ink-faint">#{u.packerCode}</span>}
+                {u.id === currentUserId && <span className="tag-label">You</span>}
               </div>
-              <div className="tag-label">
-                {u.isAdmin ? "Admin" : "Packer"} · {u.active ? "Active" : "Deactivated"}
+              {/* Colored bubbles instead of a plain "Admin · Active" text
+                  line — role and active state are the two things worth
+                  scanning a roster for at a glance, so they get the same
+                  tinted-pill treatment. */}
+              <div className="flex items-center gap-1.5 mt-1">
+                <span
+                  className={`tag-label !text-[0.6rem] px-2 py-0.5 rounded-full inline-block ${
+                    u.isAdmin ? "bg-orange-dim !text-orange-ink" : "bg-blue-dim !text-blue-ink"
+                  }`}
+                >
+                  {u.isAdmin ? "Admin" : "Packer"}
+                </span>
+                <span
+                  className={`tag-label !text-[0.6rem] px-2 py-0.5 rounded-full inline-block ${
+                    u.active ? "bg-green-dim !text-green-ink" : "bg-red-dim !text-red-ink"
+                  }`}
+                >
+                  {u.active ? "Active" : "Deactivated"}
+                </span>
               </div>
             </div>
             {/* Grouped so the three actions wrap onto their own line together
                 on a narrow phone, rather than each button wrapping alone in
-                a different place mid-row. */}
-            <div className="flex items-center gap-3 flex-wrap">
+                a different place mid-row. Icon-only — title+aria-label carry
+                the label that used to be visible text. */}
+            <div className="flex items-center gap-4 flex-wrap">
               <button
                 onClick={() => {
                   setError(null);
                   setResetPinValue("");
                   setResettingUserId((cur) => (cur === u.id ? null : u.id));
                 }}
-                className="tag-label !text-blue hover:!text-blue-ink"
+                className="text-blue hover:text-blue-ink disabled:opacity-50"
                 disabled={isPending}
+                title="Reset PIN"
+                aria-label="Reset PIN"
               >
-                Reset PIN
+                <KeyIcon className="w-5 h-5" />
               </button>
               <button
                 onClick={() => toggleAdmin(u)}
-                className="tag-label hover:!text-ink"
+                className="text-ink-faint hover:text-ink disabled:opacity-50"
                 disabled={isPending}
+                title={u.isAdmin ? "Remove admin" : "Make admin"}
+                aria-label={u.isAdmin ? "Remove admin" : "Make admin"}
               >
-                {u.isAdmin ? "Remove admin" : "Make admin"}
+                {u.isAdmin ? <ShieldOffIcon className="w-5 h-5" /> : <ShieldIcon className="w-5 h-5" />}
               </button>
               <button
                 onClick={() => toggleActive(u)}
-                className="tag-label !text-red hover:!text-red-ink"
+                className={`disabled:opacity-50 ${
+                  u.active ? "text-red hover:text-red-ink" : "text-green hover:text-green-ink"
+                }`}
                 disabled={isPending}
+                title={u.active ? "Deactivate" : "Reactivate"}
+                aria-label={u.active ? "Deactivate" : "Reactivate"}
               >
-                {u.active ? "Deactivate" : "Reactivate"}
+                {u.active ? <UserXIcon className="w-5 h-5" /> : <UserCheckIcon className="w-5 h-5" />}
               </button>
             </div>
 

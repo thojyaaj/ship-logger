@@ -22,6 +22,13 @@ export const appUser = pgTable("app_user", {
   isAdmin: boolean("is_admin").notNull().default(false),
   active: boolean("active").notNull().default(true),
   createdAt: text("created_at").notNull().default(nowUtcText),
+  // Two-digit ("00"-"99") crew code, assigned once at creation (see
+  // lib/users.ts's addUser) and never reassigned. Affixed to a session's
+  // short ID ("<id>-<code>") on the shipment detail page and shipment log
+  // as a compact, at-a-glance record of who submitted it — cheaper to scan
+  // than a name badge, and doesn't need its own line the way "Submitted by
+  // <name>" did.
+  packerCode: text("packer_code").unique(),
 });
 
 export const shipmentSession = pgTable(
