@@ -113,7 +113,10 @@ async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
   const totals = { epg: 0, ups: 0, dhl: 0, unknown: 0, total: scans.length };
   for (const s of scans) totals[s.carrier] += 1;
 
-  const userIds = [...new Set(scans.map((s) => s.scannedBy))];
+  // The submitter may not be among the scan rows (for example, a lead can
+  // close out a shipment another packer scanned), so include them explicitly
+  // for the shipment record's Submitted-by badge.
+  const userIds = [...new Set([...scans.map((s) => s.scannedBy), ...(session.submittedBy ? [session.submittedBy] : [])])];
   const userNames: Record<string, string> = {};
   if (userIds.length > 0) {
     const users = await db.select().from(appUser).where(inArray(appUser.id, userIds));

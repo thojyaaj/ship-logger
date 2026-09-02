@@ -9,7 +9,6 @@ type Row = {
   id: string;
   trackingNumber: string;
   carrier: string;
-  scannedBy: string;
   scannedAt: string;
   orderGid: string | null;
   orderName: string | null;
@@ -17,13 +16,7 @@ type Row = {
 };
 
 /** §9c click-through, from history — same OrderPanel as the live scan screen. */
-export default function ScanTable({
-  rows,
-  userNames,
-}: {
-  rows: Row[];
-  userNames: Record<string, string>;
-}) {
+export default function ScanTable({ rows }: { rows: Row[] }) {
   const [openOrderGid, setOpenOrderGid] = useState<string | null>(null);
 
   return (
@@ -32,19 +25,17 @@ export default function ScanTable({
         <colgroup>
           <col className="w-[60%] md:w-[20%]" />
           <col className="w-[40%] md:w-[14%]" />
-          <col className="hidden md:table-column md:w-[28%]" />
-          <col className="hidden md:table-column md:w-[13%]" />
           <col className="hidden md:table-column md:w-[25%]" />
+          <col className="hidden md:table-column md:w-[41%]" />
         </colgroup>
         <thead className="bg-paper-dim text-ink-faint">
           <tr>
             <th className="text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
             <th className="text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
-            {/* Status/Scanned By/At are useful on desktop for auditing but
+            {/* Status/At are useful on desktop for auditing but
                 just crowd the tracking/order columns on a phone-width
                 screen — dropped there rather than shrunk further. */}
             <th className="hidden md:table-cell text-left px-3 py-2 tag-label !text-ink-faint">Status</th>
-            <th className="hidden md:table-cell text-left px-3 py-2 tag-label !text-ink-faint">Scanned By</th>
             <th className="hidden md:table-cell text-left px-3 py-2 tag-label !text-ink-faint">Scanned At</th>
           </tr>
         </thead>
@@ -76,9 +67,6 @@ export default function ScanTable({
                   )}
                 </td>
                 <td className="hidden md:table-cell px-3 py-2 text-ink-faint data">{r.statusLabel ?? "—"}</td>
-                <td className="hidden md:table-cell px-3 py-2 font-condensed truncate">
-                  {userNames[r.scannedBy] ?? "?"}
-                </td>
                 <td className="hidden md:table-cell px-3 py-2 text-ink-faint data truncate">
                   {formatDbTimestamp(r.scannedAt)}
                 </td>

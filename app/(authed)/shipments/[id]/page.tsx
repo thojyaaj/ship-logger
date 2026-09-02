@@ -62,20 +62,24 @@ export default async function ShipmentDetailPage({
             </Link>
             <h1 className="font-stencil text-2xl tracking-wide mt-1">{session.shipDate}</h1>
           </div>
-          {/* Bigger than the standard tag-label size (0.65rem) so status
+            {/* Bigger than the standard tag-label size (0.65rem) so status
               — the thing a packer scans this page for — actually stands
-              out, with the submitted timestamp as a quieter second line
-              rather than its own metadata box further down the page. */}
-          <div
-            className={`flex flex-col items-end gap-0.5 px-3 py-2 shrink-0 ${
-              session.status === "submitted"
-                ? "bg-green-dim !text-green-ink"
+              out, with the close-out details directly beneath it. */}
+            <div
+              className={`flex flex-col items-end gap-0.5 px-3 py-2 shrink-0 ${
+                session.status === "submitted"
+                ? "bg-green !text-white"
                 : "bg-amber-dim !text-amber-ink"
-            }`}
-          >
-            <span className="tag-label !text-base">{session.status}</span>
+              }`}
+            >
+              <span className="tag-label !text-base">{session.status}</span>
             {session.status === "submitted" && session.submittedAt && (
               <span className="font-condensed text-xs">{formatWarehouseTimestamp(session.submittedAt)}</span>
+            )}
+            {session.status === "submitted" && session.submittedBy && (
+              <div className="mt-1 -mx-1 px-1.5 py-0.5 bg-paper-dim text-green-ink font-condensed text-xs">
+                Submitted by {userNames[session.submittedBy] ?? "Unknown"}
+              </div>
             )}
           </div>
         </div>
@@ -191,14 +195,14 @@ export default async function ShipmentDetailPage({
             </span>
             {b.upsTracking && <span className="data text-ink-faint text-xs">{b.upsTracking}</span>}
           </h2>
-          <ScanTable rows={boxedScans.get(b.id) ?? []} userNames={userNames} />
+          <ScanTable rows={boxedScans.get(b.id) ?? []} />
         </div>
       ))}
 
       {unboxedScans.length > 0 && (
         <div className="flex flex-col gap-1">
           <h2 className="tag-label !text-sm !text-ink">UPS / DHL Parcels</h2>
-          <ScanTable rows={unboxedScans} userNames={userNames} />
+          <ScanTable rows={unboxedScans} />
         </div>
       )}
     </div>
