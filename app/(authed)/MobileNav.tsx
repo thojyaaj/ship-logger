@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useDismissable } from "./useDismissable";
@@ -27,10 +27,16 @@ export default function MobileNav({
 
   function openDrawer() {
     setMounted(true);
-    // Mount in the closed position first, then flip to open on a later
-    // frame — otherwise the browser can coalesce both style states into
-    // one paint and the drawer just snaps open with no visible slide.
-    requestAnimationFrame(() => requestAnimationFrame(() => setOpen(true)));
+    // The drawer itself (not this timing) is responsible for rendering
+    // closed on its first paint and animating in — see MobileNavDrawer's
+    // `entered` state. Setting `open` true immediately here used to be
+    // gated behind a double requestAnimationFrame instead, but that
+    // depends on the browser actually running two paint frames soon, which
+    // can stall if the tab isn't actively compositing at that moment
+    // (e.g. right after the page regains focus/visibility) — leaving the
+    // drawer mounted but stuck closed until something else wakes the
+    // scheduler up.
+    setOpen(true);
   }
 
   function closeDrawer() {
@@ -86,19 +92,62 @@ function MobileNavDrawer({
   // holds for its entire mounted lifetime here regardless of `open`.
   useDismissable(onClose);
   const router = useRouter();
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // `open` arrives already true on the very first render (the parent no
+  // longer delays it) — `entered` is what actually gates the open/closed
+  // class so this component's first paint is still the closed position for
+  // the transition to animate from. useLayoutEffect flips it before the
+  // browser's next paint, but only after forcing a synchronous layout
+  // flush (reading offsetHeight forces the closed styles to be committed
+  // first) — deterministic, unlike waiting on requestAnimationFrame to get
+  // scheduled. A fresh MobileNavDrawer instance mounts on every open (see
+  // MobileNav's `mounted` gate), so `entered` always starts false again.
+  const [entered, setEntered] = useState(false);
+  useLayoutEffect(() => {
+    if (panelRef.current) void panelRef.current.offsetHeight;
+    // This is the deliberate "force reflow, then flip" enter-transition
+    // trick, not state synced from an external system — the offsetHeight
+    // read above is what makes the extra render safe: it forces the
+    // closed styles to commit before this update queues the open ones, so
+    // the cascading render the lint rule warns about is exactly the one
+    // frame this needs.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEntered(true);
+  }, []);
+  const showOpen = entered && open;
+
+  // onTransitionEnd (below) normally drives the unmount once the slide-out
+  // finishes, but transitionend firing isn't guaranteed — the tab losing
+  // paint/compositing mid-animation (backgrounded, app-switched away from,
+  // etc.) can strand the drawer visually stuck partway through the slide
+  // instead of actually finishing and unmounting. This fallback unmounts
+  // it regardless, timed to the transition's own 300ms plus a small
+  // buffer; onExitedRef mirrors useDismissable's dismissRef so a parent
+  // re-render mid-close doesn't restart the timer.
+  const onExitedRef = useRef(onExited);
+  useEffect(() => {
+    onExitedRef.current = onExited;
+  }, [onExited]);
+  useEffect(() => {
+    if (open) return;
+    const timer = setTimeout(() => onExitedRef.current(), 350);
+    return () => clearTimeout(timer);
+  }, [open]);
 
   return (
     <div className="fixed inset-0 z-30 md:hidden" role="dialog" aria-modal="true">
       <div
-        className={`absolute inset-0 bg-ink/60 transition-opacity duration-300 ${open ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 bg-ink/60 transition-opacity duration-300 ${showOpen ? "opacity-100" : "opacity-0"}`}
         onClick={onClose}
       />
       <div
+        ref={panelRef}
         className={`absolute top-0 right-0 h-full w-64 max-w-[80vw] bg-ink text-paper flex flex-col p-4 gap-1 corners transition-transform duration-300 ease-out ${
-          open ? "translate-x-0" : "translate-x-full"
+          showOpen ? "translate-x-0" : "translate-x-full"
         }`}
         onTransitionEnd={(e) => {
-          if (e.propertyName === "transform" && !open) onExited();
+          if (e.propertyName === "transform" && !showOpen) onExited();
         }}
       >
         <div className="flex items-center justify-between mb-3">
