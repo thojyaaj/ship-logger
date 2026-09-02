@@ -25,13 +25,15 @@ export default function DeleteShipmentButton({ sessionId, shipDate }: { sessionI
         type="button"
         disabled={isPending || deleted}
         onClick={() => setShowConfirm(true)}
-        // Mobile: solid fill, no border — see ReopenButton for why red-ink
-        // text alone didn't hold up against this bar's bg-ink. Desktop
-        // keeps the original outline pill, unchanged.
-        className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1.5 md:gap-1 px-3 md:px-4 py-3.5 md:py-2 bg-red text-paper hover:bg-red-ink md:bg-transparent md:border md:border-red md:text-red-ink md:hover:bg-red-dim disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
+        title={deleted ? "In Trash" : "Delete"}
+        aria-label={deleted ? "In Trash" : "Delete"}
+        // Mobile: solid fill, no border, big touch target — see
+        // ReopenButton for why red-ink text alone didn't hold up against
+        // this bar's bg-ink. Desktop: icon-only, plain colored icon
+        // matching the admin roster's icon-button convention.
+        className="btn inline-flex flex-col md:inline items-center justify-center gap-1.5 px-3 md:px-0 py-3.5 md:py-0 bg-red text-paper hover:bg-red-ink md:bg-transparent md:text-red-ink md:hover:text-red disabled:opacity-50 flex-1 md:flex-none"
       >
-        <TrashIcon className="w-7 h-7 md:hidden" />
-        <span className="hidden md:inline">{deleted ? "In Trash" : "Delete"}</span>
+        <TrashIcon className="w-7 h-7 md:w-5 md:h-5" />
       </button>
 
       {/* absolute here floats this above the mobile tab bar (its fixed

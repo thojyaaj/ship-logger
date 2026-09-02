@@ -8,6 +8,7 @@ import DeleteShipmentButton from "./DeleteShipmentButton";
 import ScanTable from "./ScanTable";
 import DhlPickupPanel from "./DhlPickupPanel";
 import { getLatestPickupRequest, getDhlPickupSettings } from "@/lib/dhl-pickup";
+import { DownloadIcon } from "./icons";
 
 export default async function ShipmentDetailPage({
   params,
@@ -51,7 +52,7 @@ export default async function ShipmentDetailPage({
   return (
     <div className="flex-1 flex flex-col gap-4 md:gap-6 p-4 pb-20 md:p-6 max-w-5xl mx-auto w-full">
       <div className="flex flex-col gap-2 md:gap-3 route-line pb-2 md:pb-3">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start md:items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="tag-label">Session ID</div>
             {/* Same first-8-hex-chars convention as the scan page's
@@ -69,6 +70,52 @@ export default async function ShipmentDetailPage({
               {session.status === "submitted" && submitterCode ? `-${submitterCode}` : ""}
             </h1>
           </div>
+
+          {/* Desktop: Export/Reopen/Delete/DHL sit inline in this same row,
+              between the session id and the status badge — Export/Reopen/
+              Delete are icon-only here (title/aria-label carry the label);
+              DHL keeps its text button, just not iconified (see
+              DhlPickupPanel). This group itself must stay a real flex box
+              (not `hidden`) on mobile — the fixed-position tab bar nested
+              inside it (below) needs a non-`display:none` ancestor to
+              render at all; position:fixed does not escape a hidden
+              parent. Export alone is hidden on mobile since it's a plain
+              link with nothing mobile needs from it. The group otherwise
+              contributes zero width there: a hidden link plus a
+              position:fixed child both take up no space in normal flow, so
+              it doesn't push the session id/status apart. */}
+          <div className="flex items-center gap-3 shrink-0">
+            <a
+              href={`/shipments/${session.id}/export`}
+              title="Export CSV"
+              aria-label="Export CSV"
+              className="hidden md:inline-flex text-ink-faint hover:text-ink"
+            >
+              <DownloadIcon className="w-5 h-5" />
+            </a>
+            {/* Mobile: a real fixed tab bar docked to the bottom of the
+                viewport instead of sitting inline here — these are the
+                actions a packer reaches for repeatedly while scrolling a
+                long manifest, not something worth scrolling back up for.
+                md:contents dissolves this wrapper's own box at the desktop
+                breakpoint so the same three buttons just rejoin this row as
+                plain flex items instead. */}
+            <div className="fixed md:contents bottom-0 inset-x-0 z-20 flex items-stretch gap-2 bg-ink border-t border-line-strong px-3 py-2">
+              {/* Admin-only, matching reopenSessionAction's requireAdmin —
+                  showing it to packers would just render a button that
+                  always errors. */}
+              {session.status === "submitted" && user.isAdmin && <ReopenButton sessionId={session.id} />}
+              {user.isAdmin && <DeleteShipmentButton sessionId={session.id} shipDate={session.shipDate} />}
+              {showDhlPickup && (
+                <DhlPickupPanel
+                  sessionId={session.id}
+                  initialRequest={pickupRequest}
+                  schedulingEnabled={dhlSchedulingEnabled}
+                />
+              )}
+            </div>
+          </div>
+
             {/* Bigger than the standard tag-label size (0.65rem) so status
               — the thing a packer scans this page for — actually stands
               out, with the close-out details directly beneath it. */}
@@ -82,40 +129,6 @@ export default async function ShipmentDetailPage({
               <span className="tag-label !text-base !text-white">{session.status}</span>
             {session.status === "submitted" && session.submittedAt && (
               <span className="font-condensed text-xs">{formatWarehouseTimestamp(session.submittedAt)}</span>
-            )}
-          </div>
-        </div>
-
-        {/* Desktop: one row, always — flex-nowrap keeps Reopen / Delete /
-            DHL Pickup from wrapping onto a second line; overflow-x-auto is
-            the fallback on the very narrowest phones rather than letting
-            them clip. Export CSV is desktop-only (a mobile browser can't do
-            much with a downloaded CSV). */}
-        <div className="flex items-center justify-center gap-2 flex-nowrap overflow-x-auto w-full pb-1">
-          <a
-            href={`/shipments/${session.id}/export`}
-            className="hidden md:inline-flex btn px-4 py-2 border border-line-strong text-ink hover:bg-paper-dim shrink-0"
-          >
-            Export CSV
-          </a>
-          {/* Mobile: a real fixed tab bar docked to the bottom of the
-              viewport instead of sitting inline up here — these are the
-              actions a packer reaches for repeatedly while scrolling a long
-              manifest, not something worth scrolling back up for.
-              md:contents dissolves this wrapper's own box at the desktop
-              breakpoint so the same three buttons just rejoin the row above
-              as plain flex items, unchanged from before. */}
-          <div className="fixed md:contents bottom-0 inset-x-0 z-20 flex items-stretch gap-2 bg-ink border-t border-line-strong px-3 py-2">
-            {/* Admin-only, matching reopenSessionAction's requireAdmin — showing
-                it to packers would just render a button that always errors. */}
-            {session.status === "submitted" && user.isAdmin && <ReopenButton sessionId={session.id} />}
-            {user.isAdmin && <DeleteShipmentButton sessionId={session.id} shipDate={session.shipDate} />}
-            {showDhlPickup && (
-              <DhlPickupPanel
-                sessionId={session.id}
-                initialRequest={pickupRequest}
-                schedulingEnabled={dhlSchedulingEnabled}
-              />
             )}
           </div>
         </div>

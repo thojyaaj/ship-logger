@@ -36,6 +36,26 @@ export default function DhlPickupPanel({
 
   const active = request?.status === "requested";
 
+  // Desktop: these two collapse into the button's own `title` tooltip
+  // instead of a separate inline message, now that the button sits inline
+  // with the session id row rather than having a row of its own to spare.
+  // Mobile keeps the floating paragraph versions below (native title
+  // tooltips don't work on touch).
+  const cancelButtonTitle =
+    active && request?.dispatchConfirmationNumber
+      ? `Scheduled by ${request.requestedByName}${
+          request.pickupDateLabel ? ` for ${request.pickupDateLabel} · ${request.readyTimeLabel}–${request.closeTimeLabel}` : ""
+        } — confirmation ${request.dispatchConfirmationNumber}, ${request.parcelCount} parcel(s), ~${request.totalWeightLb} lb, requested ${formatDbTimestamp(request.requestedAt)}. Click to cancel.`
+      : undefined;
+  const scheduleButtonTitle =
+    !active && request?.status === "cancelled"
+      ? `Previous pickup was cancelled${request.cancelledAt ? ` ${formatDbTimestamp(request.cancelledAt)}` : ""}${
+          request.cancelledByName ? ` by ${request.cancelledByName}` : ""
+        }.`
+      : !active && request?.status === "failed" && request.errorMessage
+        ? `Last attempt failed: ${request.errorMessage}`
+        : undefined;
+
   function openScheduleDialog() {
     setError(null);
     setPreviewError(null);
@@ -117,7 +137,7 @@ export default function DhlPickupPanel({
           type="button"
           disabled={isPending}
           onClick={() => setShowCancelConfirm(true)}
-          title={`Confirmation ${request.dispatchConfirmationNumber} — ${request.parcelCount} parcel(s), ~${request.totalWeightLb} lb, requested ${formatDbTimestamp(request.requestedAt)}. Click to cancel.`}
+          title={cancelButtonTitle}
           // Mobile: solid fill, no border — see ReopenButton for why
           // red-ink text alone didn't hold up against this bar's bg-ink.
           // Desktop keeps the original outline pill, unchanged.
@@ -131,6 +151,7 @@ export default function DhlPickupPanel({
           type="button"
           disabled={isPending}
           onClick={openScheduleDialog}
+          title={scheduleButtonTitle}
           className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1.5 md:gap-1 px-3 md:px-4 py-3.5 md:py-2 bg-orange text-paper hover:bg-orange-ink disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
         >
           <TruckIcon className="w-7 h-7 md:hidden" />
@@ -149,23 +170,25 @@ export default function DhlPickupPanel({
       )}
 
       {/* absolute here floats these flush on top of the mobile tab bar (its
-          fixed parent's box, no gap) instead of squeezing in as extra tabs;
-          md:static reverts to plain inline messages under the buttons on
-          desktop. */}
+          fixed parent's box, no gap) instead of squeezing in as extra tabs.
+          md:hidden drops them entirely on desktop — see cancelButtonTitle/
+          scheduleButtonTitle above, which carry the same info as a tooltip
+          on the button itself now that it sits inline with the session id
+          row instead of having its own row underneath to show them in. */}
       {active && request?.pickupDateLabel && (
-        <p className="absolute bottom-full left-0 right-0 md:static text-xs text-orange-ink font-condensed w-full text-center bg-orange-dim md:bg-transparent px-3 py-2 md:px-0 md:py-0">
+        <p className="absolute bottom-full left-0 right-0 md:hidden text-xs text-orange-ink font-condensed w-full text-center bg-orange-dim px-3 py-2">
           Pickup scheduled by {request.requestedByName} for {request.pickupDateLabel} · {request.readyTimeLabel}–{request.closeTimeLabel}
         </p>
       )}
       {!active && request?.status === "cancelled" && (
-        <p className="absolute bottom-full left-0 right-0 md:static text-xs text-ink-faint font-condensed w-full text-center bg-paper-dim md:bg-transparent px-3 py-2 md:px-0 md:py-0">
+        <p className="absolute bottom-full left-0 right-0 md:hidden text-xs text-ink-faint font-condensed w-full text-center bg-paper-dim px-3 py-2">
           Pickup was cancelled
           {request.cancelledAt ? ` ${formatDbTimestamp(request.cancelledAt)}` : ""}
           {request.cancelledByName ? ` by ${request.cancelledByName}` : ""}.
         </p>
       )}
       {!active && request?.status === "failed" && request.errorMessage && (
-        <p className="absolute bottom-full left-0 right-0 md:static text-xs text-red-ink font-condensed w-full text-center bg-red-dim px-3 py-2">
+        <p className="absolute bottom-full left-0 right-0 md:hidden text-xs text-red-ink font-condensed w-full text-center bg-red-dim px-3 py-2">
           Last attempt failed: {request.errorMessage}
         </p>
       )}
