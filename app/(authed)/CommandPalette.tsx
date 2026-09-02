@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { switchUser } from "./actions";
 import { searchShipmentsPaletteAction } from "./palette-actions";
 import { useCommandPaletteState } from "./CommandPaletteState";
@@ -75,8 +75,12 @@ function Highlighted({ text, indices }: { text: string; indices: number[] }) {
 export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
   const { open, setOpen } = useCommandPaletteState();
   // The scan page swaps this button out for its own shipment-logs/Submit
-  // pair on mobile — see ScanHeaderMobileActions. Desktop is untouched.
+  // pair on mobile — see ScanHeaderMobileActions. The shipments log page
+  // swaps it for a back-to-scan link instead — see
+  // ShipmentsHeaderMobileActions. Desktop is untouched by either.
   const { submit } = useScanHeaderState();
+  const pathname = usePathname();
+  const hideMobileTrigger = Boolean(submit) || pathname === "/shipments";
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [shipmentHits, setShipmentHits] = useState<ShipmentPaletteHit[]>([]);
@@ -230,10 +234,11 @@ export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
         // Icon-only on mobile — a hamburger-nav header has no room for a
         // "⌘K" label that means nothing without a physical keyboard anyway;
         // desktop keeps the label since ⌘K/Ctrl+K is the real shortcut there.
-        // Hidden entirely on mobile on the scan page, which shows its own
-        // shipment-logs/Submit pair in this slot instead (desktop unaffected).
+        // Hidden entirely on mobile on the scan page and the shipments log
+        // page, which each show their own icon in this slot instead
+        // (desktop unaffected either way).
         className={`btn border border-paper/30 text-paper/70 hover:text-paper hover:border-paper/60 p-2 md:px-3 md:py-1.5 items-center gap-1.5 ${
-          submit ? "hidden md:flex" : "flex"
+          hideMobileTrigger ? "hidden md:flex" : "flex"
         }`}
         title="Open command palette (⌘K / Ctrl+K, or / when not typing in a field)"
       >

@@ -5,9 +5,9 @@ import { useScanHeaderState } from "./ScanHeaderState";
 import { ListIcon } from "./icons";
 
 // Renders nothing unless ScanClient is mounted (i.e. only on the scan
-// page) — CommandPalette and MobileNav hide their own mobile triggers
-// whenever this has something to show, so the header swaps search+hamburger
-// for shipment-logs+Submit instead of stacking both sets of controls.
+// page) — CommandPalette hides its own mobile trigger whenever this has
+// something to show, so the header swaps search for shipment-logs+Submit
+// instead of stacking both.
 export default function ScanHeaderMobileActions() {
   const { submit } = useScanHeaderState();
   if (!submit) return null;

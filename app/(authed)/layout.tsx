@@ -3,8 +3,9 @@ import { pageRequireUser } from "@/lib/auth";
 import SwitchUserButton from "./SwitchUserButton";
 import CommandPalette from "./CommandPalette";
 import { CommandPaletteStateProvider } from "./CommandPaletteState";
-import MobileNav from "./MobileNav";
 import ScanHeaderMobileActions from "./ScanHeaderMobileActions";
+import ShipmentsHeaderMobileActions from "./ShipmentsHeaderMobileActions";
+import { PadlockIcon } from "./icons";
 import { ScanHeaderStateProvider } from "./ScanHeaderState";
 
 export default async function AuthedLayout({ children }: { children: React.ReactNode }) {
@@ -39,14 +40,18 @@ export default async function AuthedLayout({ children }: { children: React.React
                   <span className="text-paper font-semibold">{user.name}</span>
                 </span>
                 <CommandPalette isAdmin={user.isAdmin} />
-                {/* Scan page only: swaps in for the search+hamburger pair
-                    above/below while ScanClient is mounted — see
-                    ScanHeaderState. */}
+                {/* Scan page only: swaps in for the search icon above while
+                    ScanClient is mounted — see ScanHeaderState. */}
                 <ScanHeaderMobileActions />
-                {/* Mobile gets this as an entry inside the hamburger drawer
-                    instead — see MobileNav.tsx. */}
-                <SwitchUserButton className="hidden md:inline-flex" />
-                <MobileNav isAdmin={user.isAdmin} operatorName={user.name} />
+                {/* Shipments log only: swaps in for the search icon above
+                    on that one page — see ShipmentsHeaderMobileActions. */}
+                <ShipmentsHeaderMobileActions />
+                <SwitchUserButton className="hidden md:inline-flex px-3 py-1.5">Switch</SwitchUserButton>
+                {/* Mobile: icon-only, always available now that there's no
+                    hamburger drawer to hold it. */}
+                <SwitchUserButton className="md:hidden p-2 flex items-center" label="Switch user / log out">
+                  <PadlockIcon className="w-4 h-4" />
+                </SwitchUserButton>
               </div>
             </div>
             <div className="barcode h-1" />
