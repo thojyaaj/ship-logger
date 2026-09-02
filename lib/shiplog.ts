@@ -1,10 +1,10 @@
 import "server-only";
 import { db } from "./db";
 import { appUser, shipmentSession, box, scan } from "./db/schema";
-import { and, eq, desc, sql, ne, inArray, ilike, or } from "drizzle-orm";
+import { and, eq, desc, sql, ne, inArray, ilike, or, isNull, isNotNull, lt } from "drizzle-orm";
 import { newId } from "./id";
 import { detectCarrier, type Carrier } from "./carrier";
-import { nowSqlTimestamp, localCalendarDate } from "./date";
+import { nowSqlTimestamp, localCalendarDate, toSqlTimestamp, parseDbTimestamp } from "./date";
 import { lookupOrderIndex } from "./order-index";
 
 function today(): string {
@@ -680,28 +680,105 @@ export async function reopenSession(sessionId: string, reopenedByName: string): 
 }
 
 /**
- * Permanently removes a shipment day from history — admin-only, and unlike
+ * Soft-deletes a shipment day from history — admin-only, and unlike
  * `resetSession` (which voids the *open* session so scanning can restart)
- * this hard-deletes a submitted or already-voided one, no trace left in
- * `listShipments`. FK columns on `scan`/`box` have no ON DELETE CASCADE, so
- * children are deleted first in the same order `resetSession` already uses.
+ * this only ever applies to a submitted or already-voided one. The row (and
+ * its scans/boxes) stay in place, just stamped with `deletedAt` and filtered
+ * out of `listShipments` — see `restoreShipment` to undo this, and
+ * `purgeExpiredTrash` for the 30-day hard-delete that eventually follows.
  */
-export async function deleteShipment(sessionId: string): Promise<void> {
-  await db.transaction(async (tx) => {
-    const session = (
-      await tx.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId))
-    )[0];
-    // A retried request after a dropped response lands here once the first
-    // attempt already deleted it — that's the desired end state, not an error.
-    if (!session) return;
-    if (session.status === "open") {
-      throw new Error("Cannot delete the open session — use Reset Day instead.");
-    }
+export async function trashShipment(sessionId: string): Promise<void> {
+  const session = (await db.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId)))[0];
+  // A retried request after a dropped response lands here once the first
+  // attempt already trashed it — that's the desired end state, not an error.
+  if (!session) return;
+  if (session.status === "open") {
+    throw new Error("Cannot delete the open session — use Reset Day instead.");
+  }
+  if (session.deletedAt) return;
+  await db
+    .update(shipmentSession)
+    .set({ deletedAt: nowSqlTimestamp() })
+    .where(eq(shipmentSession.id, sessionId));
+}
 
-    await tx.delete(scan).where(eq(scan.sessionId, sessionId));
-    await tx.delete(box).where(eq(box.sessionId, sessionId));
-    await tx.delete(shipmentSession).where(eq(shipmentSession.id, sessionId));
-  });
+/** Un-trashes a shipment — admin-only, from the Trash page. */
+export async function restoreShipment(sessionId: string): Promise<void> {
+  await db.update(shipmentSession).set({ deletedAt: null }).where(eq(shipmentSession.id, sessionId));
+}
+
+export type TrashedShipmentItem = ShipmentListItem & { deletedAt: string; daysUntilPurge: number };
+
+// Kept in sync by eye with purgeExpiredTrash's own default — the cron is
+// what actually enforces the cutoff, this is only the Trash page's display
+// countdown.
+const TRASH_RETENTION_DAYS = 30;
+
+/** Everything currently in the trash, most recently deleted first — the
+ * Trash page's admin restore view. */
+export async function listTrashedShipments(): Promise<TrashedShipmentItem[]> {
+  const sessions = await db
+    .select()
+    .from(shipmentSession)
+    .where(isNotNull(shipmentSession.deletedAt))
+    .orderBy(desc(shipmentSession.deletedAt));
+
+  // Computed once, here, rather than from Date.now() in the client
+  // component that renders this list — React's purity rules don't allow an
+  // impure "current time" read during render, and a data-fetching function
+  // like this one isn't a render function, so it's the right place for it.
+  const now = Date.now();
+
+  const results: TrashedShipmentItem[] = [];
+  for (const s of sessions) {
+    const scanRows = await db.select().from(scan).where(eq(scan.sessionId, s.id));
+    const boxRows = await db.select().from(box).where(eq(box.sessionId, s.id));
+    const totals = { epg: 0, ups: 0, dhl: 0, unknown: 0, total: scanRows.length };
+    for (const row of scanRows) totals[row.carrier as Carrier] += 1;
+    // Non-null by construction — the WHERE clause above only selects rows
+    // that have one.
+    const deletedAt = s.deletedAt!;
+    const daysSinceDeleted = Math.floor((now - parseDbTimestamp(deletedAt).getTime()) / (24 * 60 * 60 * 1000));
+    results.push({
+      id: s.id,
+      shipDate: s.shipDate,
+      status: s.status,
+      openedAt: s.openedAt,
+      submittedAt: s.submittedAt,
+      awbNumber: s.awbNumber,
+      masterUpsTracking: s.masterUpsTracking,
+      masterUpsStatusLabel: s.masterUpsStatusLabel,
+      masterUpsStatusAt: s.masterUpsStatusAt,
+      totals,
+      boxCount: boxRows.length,
+      deletedAt,
+      daysUntilPurge: Math.max(0, TRASH_RETENTION_DAYS - daysSinceDeleted),
+    });
+  }
+  return results;
+}
+
+/**
+ * Permanently removes everything trashed more than `retentionDays` ago —
+ * the daily purge cron's entry point (see app/api/cron/purge-trash). Same
+ * hard-delete order the old unconditional deleteShipment used to use:
+ * children first, since `scan`/`box` have no ON DELETE CASCADE.
+ */
+export async function purgeExpiredTrash(retentionDays = TRASH_RETENTION_DAYS): Promise<{ purgedCount: number }> {
+  const cutoff = toSqlTimestamp(new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000));
+  const expired = await db
+    .select({ id: shipmentSession.id })
+    .from(shipmentSession)
+    .where(and(isNotNull(shipmentSession.deletedAt), lt(shipmentSession.deletedAt, cutoff)));
+
+  for (const { id } of expired) {
+    await db.transaction(async (tx) => {
+      await tx.delete(scan).where(eq(scan.sessionId, id));
+      await tx.delete(box).where(eq(box.sessionId, id));
+      await tx.delete(shipmentSession).where(eq(shipmentSession.id, id));
+    });
+  }
+  return { purgedCount: expired.length };
 }
 
 export type ShipmentListItem = {
@@ -747,6 +824,7 @@ export async function listShipments(opts?: ListShipmentsOptions): Promise<Shipme
     .where(
       and(
         ne(shipmentSession.status, "voided"),
+        isNull(shipmentSession.deletedAt),
         sessionIds ? inArray(shipmentSession.id, sessionIds) : undefined,
         date ? eq(shipmentSession.shipDate, date) : undefined,
       ),
@@ -811,6 +889,7 @@ export async function searchShipmentsForPalette(query: string, limit = 8): Promi
     .where(
       and(
         ne(shipmentSession.status, "voided"),
+        isNull(shipmentSession.deletedAt),
         or(
           ilike(shipmentSession.id, like),
           ilike(shipmentSession.awbNumber, like),

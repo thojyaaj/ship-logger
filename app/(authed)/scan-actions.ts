@@ -10,7 +10,8 @@ import {
   submitSession,
   reopenSession,
   resetSession,
-  deleteShipment,
+  trashShipment,
+  restoreShipment,
   type RecordScanResult,
   type SessionDashboard,
 } from "@/lib/shiplog";
@@ -96,5 +97,10 @@ export async function resetSessionAction(sessionId: string): Promise<SessionDash
 
 export async function deleteShipmentAction(sessionId: string): Promise<void> {
   await requireAdmin();
-  await deleteShipment(sessionId);
+  await trashShipment(sessionId);
+}
+
+export async function restoreShipmentAction(sessionId: string): Promise<void> {
+  await requireAdmin();
+  await restoreShipment(sessionId);
 }

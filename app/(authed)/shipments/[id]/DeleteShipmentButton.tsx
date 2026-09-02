@@ -31,7 +31,7 @@ export default function DeleteShipmentButton({ sessionId, shipDate }: { sessionI
         className="btn inline-flex flex-col md:flex-row items-center justify-center gap-1.5 md:gap-1 px-3 md:px-4 py-3.5 md:py-2 bg-red text-paper hover:bg-red-ink md:bg-transparent md:border md:border-red md:text-red-ink md:hover:bg-red-dim disabled:opacity-50 flex-1 md:flex-none md:shrink-0"
       >
         <TrashIcon className="w-7 h-7 md:hidden" />
-        <span className="hidden md:inline">{deleted ? "Deleted" : "Delete"}</span>
+        <span className="hidden md:inline">{deleted ? "In Trash" : "Delete"}</span>
       </button>
 
       {/* absolute here floats this above the mobile tab bar (its fixed
@@ -46,8 +46,8 @@ export default function DeleteShipmentButton({ sessionId, shipDate }: { sessionI
       {showConfirm && (
         <ConfirmDialog
           title="Delete this shipment?"
-          message={`This permanently removes the ${shipDate} shipment and every scan in it from history. This cannot be undone.`}
-          confirmLabel="Delete permanently"
+          message={`This moves the ${shipDate} shipment to Trash. It can be restored from the Trash page within 30 days, after which it's permanently deleted.`}
+          confirmLabel="Move to Trash"
           danger
           onCancel={() => setShowConfirm(false)}
           onConfirm={() => {

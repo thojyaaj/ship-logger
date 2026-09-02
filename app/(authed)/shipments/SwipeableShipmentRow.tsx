@@ -6,6 +6,7 @@ import { statusTone } from "@/lib/carrier";
 import type { ShipmentListItem } from "@/lib/shiplog";
 import { deleteShipmentAction } from "../scan-actions";
 import { actionErrorMessage } from "@/lib/error-message";
+import ConfirmDialog from "../ConfirmDialog";
 
 // A drag past this many px counts as a committed "hard swipe" — deletes
 // immediately on release, no second confirm tap. Below it, the row just
@@ -45,12 +46,13 @@ export default function SwipeableShipmentRow({
   showSwipeHint: boolean;
 }) {
   const router = useRouter();
-  // The open session is a hard server-side no — deleteShipment() throws for
+  // The open session is a hard server-side no — trashShipment() throws for
   // it rather than touching the DB (see lib/shiplog.ts) — so this is known
   // up front rather than discovered via a failed round-trip.
   const isOpenSession = s.status === "open";
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [removed, setRemoved] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -191,7 +193,12 @@ export default function SwipeableShipmentRow({
         if (isOpenSession) {
           rejectDelete();
         } else {
-          commitDelete();
+          // A hard swipe opens the same confirm dialog the detail page's
+          // Delete button does — it doesn't commit anything on its own. The
+          // row snaps back to rest immediately rather than staying pulled
+          // open behind the dialog.
+          setDragX(0);
+          setShowConfirm(true);
         }
       } else {
         setDragX(0);
@@ -292,6 +299,20 @@ export default function SwipeableShipmentRow({
           normal-flow ones in the same stacking context. */}
       {error && (
         <p className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm">{error}</p>
+      )}
+
+      {showConfirm && (
+        <ConfirmDialog
+          title="Delete this shipment?"
+          message={`This moves the ${s.shipDate} shipment to Trash. It can be restored from the Trash page within 30 days, after which it's permanently deleted.`}
+          confirmLabel="Move to Trash"
+          danger
+          onCancel={() => setShowConfirm(false)}
+          onConfirm={() => {
+            setShowConfirm(false);
+            commitDelete();
+          }}
+        />
       )}
     </>
   );

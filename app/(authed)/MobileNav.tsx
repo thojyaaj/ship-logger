@@ -185,6 +185,11 @@ function MobileNavDrawer({
             DHL Pickup
           </MobileNavLink>
         )}
+        {isAdmin && (
+          <MobileNavLink href="/admin/trash" onNavigate={onClose}>
+            Trash
+          </MobileNavLink>
+        )}
         {/* Desktop keeps this as its own header button — here on mobile it's
             just another drawer action, same treatment as the nav links. */}
         <button

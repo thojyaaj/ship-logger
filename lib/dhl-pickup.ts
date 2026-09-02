@@ -198,6 +198,9 @@ export type PickupRequestRecord = {
   requestedAt: string;
   errorMessage: string | null;
   cancelledAt: string | null;
+  pickupDateLabel: string | null;
+  readyTimeLabel: string | null;
+  closeTimeLabel: string | null;
 };
 
 /** Most recent pickup-request attempt for a shipment, if any. */
@@ -208,7 +211,26 @@ export async function getLatestPickupRequest(sessionId: string): Promise<PickupR
     .where(eq(dhlPickupRequest.sessionId, sessionId))
     .orderBy(desc(dhlPickupRequest.requestedAt))
     .limit(1);
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return null;
+
+  // pickupDate is the day actually booked with DHL — the ready/close *times*
+  // aren't stored per-request (only the date-vs-time part is what a settings
+  // edit could silently reinterpret, see the column's comment in schema.ts),
+  // so those two still come from current settings.
+  let pickupDateLabel: string | null = null;
+  let readyTimeLabel: string | null = null;
+  let closeTimeLabel: string | null = null;
+  if (row.pickupDate) {
+    pickupDateLabel = formatPickupDateLabel(row.pickupDate);
+    const settings = await getDhlPickupSettings();
+    if (settings) {
+      readyTimeLabel = formatHHMMTo12Hour(settings.readyTime);
+      closeTimeLabel = formatHHMMTo12Hour(settings.closeTime);
+    }
+  }
+
+  return { ...row, pickupDateLabel, readyTimeLabel, closeTimeLabel };
 }
 
 function hhmmToMinutes(hhmm: string): number {
@@ -336,7 +358,15 @@ export async function previewPickupForSession(sessionId: string): Promise<Previe
 }
 
 export type SchedulePickupResult =
-  | { status: "ok"; dispatchConfirmationNumber: string; parcelCount: number; totalWeightLb: number }
+  | {
+      status: "ok";
+      dispatchConfirmationNumber: string;
+      parcelCount: number;
+      totalWeightLb: number;
+      pickupDateLabel: string;
+      readyTimeLabel: string;
+      closeTimeLabel: string;
+    }
   | { status: "error"; message: string };
 
 export async function schedulePickupForSession(
@@ -423,6 +453,7 @@ export async function schedulePickupForSession(
         dispatchConfirmationNumber: result.dispatchConfirmationNumber,
         parcelCount,
         totalWeightLb,
+        pickupDate,
         errorMessage: null,
       });
     } catch (err) {
@@ -441,6 +472,9 @@ export async function schedulePickupForSession(
       dispatchConfirmationNumber: result.dispatchConfirmationNumber,
       parcelCount,
       totalWeightLb,
+      pickupDateLabel: formatPickupDateLabel(pickupDate),
+      readyTimeLabel: formatHHMMTo12Hour(settings.readyTime),
+      closeTimeLabel: formatHHMMTo12Hour(settings.closeTime),
     };
   }
 

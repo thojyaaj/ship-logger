@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ScanRow } from "@/lib/shiplog";
 import { CARRIER_COLOR, CARRIER_SHORT_LABEL, timeAgo } from "./ScanClient";
+import ConfirmDialog from "./ConfirmDialog";
 
 // Same thresholds as SwipeableShipmentRow (shipments/SwipeableShipmentRow.tsx)
 // — one consistent "how hard is a hard swipe" feel across the app.
@@ -21,8 +22,9 @@ type TouchState = {
  * Swipe-to-undo for a manifest row — touch-only, available to every user
  * (undoScanAction has no admin gate, unlike shipment deletion) since any
  * packer can already undo their own or a teammate's scan via the existing
- * Undo button. The swipe is just a faster path to that same action, not a
- * new capability, so there's no separate confirm step here either.
+ * Undo button. The swipe is just a faster path to the same confirm step the
+ * button takes — both park the row and ask before actually calling onUndo,
+ * since undoing the wrong scan mid-pack is an easy accidental tap/swipe.
  */
 export default function SwipeableScanRow({
   scan: s,
@@ -39,6 +41,7 @@ export default function SwipeableScanRow({
 }) {
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   const touchState = useRef<TouchState | null>(null);
   // Set the instant a touch sequence is decided as a horizontal drag — the
@@ -101,14 +104,11 @@ export default function SwipeableScanRow({
       // touch sequence — see the matching comment in SwipeableShipmentRow.
       e.preventDefault();
       suppressNextClick.current = true;
-      if (ts.dx <= -HARD_SWIPE_PX) {
-        // The parent's undo() removes this scan from dashboard.scans
-        // synchronously (optimistic update), so this component just
-        // unmounts on the next render — no local "removed" state needed.
-        onUndo(s.id);
-      } else {
-        setDragX(0);
-      }
+      // Either way the row snaps back to rest immediately — a hard swipe
+      // just opens the same confirm dialog the Undo button does, it doesn't
+      // commit anything on its own.
+      setDragX(0);
+      if (ts.dx <= -HARD_SWIPE_PX) setShowConfirm(true);
     }
 
     el.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -177,13 +177,30 @@ export default function SwipeableScanRow({
               suppressNextClick.current = false;
               return;
             }
-            onUndo(s.id);
+            setShowConfirm(true);
           }}
           className="tag-label !text-red hover:!text-red-ink"
         >
           Undo
         </button>
       </div>
+
+      {showConfirm && (
+        <ConfirmDialog
+          title="Undo this scan?"
+          message={`Remove "${s.trackingNumber}" from this session's manifest?`}
+          confirmLabel="Undo"
+          danger
+          onCancel={() => setShowConfirm(false)}
+          onConfirm={() => {
+            setShowConfirm(false);
+            // The parent's undo() removes this scan from dashboard.scans
+            // synchronously (optimistic update), so this component just
+            // unmounts on the next render — no local "removed" state needed.
+            onUndo(s.id);
+          }}
+        />
+      )}
     </li>
   );
 }
