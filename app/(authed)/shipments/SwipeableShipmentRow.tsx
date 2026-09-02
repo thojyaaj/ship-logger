@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { statusTone } from "@/lib/carrier";
+import { formatCarrierTimestamp } from "@/lib/date";
 import type { ShipmentListItem } from "@/lib/shiplog";
 import { deleteShipmentAction } from "../scan-actions";
 import { actionErrorMessage } from "@/lib/error-message";
@@ -283,7 +284,7 @@ export default function SwipeableShipmentRow({
             {s.awbNumber && <span className="tag-label !normal-case">{s.awbNumber}</span>}
             {s.totals.epg > 0 && s.masterUpsTracking && (
               <span
-                title={`Master UPS ${s.masterUpsTracking}${s.masterUpsStatusAt ? ` — as of ${s.masterUpsStatusAt}` : ""}`}
+                title={`Master UPS ${s.masterUpsTracking}${s.masterUpsStatusAt ? ` — as of ${formatCarrierTimestamp(s.masterUpsStatusAt)}` : ""}`}
                 className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block whitespace-nowrap ${statusTone(s.masterUpsStatusLabel)}`}
               >
                 {s.masterUpsStatusLabel ?? "STATUS PENDING"}

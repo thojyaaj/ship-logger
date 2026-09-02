@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { pageRequireUser } from "@/lib/auth";
 import { getShipmentDetail, ShipmentNotFoundError } from "@/lib/shiplog";
-import { formatWarehouseTimestamp } from "@/lib/date";
+import { formatCarrierTimestamp, formatWarehouseTimestamp } from "@/lib/date";
 import { trackingUrl, statusTone } from "@/lib/carrier";
 import ReopenButton from "./ReopenButton";
 import DeleteShipmentButton from "./DeleteShipmentButton";
@@ -158,7 +158,9 @@ export default async function ShipmentDetailPage({
                 </span>
               </div>
               {session.masterUpsStatusAt && (
-                <div className="data text-xs text-ink-faint mt-1">as of {session.masterUpsStatusAt}</div>
+                <div className="data text-xs text-ink-faint mt-1">
+                  as of {formatCarrierTimestamp(session.masterUpsStatusAt)}
+                </div>
               )}
             </div>
           )}
@@ -246,4 +248,3 @@ function Field({
     </div>
   );
 }
-

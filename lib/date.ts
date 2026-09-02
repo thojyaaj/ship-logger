@@ -44,6 +44,33 @@ export function formatWarehouseTimestamp(value: string): string {
 }
 
 /**
+ * Formats a carrier-supplied tracking timestamp for display. UPS returns its
+ * status time as an unzoned `YYYYMMDD HHMMSS` wall-clock value. It must not
+ * be converted between timezones, or the carrier's event time would shift.
+ */
+export function formatCarrierTimestamp(value: string): string {
+  const upsMatch = /^(\d{4})(\d{2})(\d{2})\s?(\d{2})(\d{2})(\d{2})$/.exec(value.trim());
+  const options: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  };
+
+  if (upsMatch) {
+    const [, year, month, day, hour, minute, second] = upsMatch;
+    return new Intl.DateTimeFormat("en-US", { ...options, timeZone: "UTC" }).format(
+      new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second))),
+    );
+  }
+
+  return new Intl.DateTimeFormat("en-US", { ...options, timeZone: WAREHOUSE_TZ }).format(
+    parseDbTimestamp(value),
+  );
+}
+
+/**
  * Matches SQLite's `(current_timestamp)` column-default format exactly
  * ("2026-08-30 20:20:58", space-separated, no zone marker) so that
  * app-written timestamps sort correctly against DB-default ones in plain
