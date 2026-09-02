@@ -182,10 +182,9 @@ export default function ScanClient({
 
   const { open: paletteOpen } = useCommandPaletteState();
 
-  // Scan input / session row / box chips stick just below the app header
-  // instead of scrolling away — measured rather than hardcoded since the
-  // header's own height isn't fixed (it wraps on narrow widths, and the
-  // barcode strip/operator label change what's visible at each breakpoint).
+  // Header height — measured rather than hardcoded since it isn't fixed (it
+  // wraps on narrow widths, and the barcode strip/operator label change
+  // what's visible at each breakpoint).
   const [headerHeight, setHeaderHeight] = useState(0);
   useEffect(() => {
     const header = document.getElementById("app-header");
@@ -197,11 +196,17 @@ export default function ScanClient({
     return () => observer.disconnect();
   }, []);
 
-  // Mobile-only app-shell feel: the whole page is locked to exactly the
-  // viewport height below the header (no page-level scroll/bounce at all —
-  // scan input, session row, and box chips stay completely put), and the
-  // manifest becomes its own bounded panel that scrolls internally. Desktop
-  // keeps the original normal-document-scroll behavior unchanged.
+  // Mobile-only app-shell feel: scan input/session/box chips and the totals
+  // footer are truly position:fixed to the viewport — not sticky, not a
+  // height-locked+overflow:hidden container computed from 100dvh. Those
+  // indirect approaches depend on dvh support and a scrolling ancestor that
+  // may not actually be there, and can visibly jump on load before the
+  // first measurement lands. Fixed top/bottom offsets computed from real
+  // measured heights have none of that: the manifest panel's top/bottom are
+  // set directly from this row and the footer's own rendered height, so the
+  // browser computes its available height itself — no dvh arithmetic at
+  // all. Desktop keeps the original normal-document-scroll behavior,
+  // completely unchanged.
   const [isDesktop, setIsDesktop] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 768px)");
@@ -209,6 +214,33 @@ export default function ScanClient({
     update();
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
+  }, []);
+
+  // Top controls block (scan input/session/chips/banners) and the footer
+  // are self-sizing — measured so the manifest panel's fixed top/bottom
+  // offsets can be computed from their actual rendered height, not a guess.
+  const [topHeight, setTopHeight] = useState(0);
+  const topRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = topRef.current;
+    if (!el) return;
+    const update = () => setTopHeight(el.offsetHeight);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const [footerHeight, setFooterHeight] = useState(0);
+  const footerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = footerRef.current;
+    if (!el) return;
+    const update = () => setFooterHeight(el.offsetHeight);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
 
   // Manifest panel expanded to fill the screen — the compact panel is deep
@@ -530,20 +562,20 @@ export default function ScanClient({
   );
 
   return (
-    <div
-      // Mobile: locked to exactly the viewport height below the header, and
-      // overflow-hidden so the page itself never scrolls — only the
-      // manifest panel below does, on its own. Desktop: unconstrained,
-      // normal page scroll, unchanged from before.
-      style={isDesktop ? undefined : { height: `calc(100dvh - ${headerHeight}px)` }}
-      className={`flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full ${isDesktop ? "" : "overflow-hidden"}`}
-    >
-      {/* Static top section — scan input, session row, and box chips stay
-          put under the app header at all times; everything from Banners
-          down scrolls normally underneath (desktop) or lives in the fixed
-          shell (mobile). bg-paper keeps manifest rows from showing through
-          once this is stuck mid-scroll on desktop. */}
-      <div className="sticky z-[5] bg-paper flex flex-col gap-6 pb-2 shrink-0" style={{ top: headerHeight }}>
+    <div className="flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
+      {/* Top controls — mobile: position:fixed directly under the header, no
+          sticky/overflow/dvh-calc indirection. Desktop: sticky, unchanged
+          from before. Banners live inside this same measured block (not
+          the manifest below) so the manifest's fixed `top` offset — which
+          reads this block's own rendered height — shifts down
+          automatically the instant a banner appears or clears. */}
+      <div
+        ref={topRef}
+        className={`bg-paper flex flex-col gap-6 pb-2 shrink-0 ${
+          isDesktop ? "sticky z-[5]" : "fixed inset-x-0 z-[5] px-4 pt-4"
+        }`}
+        style={{ top: headerHeight }}
+      >
         {/* Scan input. A hardware scanner types into this like a keyboard and
             ends with Enter (§8.3) — the button is a manual-entry fallback for
             testing and for typing a number in by hand. First thing on the
@@ -649,11 +681,9 @@ export default function ScanClient({
             </span>
           )}
         </div>
-      </div>
 
-      {/* Banners */}
-      {banner && (
-        <div className="shrink-0">
+        {/* Banners */}
+        {banner && (
           <BannerView
             banner={banner}
             isAdmin={currentUser.isAdmin}
@@ -671,15 +701,19 @@ export default function ScanClient({
               submitScan(banner.trackingNumber, { forcePastDuplicate: true });
             }}
           />
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Manifest — on mobile this is its own bounded panel (border, capped
-          height) that scrolls internally rather than moving with the page;
-          the expand button blows it up to fill the screen for actually
-          reviewing a long list. Desktop is unchanged: no border/cap, just
-          flows with the page like before. */}
-      <div className={`relative flex flex-col gap-1 ${isDesktop ? "" : "flex-1 min-h-0"}`}>
+      {/* Manifest — mobile: position:fixed, top/bottom set directly from the
+          top block's and footer's own measured heights, so its available
+          height (and thus its internal scroll) is exactly the gap between
+          them — no dvh arithmetic, no scrolling-ancestor assumptions.
+          Desktop: unchanged, flows with the page like before. The expand
+          button blows it up to fill the screen for reviewing a long list. */}
+      <div
+        className={`relative flex flex-col gap-1 ${isDesktop ? "" : "fixed inset-x-0 px-4"}`}
+        style={isDesktop ? undefined : { top: headerHeight + topHeight, bottom: footerHeight }}
+      >
         <h2 className="tag-label shrink-0">Manifest — {dashboard?.scans.length ?? 0} scanned</h2>
         <div className={isDesktop ? "" : "flex-1 min-h-0 overflow-y-auto border border-line"}>
           <ul className="flex flex-col border-t border-line">{manifestRows}</ul>
@@ -720,11 +754,17 @@ export default function ScanClient({
         </div>
       )}
 
-      {/* Static footer — per-carrier totals + Total, always one row of 4
-          (no responsive column collapse; kept compact instead), docked above
-          the Submit button so both stay visible while the manifest list
-          above scrolls. */}
-      <div className="sticky bottom-0 bg-paper pt-2 pb-4 route-line flex flex-col gap-2 shrink-0">
+      {/* Footer — per-carrier totals + Total (always one row of 4, no
+          responsive collapse) docked above Submit. Mobile: position:fixed
+          flush to the literal bottom of the viewport, no bottom padding —
+          both stay visible with nothing hidden below the fold. Desktop:
+          sticky, unchanged from before. */}
+      <div
+        ref={footerRef}
+        className={`bg-paper pt-2 route-line flex flex-col gap-2 shrink-0 ${
+          isDesktop ? "sticky bottom-0 pb-4" : "fixed inset-x-0 bottom-0 z-[5] px-4"
+        }`}
+      >
         <div className="grid grid-cols-4 gap-px bg-line">
           {(["epg", "ups", "dhl"] as const).map((c) => (
             <div key={c} className={`corners p-2 text-center ${CARRIER_TINT[c]}`}>
