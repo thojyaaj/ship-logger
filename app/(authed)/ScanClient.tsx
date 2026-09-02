@@ -240,6 +240,15 @@ export default function ScanClient({
   // offsets can be computed from their actual rendered height, not a guess.
   const [topHeight, setTopHeight] = useState(0);
   const topRef = useRef<HTMLDivElement>(null);
+  // Newest scan renders at the top of the manifest (scans are already
+  // newest-first — see loadDashboard's orderBy in lib/shiplog.ts), but a
+  // packer who's scrolled down to check an earlier parcel wouldn't
+  // otherwise see it land without scrolling back up themselves. Scrolled
+  // to top alongside the flash highlight below whenever a scan is
+  // recorded. Two refs since the compact panel and the fullscreen overlay
+  // are separate scroll containers — only one is ever mounted at a time.
+  const manifestScrollRef = useRef<HTMLDivElement>(null);
+  const manifestFullscreenScrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = topRef.current;
     if (!el) return;
@@ -333,6 +342,8 @@ export default function ScanClient({
                 if (newest) {
                   setFlashScanId(newest.id);
                   setTimeout(() => setFlashScanId(null), 600);
+                  manifestScrollRef.current?.scrollTo({ top: 0 });
+                  manifestFullscreenScrollRef.current?.scrollTo({ top: 0 });
                 }
               }
               playTone(ACCEPT_TONE_BY_CARRIER[result.carrier]);
@@ -791,7 +802,14 @@ export default function ScanClient({
           header now, totals moved up under the scan input). The expand
           button blows it up to fill the screen for reviewing a long list. */}
       <div
-        className={isDesktop ? "flex-1 flex flex-col gap-1 min-h-0" : "relative flex flex-col gap-1 fixed inset-x-0 px-4"}
+        // `fixed` alone already establishes a containing block for the
+        // absolutely-positioned expand button below — a stray `relative`
+        // here previously fought it for the same `position` property
+        // (whichever utility Tailwind happened to emit last won), which is
+        // exactly the kind of thing that leaves the button's "always
+        // bottom-right" anchoring dependent on build output instead of
+        // actually pinned.
+        className={isDesktop ? "flex-1 flex flex-col gap-1 min-h-0" : "flex flex-col gap-1 fixed inset-x-0 px-4"}
         style={isDesktop ? undefined : { top: headerHeight + topHeight, bottom: 0 }}
       >
         <h2 className="tag-label shrink-0">Manifest — {dashboard?.scans.length ?? 0} scanned</h2>
@@ -799,7 +817,7 @@ export default function ScanClient({
           <ul className="flex flex-col border-t border-line">{manifestRows}</ul>
         ) : (
           <>
-            <div className="flex-1 min-h-0 overflow-y-auto border border-line">
+            <div ref={manifestScrollRef} className="flex-1 min-h-0 overflow-y-auto border border-line">
               <ul className="flex flex-col border-t border-line">{manifestRows}</ul>
             </div>
             <button
@@ -832,7 +850,7 @@ export default function ScanClient({
               <MinimizeIcon className="w-5 h-5" />
             </button>
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div ref={manifestFullscreenScrollRef} className="flex-1 min-h-0 overflow-y-auto">
             <ul className="flex flex-col border-t border-line">{manifestRows}</ul>
           </div>
         </div>
