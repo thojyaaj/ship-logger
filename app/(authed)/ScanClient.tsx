@@ -17,6 +17,7 @@ import SubmitDialog from "./SubmitDialog";
 import OrderPanel from "./OrderPanel";
 import ConfirmDialog from "./ConfirmDialog";
 import SwipeableScanRow from "./SwipeableScanRow";
+import { MaximizeIcon, MinimizeIcon } from "./icons";
 import { useCommandPaletteState } from "./CommandPaletteState";
 import { actionErrorMessage } from "@/lib/error-message";
 import { withTransportRetry } from "@/lib/with-retry";
@@ -195,6 +196,26 @@ export default function ScanClient({
     observer.observe(header);
     return () => observer.disconnect();
   }, []);
+
+  // Mobile-only app-shell feel: the whole page is locked to exactly the
+  // viewport height below the header (no page-level scroll/bounce at all —
+  // scan input, session row, and box chips stay completely put), and the
+  // manifest becomes its own bounded panel that scrolls internally. Desktop
+  // keeps the original normal-document-scroll behavior unchanged.
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  // Manifest panel expanded to fill the screen — the compact panel is deep
+  // enough to be useful mid-pack but too short to review a long shipment;
+  // this is the "let me actually look at everything I've scanned" escape
+  // hatch, not a permanent mode.
+  const [manifestFullscreen, setManifestFullscreen] = useState(false);
 
   // Monotonic id for dashboard-mutating requests. Every server response
   // carries a full dashboard snapshot, so an older response landing after a
@@ -487,13 +508,42 @@ export default function ScanClient({
   const boxCountSum = (dashboard?.boxes ?? []).reduce((a, b) => a + b.scanCount, 0);
   const boxSumMismatch = !!dashboard && dashboard.boxes.length > 0 && boxCountSum !== dashboard.totals.epg;
 
+  // Shared between the compact panel and the fullscreen overlay so the row
+  // list itself is never duplicated.
+  const manifestRows = (
+    <>
+      {dashboard &&
+        dashboard.scans.map((s) => (
+          <SwipeableScanRow
+            key={s.id}
+            scan={s}
+            scannedByName={dashboard.userNames[s.scannedBy] ?? "?"}
+            isFlashing={flashScanId === s.id}
+            onOpenOrder={setOpenOrderGid}
+            onUndo={undo}
+          />
+        ))}
+      {(!dashboard || dashboard.scans.length === 0) && (
+        <li className="text-ink-faint text-sm py-8 text-center border-b border-line data">NO SCANS YET</li>
+      )}
+    </>
+  );
+
   return (
-    <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
+    <div
+      // Mobile: locked to exactly the viewport height below the header, and
+      // overflow-hidden so the page itself never scrolls — only the
+      // manifest panel below does, on its own. Desktop: unconstrained,
+      // normal page scroll, unchanged from before.
+      style={isDesktop ? undefined : { height: `calc(100dvh - ${headerHeight}px)` }}
+      className={`flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full ${isDesktop ? "" : "overflow-hidden"}`}
+    >
       {/* Static top section — scan input, session row, and box chips stay
           put under the app header at all times; everything from Banners
-          down scrolls normally underneath. bg-paper keeps manifest rows
-          from showing through once this is stuck mid-scroll. */}
-      <div className="sticky z-[5] bg-paper flex flex-col gap-6 pb-2" style={{ top: headerHeight }}>
+          down scrolls normally underneath (desktop) or lives in the fixed
+          shell (mobile). bg-paper keeps manifest rows from showing through
+          once this is stuck mid-scroll on desktop. */}
+      <div className="sticky z-[5] bg-paper flex flex-col gap-6 pb-2 shrink-0" style={{ top: headerHeight }}>
         {/* Scan input. A hardware scanner types into this like a keyboard and
             ends with Enter (§8.3) — the button is a manual-entry fallback for
             testing and for typing a number in by hand. First thing on the
@@ -603,53 +653,78 @@ export default function ScanClient({
 
       {/* Banners */}
       {banner && (
-        <BannerView
-          banner={banner}
-          isAdmin={currentUser.isAdmin}
-          onDismiss={() => setBanner(null)}
-          onAssignCarrier={(carrier) => {
-            const tn = "trackingNumber" in banner ? banner.trackingNumber : "";
-            submitScan(tn, { forceCarrier: carrier });
-          }}
-          onUseAnyway={() => {
-            if (banner.kind !== "checksum_warning") return;
-            submitScan(banner.trackingNumber, { overrideChecksum: true });
-          }}
-          onForcePastDuplicate={() => {
-            if (banner.kind !== "duplicate_previous_shipment") return;
-            submitScan(banner.trackingNumber, { forcePastDuplicate: true });
-          }}
-        />
+        <div className="shrink-0">
+          <BannerView
+            banner={banner}
+            isAdmin={currentUser.isAdmin}
+            onDismiss={() => setBanner(null)}
+            onAssignCarrier={(carrier) => {
+              const tn = "trackingNumber" in banner ? banner.trackingNumber : "";
+              submitScan(tn, { forceCarrier: carrier });
+            }}
+            onUseAnyway={() => {
+              if (banner.kind !== "checksum_warning") return;
+              submitScan(banner.trackingNumber, { overrideChecksum: true });
+            }}
+            onForcePastDuplicate={() => {
+              if (banner.kind !== "duplicate_previous_shipment") return;
+              submitScan(banner.trackingNumber, { forcePastDuplicate: true });
+            }}
+          />
+        </div>
       )}
 
-      {/* Scan list */}
-      <div className="flex-1 flex flex-col gap-1 min-h-0">
-        <h2 className="tag-label">Manifest — {dashboard?.scans.length ?? 0} scanned</h2>
-        <ul className="flex flex-col border-t border-line">
-          {dashboard &&
-            dashboard.scans.map((s) => (
-              <SwipeableScanRow
-                key={s.id}
-                scan={s}
-                scannedByName={dashboard.userNames[s.scannedBy] ?? "?"}
-                isFlashing={flashScanId === s.id}
-                onOpenOrder={setOpenOrderGid}
-                onUndo={undo}
-              />
-            ))}
-          {(!dashboard || dashboard.scans.length === 0) && (
-            <li className="text-ink-faint text-sm py-8 text-center border-b border-line data">
-              NO SCANS YET
-            </li>
-          )}
-        </ul>
+      {/* Manifest — on mobile this is its own bounded panel (border, capped
+          height) that scrolls internally rather than moving with the page;
+          the expand button blows it up to fill the screen for actually
+          reviewing a long list. Desktop is unchanged: no border/cap, just
+          flows with the page like before. */}
+      <div className={`relative flex flex-col gap-1 ${isDesktop ? "" : "flex-1 min-h-0"}`}>
+        <h2 className="tag-label shrink-0">Manifest — {dashboard?.scans.length ?? 0} scanned</h2>
+        <div className={isDesktop ? "" : "flex-1 min-h-0 overflow-y-auto border border-line"}>
+          <ul className="flex flex-col border-t border-line">{manifestRows}</ul>
+        </div>
+        {!isDesktop && (
+          <button
+            type="button"
+            onClick={() => setManifestFullscreen(true)}
+            title="Expand manifest"
+            className="absolute bottom-2 right-2 p-2 rounded-full bg-ink text-paper shadow-md"
+          >
+            <MaximizeIcon className="w-4 h-4" />
+          </button>
+        )}
       </div>
+
+      {/* Fullscreen manifest — covers the whole viewport (above the app
+          header too) so a long shipment can actually be reviewed, not just
+          peeked at through the compact panel. Mobile only; isDesktop never
+          sets manifestFullscreen true in the first place since the expand
+          button that triggers it doesn't render there. */}
+      {!isDesktop && manifestFullscreen && (
+        <div className="fixed inset-0 z-30 bg-paper flex flex-col p-4">
+          <div className="flex items-center justify-between route-line pb-2 shrink-0">
+            <h2 className="tag-label">Manifest — {dashboard?.scans.length ?? 0} scanned</h2>
+            <button
+              type="button"
+              onClick={() => setManifestFullscreen(false)}
+              title="Collapse manifest"
+              className="p-1.5 text-ink-soft hover:text-ink"
+            >
+              <MinimizeIcon className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <ul className="flex flex-col border-t border-line">{manifestRows}</ul>
+          </div>
+        </div>
+      )}
 
       {/* Static footer — per-carrier totals + Total, always one row of 4
           (no responsive column collapse; kept compact instead), docked above
           the Submit button so both stay visible while the manifest list
           above scrolls. */}
-      <div className="sticky bottom-0 bg-paper pt-2 pb-4 route-line flex flex-col gap-2">
+      <div className="sticky bottom-0 bg-paper pt-2 pb-4 route-line flex flex-col gap-2 shrink-0">
         <div className="grid grid-cols-4 gap-px bg-line">
           {(["epg", "ups", "dhl"] as const).map((c) => (
             <div key={c} className={`corners p-2 text-center ${CARRIER_TINT[c]}`}>
