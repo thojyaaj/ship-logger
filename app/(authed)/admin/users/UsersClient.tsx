@@ -107,9 +107,9 @@ export default function UsersClient({
   }
 
   return (
-    <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-2xl mx-auto w-full">
+    <div className="flex flex-col gap-6">
       <div className="flex items-baseline justify-between route-line pb-2">
-        <h1 className="font-stencil text-2xl tracking-wide">Crew Roster</h1>
+        <h2 className="font-stencil text-xl tracking-wide">Crew Roster</h2>
         <span className="tag-label">{users.length} registered</span>
       </div>
 

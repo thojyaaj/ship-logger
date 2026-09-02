@@ -53,7 +53,11 @@ export default async function ShipmentDetailPage({
       <div className="flex flex-col gap-3 route-line pb-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <Link href="/shipments" className="tag-label hover:!text-ink">
+            {/* Mobile: redundant now that the header itself has a
+                back-to-shipments-log icon (see
+                ShipmentDetailHeaderMobileActions) — desktop has no header
+                equivalent, so it keeps this breadcrumb. */}
+            <Link href="/shipments" className="hidden md:inline tag-label hover:!text-ink">
               ← Shipments
             </Link>
             <h1 className="font-stencil text-2xl tracking-wide mt-1">{session.shipDate}</h1>

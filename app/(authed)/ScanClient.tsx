@@ -624,7 +624,7 @@ export default function ScanClient({
               // than the stale closure it would otherwise have captured.
               onBlur={() => setTimeout(focusInput, 0)}
               autoFocus
-              placeholder="Scan or type a tracking number, then press Enter"
+              placeholder="SCAN OR TYPE A TRACKING NUMBER"
               // min-w-0 overrides a flex item's default min-width:auto — without
               // it, this input refuses to shrink below its content's intrinsic
               // width and pushes the row past a phone's viewport (measured

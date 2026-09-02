@@ -8,6 +8,7 @@ import ScanHeaderMobileActions from "./ScanHeaderMobileActions";
 import ShipmentsHeaderMobileActions from "./ShipmentsHeaderMobileActions";
 import ShipmentDetailHeaderMobileActions from "./ShipmentDetailHeaderMobileActions";
 import { ScanHeaderStateProvider } from "./ScanHeaderState";
+import { PadlockIcon } from "./icons";
 
 export default async function AuthedLayout({ children }: { children: React.ReactNode }) {
   const user = await pageRequireUser();
@@ -30,9 +31,11 @@ export default async function AuthedLayout({ children }: { children: React.React
                   <NavLink href="/">Scan</NavLink>
                   <NavLink href="/shipments">Shipments</NavLink>
                   {user.isAdmin && <NavLink href="/analytics">Analytics</NavLink>}
+                  {/* DHL Pickup settings now live inside this page too — see
+                      admin/users/page.tsx — and Trash is reachable from the
+                      shipments log page instead (next to its record count),
+                      so neither needs its own top-level link anymore. */}
                   {user.isAdmin && <NavLink href="/admin/users">Admin</NavLink>}
-                  {user.isAdmin && <NavLink href="/admin/dhl-pickup">DHL Pickup</NavLink>}
-                  {user.isAdmin && <NavLink href="/admin/trash">Trash</NavLink>}
                 </nav>
               </div>
               <div className="flex items-center gap-3 text-sm shrink-0">
@@ -51,7 +54,12 @@ export default async function AuthedLayout({ children }: { children: React.React
                 {/* A shipment's detail page only — see
                     ShipmentDetailHeaderMobileActions. */}
                 <ShipmentDetailHeaderMobileActions />
-                <SwitchUserButton className="hidden md:inline-flex px-3 py-1.5">Switch</SwitchUserButton>
+                <SwitchUserButton
+                  className="hidden md:inline-flex p-2 items-center"
+                  label="Switch user / log out"
+                >
+                  <PadlockIcon className="w-4 h-4" />
+                </SwitchUserButton>
                 {/* Mobile: icon-only, hides itself on the scan page where
                     ScanHeaderMobileActions renders its own copy instead. */}
                 <MobileSwitchUserButton />

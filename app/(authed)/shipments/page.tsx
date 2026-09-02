@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { pageRequireUser } from "@/lib/auth";
 import { listShipments, getDailyVolume } from "@/lib/shiplog";
 import VolumeChart from "./VolumeChart";
 import ShipmentSearchForm from "./ShipmentSearchForm";
 import SwipeableShipmentRow from "./SwipeableShipmentRow";
+import { TrashIcon } from "./[id]/icons";
 
 export default async function ShipmentsPage({
   searchParams,
@@ -37,7 +39,21 @@ export default async function ShipmentsPage({
     <div className="flex-1 flex flex-col gap-6 p-4 pb-24 md:p-6 max-w-5xl mx-auto w-full">
       <div className="flex items-baseline justify-between route-line pb-2">
         <h1 className="font-stencil text-2xl tracking-wide">Shipments Log</h1>
-        <span className="tag-label">{shipments.length} on record</span>
+        <div className="flex items-center gap-3">
+          <span className="tag-label">{shipments.length} on record</span>
+          {/* Desktop, admin-only — Trash lost its own top-nav link (see
+              layout.tsx) in favor of living right next to the log it
+              trashes shipments out of. */}
+          {user.isAdmin && (
+            <Link
+              href="/admin/trash"
+              className="hidden md:inline-flex btn items-center gap-1.5 px-3 py-1.5 bg-orange text-paper hover:bg-orange-ink"
+            >
+              <TrashIcon className="w-4 h-4" />
+              Trash
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Moved to its own Analytics page on mobile (admin-only) — no room
