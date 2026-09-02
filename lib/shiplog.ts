@@ -678,7 +678,17 @@ export async function getRestorableReset(): Promise<RestorableReset | null> {
 }
 
 export async function restoreReset(resetId: string): Promise<SessionDashboard> {
-  return db.transaction(async (tx) => {
+  // loadDashboard reads through the module-level `db`, not this
+  // transaction's `tx` — called from inside the transaction (as it
+  // originally was), it ran against a separate connection that couldn't
+  // see the scans/boxes this same transaction had just inserted but not
+  // yet committed. It came back with the session marked open but zero
+  // scans, and stayed that way until the *next* unrelated write (e.g. a
+  // new scan) forced a fresh load — which is exactly the "nothing shows
+  // up until I scan something new" bug. Same fix as resetSession just
+  // above: only return the id from inside the transaction, and load the
+  // dashboard after it's actually committed.
+  const sessionId = await db.transaction(async (tx) => {
     const row = (await tx.select().from(shipmentReset).where(eq(shipmentReset.id, resetId)).limit(1))[0];
     if (!row || row.restoredAt || row.expiresAt <= nowSqlTimestamp()) throw new Error("This reset can no longer be restored.");
     const otherOpen = await tx.select({ id: shipmentSession.id }).from(shipmentSession).where(eq(shipmentSession.status, "open"));
@@ -694,8 +704,9 @@ export async function restoreReset(resetId: string): Promise<SessionDashboard> {
     await tx.update(shipmentSession)
       .set({ status: "open", activeBoxId: snapshot.session.activeBoxId, notes: snapshot.session.notes })
       .where(eq(shipmentSession.id, snapshot.session.id));
-    return loadDashboard(snapshot.session.id);
+    return snapshot.session.id;
   });
+  return loadDashboard(sessionId);
 }
 
 export async function reopenSession(sessionId: string, reopenedByName: string): Promise<void> {
