@@ -56,6 +56,14 @@ export default function SwipeableScanRow({
     if (!el) return;
 
     function onTouchStart(e: TouchEvent) {
+      // The flag only means "the click immediately following the touch
+      // sequence that's about to start should be suppressed" — clearing it
+      // fresh here scopes it to that one gesture. Left set from a previous
+      // drag, it would permanently block every future tap on this row: once
+      // touchend's preventDefault actually succeeds in suppressing the
+      // browser's synthetic click (the common case), nothing else ever
+      // clears it back to false.
+      suppressNextClick.current = false;
       const t = e.touches[0];
       touchState.current = { startX: t.clientX, startY: t.clientY, dx: 0, decided: false, horizontal: false };
       setIsDragging(true);
