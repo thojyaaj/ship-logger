@@ -66,18 +66,18 @@ export default async function ShipmentDetailPage({
               — the thing a packer scans this page for — actually stands
               out, with the close-out details directly beneath it. */}
             <div
-              className={`flex flex-col items-end gap-0.5 px-3 py-2 shrink-0 ${
+              className={`flex flex-col items-center text-center gap-0.5 px-3 py-2 shrink-0 ${
                 session.status === "submitted"
                 ? "bg-green !text-white"
                 : "bg-amber-dim !text-amber-ink"
               }`}
             >
-              <span className="tag-label !text-base">{session.status}</span>
+              <span className="tag-label !text-base !text-white">{session.status}</span>
             {session.status === "submitted" && session.submittedAt && (
               <span className="font-condensed text-xs">{formatWarehouseTimestamp(session.submittedAt)}</span>
             )}
             {session.status === "submitted" && session.submittedBy && (
-              <div className="mt-1 -mx-1 px-1.5 py-0.5 bg-paper-dim text-green-ink font-condensed text-xs">
+              <div className="mt-1 -mx-1 px-1.5 py-0.5 bg-paper-dim text-green-ink font-condensed text-xs text-center">
                 Submitted by {userNames[session.submittedBy] ?? "Unknown"}
               </div>
             )}
