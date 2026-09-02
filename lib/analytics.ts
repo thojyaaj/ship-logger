@@ -29,6 +29,8 @@ function submittedInWindow(days: number) {
 export type OverviewStats = {
   shipmentsSubmitted: number;
   totalPackages: number;
+  /** EPG-only — the one carrier we consolidate into boxes (see totalBoxes). */
+  totalEpgPackages: number;
   totalBoxes: number;
   avgPackagesPerShipment: number;
   avgBoxesPerShipment: number;
@@ -44,11 +46,22 @@ export async function getOverviewStats(days: number): Promise<OverviewStats> {
 
   const sessionIds = sessions.map((s) => s.id);
   let totalPackages = 0;
+  let totalEpgPackages = 0;
   let totalBoxes = 0;
   if (sessionIds.length > 0) {
     const [scanCountRow] = await db.select({ count: sql<number>`count(*)` }).from(scan).where(inArray(scan.sessionId, sessionIds));
+    // UPS/DHL parcels ship individually and are never assigned to a box —
+    // only EPG parcels get consolidated into one (see ScanTable's "UPS /
+    // DHL Parcels" unboxed section on the detail page) — so "parcels per
+    // box" below is computed against this count, not totalPackages, or
+    // UPS/DHL volume would inflate a ratio they were never part of.
+    const [epgCountRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(scan)
+      .where(and(inArray(scan.sessionId, sessionIds), eq(scan.carrier, "epg")));
     const [boxCountRow] = await db.select({ count: sql<number>`count(*)` }).from(box).where(inArray(box.sessionId, sessionIds));
     totalPackages = Number(scanCountRow?.count ?? 0);
+    totalEpgPackages = Number(epgCountRow?.count ?? 0);
     totalBoxes = Number(boxCountRow?.count ?? 0);
   }
 
@@ -62,6 +75,7 @@ export async function getOverviewStats(days: number): Promise<OverviewStats> {
   return {
     shipmentsSubmitted: sessions.length,
     totalPackages,
+    totalEpgPackages,
     totalBoxes,
     avgPackagesPerShipment: sessions.length > 0 ? totalPackages / sessions.length : 0,
     avgBoxesPerShipment: sessions.length > 0 ? totalBoxes / sessions.length : 0,

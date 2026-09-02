@@ -88,7 +88,8 @@ export default async function AnalyticsPage({
 
   const maxStatusCount = Math.max(1, ...statusBreakdown.map((s) => s.count));
   const maxWeekdayCount = Math.max(1, ...weekday.map((w) => w.count));
-  const avgParcelsPerBox = overview.totalBoxes > 0 ? overview.totalPackages / overview.totalBoxes : null;
+  // EPG-only — UPS/DHL parcels are never boxed (see totalEpgPackages).
+  const avgParcelsPerBox = overview.totalBoxes > 0 ? overview.totalEpgPackages / overview.totalBoxes : null;
 
   return (
     <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
