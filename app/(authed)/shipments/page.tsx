@@ -23,6 +23,12 @@ export default async function ShipmentsPage({
   if (q) filterDescriptions.push(`contain a tracking number matching “${q}”`);
   if (date) filterDescriptions.push(`shipped on ${date}`);
 
+  // The swipe hint should land on the first row a swipe would actually do
+  // something to — the open session (if it's first, which it usually is)
+  // can't be deleted, so hinting on it would demo a gesture that just
+  // shakes and refuses.
+  const swipeHintIndex = shipments[0]?.status === "open" ? 1 : 0;
+
   return (
     <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
       <div className="flex items-baseline justify-between route-line pb-2">
@@ -42,7 +48,7 @@ export default async function ShipmentsPage({
 
       <div className="flex flex-col border-t border-line">
         {shipments.map((s, i) => (
-          <SwipeableShipmentRow key={s.id} shipment={s} isAdmin={user.isAdmin} showSwipeHint={i === 0} />
+          <SwipeableShipmentRow key={s.id} shipment={s} isAdmin={user.isAdmin} showSwipeHint={i === swipeHintIndex} />
         ))}
         {shipments.length === 0 && (
           <p className="text-ink-faint text-center py-12 border-b border-line data">

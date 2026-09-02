@@ -45,10 +45,15 @@ export default function SwipeableShipmentRow({
   showSwipeHint: boolean;
 }) {
   const router = useRouter();
+  // The open session is a hard server-side no — deleteShipment() throws for
+  // it rather than touching the DB (see lib/shiplog.ts) — so this is known
+  // up front rather than discovered via a failed round-trip.
+  const isOpenSession = s.status === "open";
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [removed, setRemoved] = useState(false);
+  const [shaking, setShaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const touchState = useRef<TouchState | null>(null);
@@ -62,14 +67,19 @@ export default function SwipeableShipmentRow({
   // exists at all — nudges the first row left and back, revealing a sliver
   // of the delete backdrop, then never runs again for this mount.
   useEffect(() => {
-    if (!isAdmin || !showSwipeHint) return;
+    // isOpenSession is a defensive backstop, not the primary guard — the
+    // parent (shipments/page.tsx) already targets the hint at the first
+    // deletable row, but the "open session is always index 0" assumption
+    // it relies on isn't a hard guarantee (shipDate ties can reorder the
+    // list), so this never peeks on an undeletable row even if that slips.
+    if (!isAdmin || !showSwipeHint || isOpenSession) return;
     const t1 = setTimeout(() => setDragX(-56), 500);
     const t2 = setTimeout(() => setDragX(0), 1100);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [isAdmin, showSwipeHint]);
+  }, [isAdmin, showSwipeHint, isOpenSession]);
 
   async function startDelete() {
     try {
@@ -95,6 +105,16 @@ export default function SwipeableShipmentRow({
     setDeleting(true);
     setDragX(-SLIDE_AWAY_PX);
     startDelete();
+  }
+
+  // Skips the round-trip entirely — the server would just throw — and
+  // gives immediate, unmistakable feedback instead of a snap-back plus an
+  // easy-to-miss inline error, which is what made this read as a glitch.
+  function rejectDelete() {
+    setDragX(0);
+    setShaking(true);
+    setError("This is today's open session — use Reset Day on the scan page to clear it instead.");
+    setTimeout(() => setShaking(false), 500);
   }
 
   // touchmove needs a real (non-passive) listener to be able to
@@ -152,7 +172,11 @@ export default function SwipeableShipmentRow({
       e.preventDefault();
       suppressNextClick.current = true;
       if (ts.dx <= -HARD_SWIPE_PX) {
-        commitDelete();
+        if (isOpenSession) {
+          rejectDelete();
+        } else {
+          commitDelete();
+        }
       } else {
         setDragX(0);
       }
@@ -184,8 +208,10 @@ export default function SwipeableShipmentRow({
   return (
     <div className="relative border-b border-line overflow-hidden">
       {isAdmin && (
-        <div className="absolute inset-0 bg-red flex items-center justify-end px-6">
-          <span className="tag-label !text-paper">Delete</span>
+        <div
+          className={`absolute inset-0 flex items-center justify-end px-6 ${isOpenSession ? "bg-amber" : "bg-red"}`}
+        >
+          <span className="tag-label !text-paper">{isOpenSession ? "Can't Delete" : "Delete"}</span>
         </div>
       )}
       <div
@@ -198,7 +224,7 @@ export default function SwipeableShipmentRow({
         }}
         style={{ transform: `translateX(${dragX}px)` }}
         className={`relative flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 py-3 bg-paper-panel hover:bg-white transition-colors cursor-pointer ${
-          isDragging ? "" : "transition-transform duration-300 ease-out"
+          shaking ? "shake-x" : isDragging ? "" : "transition-transform duration-300 ease-out"
         } ${deleting ? "opacity-0" : ""}`}
       >
         <div className="flex items-center gap-2 sm:block sm:w-28 sm:shrink-0">

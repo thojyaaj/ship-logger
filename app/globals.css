@@ -194,3 +194,17 @@ select {
   outline: 2px solid var(--orange);
   outline-offset: 1px;
 }
+
+/* "No" feedback for a swipe attempt the app is going to refuse (e.g.
+   deleting today's still-open shipment) — a quick horizontal wiggle rather
+   than a silent snap-back, so it reads as "you can't do that" rather than
+   a glitch. */
+@keyframes shake-x {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-8px); }
+  40%, 60% { transform: translateX(8px); }
+}
+.shake-x {
+  animation: shake-x 0.5s ease-in-out;
+}
