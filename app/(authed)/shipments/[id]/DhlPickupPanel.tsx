@@ -159,7 +159,7 @@ export default function DhlPickupPanel({
       )}
       {!active && request?.status === "cancelled" && (
         <p className="absolute bottom-full left-0 right-0 md:static text-xs text-ink-faint font-condensed w-full text-center bg-paper-dim md:bg-transparent px-3 py-2 md:px-0 md:py-0">
-          Previous pickup {request.dispatchConfirmationNumber} was cancelled
+          Pickup was cancelled
           {request.cancelledAt ? ` ${formatDbTimestamp(request.cancelledAt)}` : ""}
           {request.cancelledByName ? ` by ${request.cancelledByName}` : ""}.
         </p>
