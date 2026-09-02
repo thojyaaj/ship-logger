@@ -161,11 +161,13 @@ export type OrderDetail = {
  * §9c click-through — full order detail for the order panel. Live query,
  * fine for an on-demand click.
  *
- * customerName is always null: the `customer` field requires a separate
- * `read_customers` scope (discovered live — "Access denied for customer
- * field") that wasn't part of §9's Step 0 request and isn't worth another
- * scope-approval round trip for a nice-to-have. shippingAddress is on the
- * Order type itself, not Customer, so it isn't gated the same way.
+ * `customer` needs the `read_customers` scope plus protected-customer-data
+ * access — both now granted (see the Dev Dashboard gap noted in PRD §9,
+ * Step 0). `displayName` is used over first/last name directly since it's
+ * Shopify's own null-safe computed field (falls back to email, then
+ * "Customer", rather than rendering blank/undefined for a guest checkout
+ * with no name on file). `customer` itself can still be null — a deleted
+ * customer, or an order placed without an account.
  */
 export async function getOrderDetail(orderGid: string): Promise<OrderDetail | null> {
   const data = await shopifyGraphql<{
@@ -173,6 +175,7 @@ export async function getOrderDetail(orderGid: string): Promise<OrderDetail | nu
       id: string;
       name: string;
       createdAt: string;
+      customer: { displayName: string } | null;
       shippingAddress: { formatted: string[] } | null;
       lineItems: { edges: { node: { title: string; quantity: number } }[] };
     } | null;
@@ -182,6 +185,7 @@ export async function getOrderDetail(orderGid: string): Promise<OrderDetail | nu
         id
         name
         createdAt
+        customer { displayName }
         shippingAddress { formatted }
         lineItems(first: 25) {
           edges { node { title quantity } }
@@ -196,7 +200,7 @@ export async function getOrderDetail(orderGid: string): Promise<OrderDetail | nu
     gid: data.order.id,
     name: data.order.name,
     createdAt: data.order.createdAt,
-    customerName: null,
+    customerName: data.order.customer?.displayName ?? null,
     shippingAddress: data.order.shippingAddress?.formatted.join(", ") ?? null,
     lineItems: data.order.lineItems.edges.map((e) => e.node),
     adminUrl: `https://${store()}/admin/orders/${numericId}`,
@@ -225,6 +229,7 @@ export async function getOrderSummary(orderId: string | number): Promise<OrderSu
     order: {
       id: string;
       name: string;
+      customer: { displayName: string } | null;
       shippingAddress: { formatted: string[] } | null;
     } | null;
   }>(
@@ -232,6 +237,7 @@ export async function getOrderSummary(orderId: string | number): Promise<OrderSu
       order(id: $id) {
         id
         name
+        customer { displayName }
         shippingAddress { formatted }
       }
     }`,
@@ -241,8 +247,7 @@ export async function getOrderSummary(orderId: string | number): Promise<OrderSu
   return {
     gid: data.order.id,
     name: data.order.name,
-    // customerName always null — see getOrderDetail's comment (needs read_customers).
-    customerName: null,
+    customerName: data.order.customer?.displayName ?? null,
     destination: data.order.shippingAddress?.formatted.join(", ") ?? null,
   };
 }
