@@ -2,12 +2,16 @@
 
 import Link from "next/link";
 import { useScanHeaderState } from "./ScanHeaderState";
-import { ListIcon } from "./icons";
+import { ListIcon, PadlockIcon } from "./icons";
+import SwitchUserButton from "./SwitchUserButton";
 
 // Renders nothing unless ScanClient is mounted (i.e. only on the scan
 // page) — CommandPalette hides its own mobile trigger whenever this has
-// something to show, so the header swaps search for shipment-logs+Submit
-// instead of stacking both.
+// something to show, so the header swaps search for shipment-logs+padlock
+// +Submit instead of stacking both. The standalone mobile padlock in
+// layout.tsx hides itself here too (see SwitchUserButton's usage there) —
+// this is the one page where it sits between the other two icons instead
+// of trailing the row.
 export default function ScanHeaderMobileActions() {
   const { submit } = useScanHeaderState();
   if (!submit) return null;
@@ -22,6 +26,12 @@ export default function ScanHeaderMobileActions() {
       >
         <ListIcon className="w-4 h-4" />
       </Link>
+      <SwitchUserButton
+        className="border border-paper/30 p-2 flex items-center"
+        label="Switch user / log out"
+      >
+        <PadlockIcon className="w-4 h-4" />
+      </SwitchUserButton>
       <button
         type="button"
         onClick={submit.onSubmit}

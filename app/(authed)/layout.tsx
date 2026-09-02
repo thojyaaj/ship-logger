@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { pageRequireUser } from "@/lib/auth";
 import SwitchUserButton from "./SwitchUserButton";
+import MobileSwitchUserButton from "./MobileSwitchUserButton";
 import CommandPalette from "./CommandPalette";
 import { CommandPaletteStateProvider } from "./CommandPaletteState";
 import ScanHeaderMobileActions from "./ScanHeaderMobileActions";
 import ShipmentsHeaderMobileActions from "./ShipmentsHeaderMobileActions";
-import { PadlockIcon } from "./icons";
+import ShipmentDetailHeaderMobileActions from "./ShipmentDetailHeaderMobileActions";
 import { ScanHeaderStateProvider } from "./ScanHeaderState";
 
 export default async function AuthedLayout({ children }: { children: React.ReactNode }) {
@@ -41,17 +42,19 @@ export default async function AuthedLayout({ children }: { children: React.React
                 </span>
                 <CommandPalette isAdmin={user.isAdmin} />
                 {/* Scan page only: swaps in for the search icon above while
-                    ScanClient is mounted — see ScanHeaderState. */}
+                    ScanClient is mounted — see ScanHeaderState. Its own
+                    padlock replaces MobileSwitchUserButton below there. */}
                 <ScanHeaderMobileActions />
                 {/* Shipments log only: swaps in for the search icon above
                     on that one page — see ShipmentsHeaderMobileActions. */}
                 <ShipmentsHeaderMobileActions />
+                {/* A shipment's detail page only — see
+                    ShipmentDetailHeaderMobileActions. */}
+                <ShipmentDetailHeaderMobileActions />
                 <SwitchUserButton className="hidden md:inline-flex px-3 py-1.5">Switch</SwitchUserButton>
-                {/* Mobile: icon-only, always available now that there's no
-                    hamburger drawer to hold it. */}
-                <SwitchUserButton className="md:hidden p-2 flex items-center" label="Switch user / log out">
-                  <PadlockIcon className="w-4 h-4" />
-                </SwitchUserButton>
+                {/* Mobile: icon-only, hides itself on the scan page where
+                    ScanHeaderMobileActions renders its own copy instead. */}
+                <MobileSwitchUserButton />
               </div>
             </div>
             <div className="barcode h-1" />
