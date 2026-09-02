@@ -1,4 +1,4 @@
-CREATE TABLE "shipment_reset" (
+CREATE TABLE IF NOT EXISTS "shipment_reset" (
   "id" text PRIMARY KEY NOT NULL,
   "session_id" text NOT NULL REFERENCES "shipment_session"("id"),
   "snapshot" text NOT NULL,
