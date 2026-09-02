@@ -74,13 +74,14 @@ function Highlighted({ text, indices }: { text: string; indices: number[] }) {
 
 export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
   const { open, setOpen } = useCommandPaletteState();
-  // The scan page swaps this button out for its own shipment-logs/Submit
-  // pair on mobile — see ScanHeaderMobileActions. The shipments log page
-  // swaps it for a back-to-scan link instead — see
-  // ShipmentsHeaderMobileActions. Desktop is untouched by either.
+  // The scan page swaps this button out for its own shipment-logs/padlock/
+  // Submit group on mobile — see ScanHeaderMobileActions. The shipments log
+  // page swaps it for a back-to-scan link — see ShipmentsHeaderMobileActions.
+  // A shipment's detail page swaps it for a back-to-shipments-log link —
+  // see ShipmentDetailHeaderMobileActions. Desktop is untouched by all three.
   const { submit } = useScanHeaderState();
   const pathname = usePathname();
-  const hideMobileTrigger = Boolean(submit) || pathname === "/shipments";
+  const hideMobileTrigger = Boolean(submit) || pathname === "/shipments" || pathname.startsWith("/shipments/");
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [shipmentHits, setShipmentHits] = useState<ShipmentPaletteHit[]>([]);
