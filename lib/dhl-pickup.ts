@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "./db";
-import { dhlPickupSettings, dhlPickupRequest, shipmentSession } from "./db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { appUser, dhlPickupSettings, dhlPickupRequest, shipmentSession } from "./db/schema";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { newId } from "./id";
 import {
   nowSqlTimestamp,
@@ -196,8 +196,10 @@ export type PickupRequestRecord = {
   parcelCount: number;
   totalWeightLb: number;
   requestedAt: string;
+  requestedByName: string;
   errorMessage: string | null;
   cancelledAt: string | null;
+  cancelledByName: string | null;
   pickupDateLabel: string | null;
   readyTimeLabel: string | null;
   closeTimeLabel: string | null;
@@ -213,6 +215,13 @@ export async function getLatestPickupRequest(sessionId: string): Promise<PickupR
     .limit(1);
   const row = rows[0];
   if (!row) return null;
+
+  const actorIds = [row.requestedBy, row.cancelledBy].filter((id): id is string => Boolean(id));
+  const actorNames: Record<string, string> = {};
+  if (actorIds.length > 0) {
+    const actors = await db.select({ id: appUser.id, name: appUser.name }).from(appUser).where(inArray(appUser.id, actorIds));
+    for (const actor of actors) actorNames[actor.id] = actor.name;
+  }
 
   // pickupDate is the day actually booked with DHL — the ready/close *times*
   // aren't stored per-request (only the date-vs-time part is what a settings
@@ -230,7 +239,14 @@ export async function getLatestPickupRequest(sessionId: string): Promise<PickupR
     }
   }
 
-  return { ...row, pickupDateLabel, readyTimeLabel, closeTimeLabel };
+  return {
+    ...row,
+    requestedByName: actorNames[row.requestedBy] ?? "Unknown",
+    cancelledByName: row.cancelledBy ? (actorNames[row.cancelledBy] ?? "Unknown") : null,
+    pickupDateLabel,
+    readyTimeLabel,
+    closeTimeLabel,
+  };
 }
 
 function hhmmToMinutes(hhmm: string): number {
@@ -363,6 +379,7 @@ export type SchedulePickupResult =
       dispatchConfirmationNumber: string;
       parcelCount: number;
       totalWeightLb: number;
+      requestedByName: string;
       pickupDateLabel: string;
       readyTimeLabel: string;
       closeTimeLabel: string;
@@ -372,6 +389,7 @@ export type SchedulePickupResult =
 export async function schedulePickupForSession(
   sessionId: string,
   requestedBy: string,
+  requestedByName: string,
 ): Promise<SchedulePickupResult> {
   const settings = await getDhlPickupSettings();
   if (!settings) {
@@ -472,6 +490,7 @@ export async function schedulePickupForSession(
       dispatchConfirmationNumber: result.dispatchConfirmationNumber,
       parcelCount,
       totalWeightLb,
+      requestedByName,
       pickupDateLabel: formatPickupDateLabel(pickupDate),
       readyTimeLabel: formatHHMMTo12Hour(settings.readyTime),
       closeTimeLabel: formatHHMMTo12Hour(settings.closeTime),
@@ -492,7 +511,7 @@ export async function schedulePickupForSession(
   return { status: "error", message: result.message };
 }
 
-export type CancelPickupResult = { status: "ok" } | { status: "error"; message: string };
+export type CancelPickupResult = { status: "ok"; cancelledByName: string } | { status: "error"; message: string };
 
 export async function cancelPickupForSession(
   sessionId: string,
@@ -520,5 +539,5 @@ export async function cancelPickupForSession(
     .update(dhlPickupRequest)
     .set({ status: "cancelled", cancelledAt: nowSqlTimestamp(), cancelledBy: cancelledByUserId })
     .where(eq(dhlPickupRequest.id, active.id));
-  return { status: "ok" };
+  return { status: "ok", cancelledByName };
 }

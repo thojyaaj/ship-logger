@@ -19,7 +19,7 @@ export async function previewPickupAction(sessionId: string): Promise<PreviewPic
 
 export async function schedulePickupAction(sessionId: string): Promise<SchedulePickupResult> {
   const admin = await requireAdmin();
-  return schedulePickupForSession(sessionId, admin.id);
+  return schedulePickupForSession(sessionId, admin.id, admin.name);
 }
 
 export async function cancelPickupAction(sessionId: string): Promise<CancelPickupResult> {

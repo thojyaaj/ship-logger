@@ -70,8 +70,10 @@ export default function DhlPickupPanel({
           parcelCount: result.parcelCount,
           totalWeightLb: result.totalWeightLb,
           requestedAt: new Date().toISOString(),
+          requestedByName: result.requestedByName,
           errorMessage: null,
           cancelledAt: null,
+          cancelledByName: null,
           pickupDateLabel: result.pickupDateLabel,
           readyTimeLabel: result.readyTimeLabel,
           closeTimeLabel: result.closeTimeLabel,
@@ -92,7 +94,16 @@ export default function DhlPickupPanel({
           setError(result.message);
           return;
         }
-        setRequest((r) => (r ? { ...r, status: "cancelled", cancelledAt: new Date().toISOString() } : r));
+        setRequest((r) =>
+          r
+            ? {
+                ...r,
+                status: "cancelled",
+                cancelledAt: new Date().toISOString(),
+                cancelledByName: result.cancelledByName,
+              }
+            : r,
+        );
       } catch (err) {
         setError(actionErrorMessage(err, "Couldn't cancel the pickup — please retry."));
       }
@@ -143,13 +154,14 @@ export default function DhlPickupPanel({
           desktop. */}
       {active && request?.pickupDateLabel && (
         <p className="absolute bottom-full left-0 right-0 md:static text-xs text-orange-ink font-condensed w-full text-center bg-orange-dim md:bg-transparent px-3 py-2 md:px-0 md:py-0">
-          Pickup scheduled for {request.pickupDateLabel} · {request.readyTimeLabel}–{request.closeTimeLabel}
+          Pickup scheduled by {request.requestedByName} for {request.pickupDateLabel} · {request.readyTimeLabel}–{request.closeTimeLabel}
         </p>
       )}
       {!active && request?.status === "cancelled" && (
         <p className="absolute bottom-full left-0 right-0 md:static text-xs text-ink-faint font-condensed w-full text-center bg-paper-dim md:bg-transparent px-3 py-2 md:px-0 md:py-0">
           Previous pickup {request.dispatchConfirmationNumber} was cancelled
-          {request.cancelledAt ? ` ${formatDbTimestamp(request.cancelledAt)}` : ""}.
+          {request.cancelledAt ? ` ${formatDbTimestamp(request.cancelledAt)}` : ""}
+          {request.cancelledByName ? ` by ${request.cancelledByName}` : ""}.
         </p>
       )}
       {!active && request?.status === "failed" && request.errorMessage && (
