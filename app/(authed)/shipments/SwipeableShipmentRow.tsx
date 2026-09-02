@@ -128,6 +128,14 @@ export default function SwipeableShipmentRow({
 
     function onTouchStart(e: TouchEvent) {
       if (deleting) return;
+      // The flag only means "the click immediately following the touch
+      // sequence that's about to start should be suppressed" — clearing it
+      // fresh here scopes it to that one gesture. Left set from a previous
+      // drag, it would permanently block every future tap on this row: once
+      // touchend's preventDefault actually succeeds in suppressing the
+      // browser's synthetic click (the common case), nothing else ever
+      // clears it back to false.
+      suppressNextClick.current = false;
       const t = e.touches[0];
       touchState.current = { startX: t.clientX, startY: t.clientY, dx: 0, decided: false, horizontal: false };
       setIsDragging(true);
@@ -196,6 +204,10 @@ export default function SwipeableShipmentRow({
   }, [isAdmin, deleting]);
 
   function handleClick() {
+    if (suppressNextClick.current) {
+      suppressNextClick.current = false;
+      return;
+    }
     // A drag that never crossed the "this was intentional" threshold — even
     // one that snapped back — shouldn't also navigate; only a genuine tap
     // (no meaningful movement at all) opens the shipment.
@@ -206,58 +218,65 @@ export default function SwipeableShipmentRow({
   if (removed) return null;
 
   return (
-    <div className="relative border-b border-line overflow-hidden">
-      {isAdmin && (
-        <div
-          className={`absolute inset-0 flex items-center justify-end px-6 ${isOpenSession ? "bg-amber" : "bg-red"}`}
-        >
-          <span className="tag-label !text-paper">{isOpenSession ? "Can't Delete" : "Delete"}</span>
-        </div>
-      )}
-      <div
-        ref={rowRef}
-        role="link"
-        tabIndex={0}
-        onClick={handleClick}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") router.push(`/shipments/${s.id}`);
-        }}
-        style={{ transform: `translateX(${dragX}px)` }}
-        className={`relative flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 py-3 bg-paper-panel hover:bg-white transition-colors cursor-pointer ${
-          shaking ? "shake-x" : isDragging ? "" : "transition-transform duration-300 ease-out"
-        } ${deleting ? "opacity-0" : ""}`}
-      >
-        <div className="flex items-center gap-2 sm:block sm:w-28 sm:shrink-0">
-          <div className="data font-semibold">{s.shipDate}</div>
-          <span
-            className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block sm:mt-0.5 ${
-              s.status === "submitted" ? "bg-green-dim !text-green-ink" : "bg-amber-dim !text-amber-ink"
-            }`}
+    <>
+      <div className="relative border-b border-line overflow-hidden">
+        {isAdmin && (
+          <div
+            className={`absolute inset-0 flex items-center justify-end px-6 ${isOpenSession ? "bg-amber" : "bg-red"}`}
           >
-            {s.status}
-          </span>
-        </div>
-        <div className="flex-1 flex flex-wrap gap-x-4 gap-y-1 text-sm data">
-          <span className="text-orange">EPG {s.totals.epg}</span>
-          <span className="text-blue">UPS {s.totals.ups}</span>
-          <span className="text-amber">DHL {s.totals.dhl}</span>
-          {s.boxCount > 0 && <span className="text-ink-soft">{s.boxCount} box(es)</span>}
-        </div>
-        <div className="flex items-center gap-2 sm:flex-col sm:items-end sm:gap-1 sm:shrink-0 sm:text-right">
-          {s.awbNumber && <span className="tag-label !normal-case">{s.awbNumber}</span>}
-          {s.totals.epg > 0 && s.masterUpsTracking && (
+            <span className="tag-label !text-paper">{isOpenSession ? "Can't Delete" : "Delete"}</span>
+          </div>
+        )}
+        <div
+          ref={rowRef}
+          role="link"
+          tabIndex={0}
+          onClick={handleClick}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") router.push(`/shipments/${s.id}`);
+          }}
+          style={{ transform: `translateX(${dragX}px)` }}
+          className={`relative flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 py-3 bg-paper-panel hover:bg-white transition-colors cursor-pointer ${
+            shaking ? "shake-x" : isDragging ? "" : "transition-transform duration-300 ease-out"
+          } ${deleting ? "opacity-0" : ""}`}
+        >
+          <div className="flex items-center gap-2 sm:block sm:w-28 sm:shrink-0">
+            <div className="data font-semibold">{s.shipDate}</div>
             <span
-              title={`Master UPS ${s.masterUpsTracking}${s.masterUpsStatusAt ? ` — as of ${s.masterUpsStatusAt}` : ""}`}
-              className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block whitespace-nowrap ${statusTone(s.masterUpsStatusLabel)}`}
+              className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block sm:mt-0.5 ${
+                s.status === "submitted" ? "bg-green-dim !text-green-ink" : "bg-amber-dim !text-amber-ink"
+              }`}
             >
-              {s.masterUpsStatusLabel ?? "STATUS PENDING"}
+              {s.status}
             </span>
-          )}
+          </div>
+          <div className="flex-1 flex flex-wrap gap-x-4 gap-y-1 text-sm data">
+            <span className="text-orange">EPG {s.totals.epg}</span>
+            <span className="text-blue">UPS {s.totals.ups}</span>
+            <span className="text-amber">DHL {s.totals.dhl}</span>
+            {s.boxCount > 0 && <span className="text-ink-soft">{s.boxCount} box(es)</span>}
+          </div>
+          <div className="flex items-center gap-2 sm:flex-col sm:items-end sm:gap-1 sm:shrink-0 sm:text-right">
+            {s.awbNumber && <span className="tag-label !normal-case">{s.awbNumber}</span>}
+            {s.totals.epg > 0 && s.masterUpsTracking && (
+              <span
+                title={`Master UPS ${s.masterUpsTracking}${s.masterUpsStatusAt ? ` — as of ${s.masterUpsStatusAt}` : ""}`}
+                className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block whitespace-nowrap ${statusTone(s.masterUpsStatusLabel)}`}
+              >
+                {s.masterUpsStatusLabel ?? "STATUS PENDING"}
+              </span>
+            )}
+          </div>
         </div>
       </div>
+      {/* Outside the overflow-hidden/relative row wrapper on purpose — the
+          backdrop's inset-0 stretches to cover this container's full
+          height (including this message, if it were inside), painting
+          over the error text since positioned descendants paint above
+          normal-flow ones in the same stacking context. */}
       {error && (
         <p className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm">{error}</p>
       )}
-    </div>
+    </>
   );
 }
