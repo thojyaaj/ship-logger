@@ -60,8 +60,13 @@ export default async function ShipmentDetailPage({
             <Link href="/shipments" className="hidden md:inline tag-label hover:!text-ink">
               ← Shipments
             </Link>
-            <h1 className="data text-lg tracking-wide mt-1 truncate" title={session.id}>
-              {session.id}
+            <div className="tag-label mt-1">Session ID</div>
+            {/* Same first-8-hex-chars convention as the scan page's
+                "Session <id>" tag (see ScanClient.tsx) — the full UUID is
+                too long to be a useful at-a-glance label, and packers
+                already recognize this short form from the scan sheet. */}
+            <h1 className="data text-lg tracking-wide" title={session.id}>
+              {session.id.slice(0, 8).toUpperCase()}
             </h1>
             {session.status === "submitted" && session.submittedBy && (
               <div className="mt-1 -mx-1 px-1.5 py-0.5 bg-paper-dim text-green-ink font-condensed text-xs inline-block">

@@ -256,14 +256,20 @@ export default function SwipeableShipmentRow({
             shaking ? "shake-x" : isDragging ? "" : "transition-transform duration-300 ease-out"
           } ${deleting ? "opacity-0" : ""}`}
         >
-          {/* Mobile: date left, status pushed to the far right (justify-
+          {/* Mobile: session id left, status pushed to the far right (justify-
               between + w-full) instead of bunched together on the left.
               sm:block overrides both back to the original stacked column
-              on desktop, where justify-between/w-full have no effect. */}
-          <div className="flex items-center justify-between gap-2 w-full sm:block sm:w-28 sm:shrink-0">
-            <div className="data font-semibold">{s.shipDate}</div>
+              on desktop, where justify-between/w-full have no effect.
+              Widened from the original w-28 to fit "submitted · <ship
+              date>" on one line — whitespace-nowrap on the tag backs that
+              up rather than letting it wrap to two lines if a row's exact
+              content ever runs long. */}
+          <div className="flex items-center justify-between gap-2 w-full sm:block sm:w-48 sm:shrink-0">
+            <div className="data font-semibold" title={s.id}>
+              {s.id.slice(0, 8).toUpperCase()}
+            </div>
             <span
-              className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block sm:mt-0.5 ${
+              className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block whitespace-nowrap sm:mt-0.5 ${
                 s.status === "submitted" ? "bg-green-dim !text-green-ink" : "bg-amber-dim !text-amber-ink"
               }`}
             >
@@ -272,9 +278,11 @@ export default function SwipeableShipmentRow({
           </div>
           {/* Mobile: explicit full width so the courier counts always span
               the row edge-to-edge; sm:w-auto hands sizing back to flex-1
-              (share of the row alongside the date/status and AWB/tracking
-              columns) on desktop, unchanged from before. */}
-          <div className="flex-1 flex flex-wrap gap-x-4 gap-y-1 text-sm data w-full sm:w-auto">
+              (share of the row alongside the session id/status and AWB/
+              tracking columns) on desktop. sm:justify-center spreads them
+              into the extra room the wider first column leaves behind
+              instead of leaving them bunched against it. */}
+          <div className="flex-1 flex flex-wrap gap-x-4 gap-y-1 text-sm data w-full sm:w-auto sm:justify-center">
             <span className="text-orange">EPG {s.totals.epg}</span>
             <span className="text-blue">UPS {s.totals.ups}</span>
             <span className="text-amber">DHL {s.totals.dhl}</span>
