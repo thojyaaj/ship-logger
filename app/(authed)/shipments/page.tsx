@@ -30,13 +30,22 @@ export default async function ShipmentsPage({
   const swipeHintIndex = shipments[0]?.status === "open" ? 1 : 0;
 
   return (
-    <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
+    // pb-24 clears the fixed tracking-search footer ShipmentSearchForm adds
+    // on mobile so the last shipment row isn't hidden behind it; md:pb-6
+    // reverts to the normal padding once that footer is back in static
+    // flow at desktop widths.
+    <div className="flex-1 flex flex-col gap-6 p-4 pb-24 md:p-6 max-w-5xl mx-auto w-full">
       <div className="flex items-baseline justify-between route-line pb-2">
         <h1 className="font-stencil text-2xl tracking-wide">Shipments Log</h1>
         <span className="tag-label">{shipments.length} on record</span>
       </div>
 
-      <VolumeChart points={dailyVolume} />
+      {/* Moved to its own Analytics page on mobile (admin-only) — no room
+          for a trend chart above a manifest that's already fighting for
+          space on a phone. Desktop keeps it here too, unchanged. */}
+      <div className="hidden md:block">
+        <VolumeChart points={dailyVolume} />
+      </div>
 
       <ShipmentSearchForm initialQuery={q ?? ""} initialDate={date ?? ""} />
 

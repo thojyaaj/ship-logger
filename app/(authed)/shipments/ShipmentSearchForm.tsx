@@ -56,29 +56,34 @@ export default function ShipmentSearchForm({
   const hasFilter = Boolean(query.trim() || date);
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:flex-wrap gap-2">
+    // Mobile: a real fixed footer, tracking search only — date search is
+    // dropped there entirely (searching a tracking number already opens the
+    // exact shipment, so date search is redundant, and there's no room for
+    // both in a compact footer anyway). Desktop: unchanged, both fields
+    // inline in normal page flow.
+    <div className="fixed inset-x-0 bottom-0 z-[5] bg-paper border-t border-line-strong p-4 flex items-center gap-2 md:static md:inset-auto md:z-auto md:border-0 md:p-0 md:flex-wrap">
       <input
         type="text"
         value={query}
         onChange={handleQueryChange}
         placeholder="SEARCH BY TRACKING NUMBER…"
-        className="data flex-1 sm:min-w-[220px] text-lg px-4 py-3 border border-line-strong focus:border-orange outline-none bg-paper-panel"
+        className="data flex-1 md:min-w-[220px] text-lg px-4 py-3 border border-line-strong focus:border-orange outline-none bg-paper-panel"
       />
-      <label className="flex items-center gap-2 sm:shrink-0">
+      <label className="hidden md:flex items-center gap-2 shrink-0">
         <span className="tag-label !text-ink-soft shrink-0">Ship date</span>
         <input
           type="date"
           value={date}
           onChange={handleDateChange}
-          className="data flex-1 sm:flex-none text-lg px-3 py-3 border border-line-strong focus:border-orange outline-none bg-paper-panel"
+          className="data flex-none text-lg px-3 py-3 border border-line-strong focus:border-orange outline-none bg-paper-panel"
         />
       </label>
-      {isPending && <span className="tag-label !text-ink-faint">Searching…</span>}
+      {isPending && <span className="hidden md:inline tag-label !text-ink-faint">Searching…</span>}
       {hasFilter && (
         <button
           type="button"
           onClick={clear}
-          className="btn w-full sm:w-auto px-4 py-3 border border-line-strong text-ink-soft hover:bg-paper-dim"
+          className="btn px-4 py-3 border border-line-strong text-ink-soft hover:bg-paper-dim shrink-0"
         >
           Clear
         </button>

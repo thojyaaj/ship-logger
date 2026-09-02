@@ -72,7 +72,15 @@ export default function SwipeableShipmentRow({
     // deletable row, but the "open session is always index 0" assumption
     // it relies on isn't a hard guarantee (shipDate ties can reorder the
     // list), so this never peeks on an undeletable row even if that slips.
+    // Desktop is excluded too: the gesture itself is already touch-only
+    // (mouse users get a plain click-to-navigate row, see below), but this
+    // hint is just a setTimeout-driven dragX nudge with no touch-input
+    // dependency — it would play on a mouse-only desktop just as readily,
+    // demoing a gesture nobody there can actually perform. sm: (640px) is
+    // this component's own mobile/desktop split (see the row layout below),
+    // matched here rather than reaching for a different breakpoint.
     if (!isAdmin || !showSwipeHint || isOpenSession) return;
+    if (typeof window !== "undefined" && window.matchMedia("(min-width: 640px)").matches) return;
     const t1 = setTimeout(() => setDragX(-56), 500);
     const t2 = setTimeout(() => setDragX(0), 1100);
     return () => {
@@ -240,7 +248,11 @@ export default function SwipeableShipmentRow({
             shaking ? "shake-x" : isDragging ? "" : "transition-transform duration-300 ease-out"
           } ${deleting ? "opacity-0" : ""}`}
         >
-          <div className="flex items-center gap-2 sm:block sm:w-28 sm:shrink-0">
+          {/* Mobile: date left, status pushed to the far right (justify-
+              between + w-full) instead of bunched together on the left.
+              sm:block overrides both back to the original stacked column
+              on desktop, where justify-between/w-full have no effect. */}
+          <div className="flex items-center justify-between gap-2 w-full sm:block sm:w-28 sm:shrink-0">
             <div className="data font-semibold">{s.shipDate}</div>
             <span
               className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block sm:mt-0.5 ${
@@ -250,7 +262,11 @@ export default function SwipeableShipmentRow({
               {s.status}
             </span>
           </div>
-          <div className="flex-1 flex flex-wrap gap-x-4 gap-y-1 text-sm data">
+          {/* Mobile: explicit full width so the courier counts always span
+              the row edge-to-edge; sm:w-auto hands sizing back to flex-1
+              (share of the row alongside the date/status and AWB/tracking
+              columns) on desktop, unchanged from before. */}
+          <div className="flex-1 flex flex-wrap gap-x-4 gap-y-1 text-sm data w-full sm:w-auto">
             <span className="text-orange">EPG {s.totals.epg}</span>
             <span className="text-blue">UPS {s.totals.ups}</span>
             <span className="text-amber">DHL {s.totals.dhl}</span>

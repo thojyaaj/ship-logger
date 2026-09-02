@@ -27,6 +27,18 @@ export default function VolumeChart({ points }: { points: DailyVolumePoint[] }) 
   // Skip labels so dates don't collide at typical container widths — always
   // show the first and last day, plus evenly spaced ones between.
   const labelStride = Math.max(1, Math.ceil(points.length / 8));
+  // Mobile needs a much sparser set: its label row can't reuse the desktop
+  // row's per-bar percentage width at all. At 30 points that's ~3.3% of a
+  // ~340px content area — about 11px per slot — nowhere near enough for a
+  // 5-character "MM-DD" string regardless of how many neighboring slots are
+  // left empty, since every visible label is still boxed into that same
+  // narrow per-bar width. (Reported live as "I just see a bunch of
+  // zeroes" — the clipped-to-a-sliver remainder of dates that mostly start
+  // with a leading 0.) Mobile gets its own row instead: a handful of
+  // labels sized to their own text, spread across the full width with
+  // justify-between rather than pinned to individual bars.
+  const mobileLabelStride = Math.max(1, Math.ceil(points.length / 4));
+  const mobileLabelPoints = points.filter((_, i) => i % mobileLabelStride === 0 || i === points.length - 1);
 
   return (
     <div className="corners bg-paper-panel p-4 flex flex-col gap-3">
@@ -86,7 +98,16 @@ export default function VolumeChart({ points }: { points: DailyVolumePoint[] }) 
         })}
       </svg>
 
-      <div className="flex data text-[0.6rem] text-ink-faint">
+      {/* Mobile: a handful of full, un-truncated labels spread across the
+          row — not pinned under their exact bar, just roughly representing
+          "start … end" the way any compact trend chart label row does. */}
+      <div className="flex md:hidden justify-between data text-[0.6rem] text-ink-faint">
+        {mobileLabelPoints.map((p) => (
+          <span key={p.shipDate}>{p.shipDate.slice(5)}</span>
+        ))}
+      </div>
+      {/* Desktop: unchanged — one label slot per bar, aligned under it. */}
+      <div className="hidden md:flex data text-[0.6rem] text-ink-faint">
         {points.map((p, i) => (
           <span key={p.shipDate} style={{ width: `${barWidth}%` }} className="text-center truncate">
             {i % labelStride === 0 || i === points.length - 1 ? p.shipDate.slice(5) : ""}
