@@ -102,6 +102,7 @@ export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
       { id: "nav-shipments", label: "Shipments log", hint: "browse shipment history", href: "/shipments" },
     ];
     if (isAdmin) {
+      cmds.push({ id: "nav-analytics", label: "Analytics", hint: "volume, packers, carriers, DHL pickups", href: "/analytics" });
       cmds.push({ id: "nav-admin", label: "Crew roster", hint: "manage operators", href: "/admin/users" });
     }
     cmds.push({
