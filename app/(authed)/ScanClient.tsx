@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
-import type { SessionDashboard } from "@/lib/shiplog";
+import type { RestorableReset, SessionDashboard } from "@/lib/shiplog";
 import type { SessionUser } from "@/lib/auth";
 import { carrierLabel, type Carrier } from "@/lib/carrier";
 import { parseDbTimestamp, localCalendarDate } from "@/lib/date";
@@ -12,6 +12,7 @@ import {
   setActiveBoxAction,
   removeEmptyBoxAction,
   resetSessionAction,
+  restoreResetAction,
 } from "./scan-actions";
 import SubmitDialog from "./SubmitDialog";
 import OrderPanel from "./OrderPanel";
@@ -164,9 +165,11 @@ export function timeAgo(dbTimestamp: string): string {
 
 export default function ScanClient({
   initialDashboard,
+  initialRestorableReset,
   currentUser,
 }: {
   initialDashboard: SessionDashboard | null;
+  initialRestorableReset: RestorableReset | null;
   currentUser: SessionUser;
 }) {
   const [dashboard, setDashboard] = useState(initialDashboard);
@@ -176,6 +179,7 @@ export default function ScanClient({
   const [showSubmit, setShowSubmit] = useState(false);
   const [openOrderGid, setOpenOrderGid] = useState<string | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [restorableReset, setRestorableReset] = useState(initialRestorableReset);
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
   const keyTimestamps = useRef<number[]>([]);
@@ -527,7 +531,8 @@ export default function ScanClient({
       try {
         const updated = await resetSessionAction(dashboard.session.id);
         if (isNewest()) {
-          setDashboard(updated);
+          setDashboard(updated.dashboard);
+          setRestorableReset(updated.restore);
           setBanner(null);
         }
       } catch (err) {
@@ -535,6 +540,25 @@ export default function ScanClient({
         // believing the day had been cleared when it hadn't.
         playTone("blocked");
         setBanner({ kind: "error", message: actionErrorMessage(err, "Reset failed — please retry.") });
+      }
+      focusInput();
+    });
+  }
+
+  function restoreResetDay() {
+    if (!restorableReset) return;
+    const isNewest = beginRequest();
+    startTransition(async () => {
+      try {
+        const restored = await restoreResetAction(restorableReset.id);
+        if (isNewest()) {
+          setDashboard(restored);
+          setRestorableReset(null);
+          setBanner(null);
+        }
+      } catch (err) {
+        playTone("blocked");
+        setBanner({ kind: "error", message: actionErrorMessage(err, "Couldn’t restore the reset.") });
       }
       focusInput();
     });
@@ -651,6 +675,16 @@ export default function ScanClient({
           <span className="tag-label">Session {dashboard ? dashboard.session.id.slice(0, 8) : "—"}</span>
           <div className="flex items-baseline gap-4">
             <span className="tag-label">{dashboard?.session.shipDate ?? localCalendarDate()}</span>
+            {restorableReset && (
+              <button
+                type="button"
+                onClick={restoreResetDay}
+                className="tag-label !text-green-ink hover:!text-green"
+                title="Restore the scans and boxes from the last Reset Day"
+              >
+                Restore Reset
+              </button>
+            )}
             {dashboard && (
               <button
                 type="button"
@@ -821,7 +855,7 @@ export default function ScanClient({
           title="Reset today's session?"
           message={
             dashboard.totals.total > 0
-              ? `This permanently discards all ${dashboard.totals.total} scanned tracking number${dashboard.totals.total === 1 ? "" : "s"} and starts a fresh session. This cannot be undone.`
+              ? `This discards all ${dashboard.totals.total} scanned tracking number${dashboard.totals.total === 1 ? "" : "s"} and starts a fresh session. You can restore it for 30 minutes, as long as no new session is started.`
               : "Start a fresh session for today?"
           }
           confirmLabel="Reset Day"

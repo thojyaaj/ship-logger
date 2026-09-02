@@ -10,7 +10,10 @@ async function main() {
     return;
   }
 
-  const adminPin = process.env.SEED_ADMIN_PIN ?? "1234";
+  const adminPin = process.env.SEED_ADMIN_PIN;
+  if (!adminPin || adminPin === "1234") {
+    throw new Error("SEED_ADMIN_PIN must be set to a non-default value before seeding.");
+  }
   await db.insert(appUser).values({
     id: crypto.randomUUID(),
     name: "Thao",
@@ -19,7 +22,7 @@ async function main() {
     active: true,
   });
 
-  console.log(`Seeded admin user with PIN ${adminPin} — change this in /admin/users.`);
+  console.log("Seeded the initial admin user.");
 }
 
 main().then(() => process.exit(0));

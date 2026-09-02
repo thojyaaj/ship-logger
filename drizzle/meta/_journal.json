@@ -57,6 +57,13 @@
       "when": 1788321914231,
       "tag": "0007_add_trash_and_pickup_date",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788378000000,
+      "tag": "0008_reset_restore",
+      "breakpoints": true
     }
   ]
 }

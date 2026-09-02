@@ -68,3 +68,15 @@ export async function lookupOrderIndex(
     .limit(1);
   return rows[0] ?? null;
 }
+
+/** Prevents a signed-in user from using the order panel as a general Shopify lookup. */
+export async function orderIsReferencedLocally(orderGid: string): Promise<boolean> {
+  const scanned = await db.select({ id: scan.id }).from(scan).where(eq(scan.orderGid, orderGid)).limit(1);
+  if (scanned.length) return true;
+  const indexed = await db
+    .select({ trackingNumber: shopifyOrderIndex.trackingNumber })
+    .from(shopifyOrderIndex)
+    .where(eq(shopifyOrderIndex.orderGid, orderGid))
+    .limit(1);
+  return indexed.length > 0;
+}

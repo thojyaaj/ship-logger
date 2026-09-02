@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "./db";
-import { appUser, shipmentSession, box, scan } from "./db/schema";
-import { and, eq, desc, sql, ne, inArray, ilike, or, isNull, isNotNull, lt } from "drizzle-orm";
+import { appUser, shipmentSession, box, scan, shipmentReset } from "./db/schema";
+import { and, eq, desc, sql, ne, inArray, ilike, or, isNull, isNotNull, lt, gt } from "drizzle-orm";
 import { newId } from "./id";
 import { detectCarrier, type Carrier } from "./carrier";
 import { nowSqlTimestamp, localCalendarDate, toSqlTimestamp, parseDbTimestamp } from "./date";
@@ -9,6 +9,12 @@ import { lookupOrderIndex } from "./order-index";
 
 function today(): string {
   return localCalendarDate();
+}
+
+function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 /**
@@ -50,6 +56,10 @@ export type SessionDashboard = {
   totals: { epg: number; ups: number; dhl: number; unknown: number; total: number };
   userNames: Record<string, string>;
 };
+
+const RESET_RESTORE_WINDOW_MS = 30 * 60 * 1000;
+type ResetSnapshot = { session: typeof shipmentSession.$inferSelect; boxes: (typeof box.$inferSelect)[]; scans: (typeof scan.$inferSelect)[] };
+export type RestorableReset = { id: string; expiresAt: string; scanCount: number };
 
 async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
   const sessionRows = await db
@@ -508,7 +518,7 @@ export async function submitSession(input: SubmitInput): Promise<SubmitResult> {
   // filter and the daily-volume chart's zero-fill lookup, so a malformed value
   // doesn't error — it silently makes the whole day disappear from both.
   const requestedShipDate = input.shipDate.trim();
-  if (requestedShipDate && !/^\d{4}-\d{2}-\d{2}$/.test(requestedShipDate)) {
+  if (requestedShipDate && !isCalendarDate(requestedShipDate)) {
     return { status: "error", message: "Ship date must be in YYYY-MM-DD format." };
   }
 
@@ -517,16 +527,15 @@ export async function submitSession(input: SubmitInput): Promise<SubmitResult> {
   // stamped with tracking numbers on a still-open shipment.
   const submitted = await db.transaction(async (tx) => {
     for (const [boxId, tracking] of Object.entries(input.boxUpsTracking)) {
-      if (tracking.trim()) {
-        // Scoped to this session's boxes, not just `box.id`. boxUpsTracking is
-        // a client-supplied map and Server Actions are callable directly, so an
-        // unscoped update let any packer write tracking numbers onto boxes
-        // belonging to someone else's shipment.
-        await tx
-          .update(box)
-          .set({ upsTracking: tracking.trim() })
-          .where(and(eq(box.id, boxId), eq(box.sessionId, input.sessionId)));
-      }
+      const trackingNumber = tracking.trim() || null;
+      // Scoped to this session's boxes, not just `box.id`. boxUpsTracking is
+      // a client-supplied map and Server Actions are callable directly, so an
+      // unscoped update let any packer write tracking numbers onto boxes
+      // belonging to someone else's shipment.
+      await tx
+        .update(box)
+        .set({ upsTracking: trackingNumber })
+        .where(and(eq(box.id, boxId), eq(box.sessionId, input.sessionId)));
     }
 
     const rows = await tx
@@ -605,8 +614,9 @@ export async function removeEmptyBox(sessionId: string, boxId: string): Promise<
  */
 export async function resetSession(
   sessionId: string,
+  resetByUserId: string,
   resetByUserName: string,
-): Promise<SessionDashboard | null> {
+): Promise<{ dashboard: null; restore: RestorableReset }> {
   await db.transaction(async (tx) => {
     const session = (
       await tx.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId))
@@ -615,14 +625,16 @@ export async function resetSession(
       throw new Error("Only the open session can be reset.");
     }
 
-    const countRow = await tx
-      .select({ count: sql<number>`count(*)` })
-      .from(scan)
-      .where(eq(scan.sessionId, sessionId));
-    // postgres-js returns count(*) as a string (bigint-safe) — Number() it
-    // before comparing/interpolating, or `=== 1` and string concatenation
-    // both silently misbehave.
-    const scanCount = Number(countRow[0]?.count ?? 0);
+    const scanRows = await tx.select().from(scan).where(eq(scan.sessionId, sessionId));
+    const boxRows = await tx.select().from(box).where(eq(box.sessionId, sessionId));
+    const scanCount = scanRows.length;
+    await tx.insert(shipmentReset).values({
+      id: newId(),
+      sessionId,
+      snapshot: JSON.stringify({ session, boxes: boxRows, scans: scanRows } satisfies ResetSnapshot),
+      expiresAt: toSqlTimestamp(new Date(Date.now() + RESET_RESTORE_WINDOW_MS)),
+      resetBy: resetByUserId,
+    });
 
     await tx.delete(scan).where(eq(scan.sessionId, sessionId));
     await tx.delete(box).where(eq(box.sessionId, sessionId));
@@ -638,7 +650,43 @@ export async function resetSession(
       .where(eq(shipmentSession.id, sessionId));
   });
 
-  return null;
+  const latest = (await db.select().from(shipmentReset)
+    .where(and(eq(shipmentReset.sessionId, sessionId), isNull(shipmentReset.restoredAt)))
+    .orderBy(desc(shipmentReset.resetAt)).limit(1))[0];
+  if (!latest) throw new Error("Reset backup could not be created.");
+  const snapshot = JSON.parse(latest.snapshot) as ResetSnapshot;
+  return { dashboard: null, restore: { id: latest.id, expiresAt: latest.expiresAt, scanCount: snapshot.scans.length } };
+}
+
+/** A refresh should not make the 30-minute undo control disappear. */
+export async function getRestorableReset(): Promise<RestorableReset | null> {
+  const row = (await db.select().from(shipmentReset)
+    .where(and(isNull(shipmentReset.restoredAt), gt(shipmentReset.expiresAt, nowSqlTimestamp())))
+    .orderBy(desc(shipmentReset.resetAt)).limit(1))[0];
+  if (!row) return null;
+  const snapshot = JSON.parse(row.snapshot) as ResetSnapshot;
+  return { id: row.id, expiresAt: row.expiresAt, scanCount: snapshot.scans.length };
+}
+
+export async function restoreReset(resetId: string): Promise<SessionDashboard> {
+  return db.transaction(async (tx) => {
+    const row = (await tx.select().from(shipmentReset).where(eq(shipmentReset.id, resetId)).limit(1))[0];
+    if (!row || row.restoredAt || row.expiresAt <= nowSqlTimestamp()) throw new Error("This reset can no longer be restored.");
+    const otherOpen = await tx.select({ id: shipmentSession.id }).from(shipmentSession).where(eq(shipmentSession.status, "open"));
+    if (otherOpen.length > 0) throw new Error("A new session has already started, so this reset cannot be restored safely.");
+
+    const snapshot = JSON.parse(row.snapshot) as ResetSnapshot;
+    const reserved = await tx.update(shipmentReset).set({ restoredAt: nowSqlTimestamp() })
+      .where(and(eq(shipmentReset.id, resetId), isNull(shipmentReset.restoredAt), gt(shipmentReset.expiresAt, nowSqlTimestamp())))
+      .returning({ id: shipmentReset.id });
+    if (!reserved.length) throw new Error("This reset was already restored or expired.");
+    if (snapshot.boxes.length) await tx.insert(box).values(snapshot.boxes);
+    if (snapshot.scans.length) await tx.insert(scan).values(snapshot.scans);
+    await tx.update(shipmentSession)
+      .set({ status: "open", activeBoxId: snapshot.session.activeBoxId, notes: snapshot.session.notes })
+      .where(eq(shipmentSession.id, snapshot.session.id));
+    return loadDashboard(snapshot.session.id);
+  });
 }
 
 export async function reopenSession(sessionId: string, reopenedByName: string): Promise<void> {

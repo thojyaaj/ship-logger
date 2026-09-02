@@ -108,6 +108,17 @@ export const scan = pgTable(
   (t) => [uniqueIndex("scan_tracking_number_idx").on(t.trackingNumber)],
 );
 
+/** A short-lived, server-side snapshot used to undo an accidental Reset Day. */
+export const shipmentReset = pgTable("shipment_reset", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").notNull().references(() => shipmentSession.id),
+  snapshot: text("snapshot").notNull(),
+  resetAt: text("reset_at").notNull().default(nowUtcText),
+  expiresAt: text("expires_at").notNull(),
+  restoredAt: text("restored_at"),
+  resetBy: text("reset_by").notNull().references(() => appUser.id),
+});
+
 // Phase 2 §9b — UPS/DHL parcels carry no reference back to their Shopify
 // order (unlike EPG's ERef), so this index is fed by FULFILLMENTS_CREATE/
 // UPDATE webhooks plus a one-time backfill, then read locally at scan time

@@ -79,12 +79,8 @@ export async function POST(req: Request) {
     await upsertOrderIndex(trackingNumbers, order);
     return NextResponse.json({ ok: true, indexed: trackingNumbers.length });
   } catch (err) {
-    // Non-fatal by design, matching the EPG cron (§8.9): a webhook failure
-    // shouldn't surface as a 5xx that makes Shopify retry-storm us, and
-    // scan-time enrichment degrades gracefully to "no order match" either way.
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Unknown error" },
-      { status: 200 },
-    );
+    console.error("[webhooks/shopify] fulfillment indexing failed:", err);
+    // A retry is exactly what we want for a transient Shopify/database outage.
+    return NextResponse.json({ ok: false, error: "Fulfillment indexing failed." }, { status: 503 });
   }
 }

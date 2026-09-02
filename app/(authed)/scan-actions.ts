@@ -10,6 +10,7 @@ import {
   submitSession,
   reopenSession,
   resetSession,
+  restoreReset,
   trashShipment,
   restoreShipment,
   type RecordScanResult,
@@ -90,9 +91,14 @@ export async function reopenSessionAction(sessionId: string): Promise<void> {
   await reopenSession(sessionId, user.name);
 }
 
-export async function resetSessionAction(sessionId: string): Promise<SessionDashboard | null> {
+export async function resetSessionAction(sessionId: string) {
   const user = await requireUser();
-  return resetSession(sessionId, user.name);
+  return resetSession(sessionId, user.id, user.name);
+}
+
+export async function restoreResetAction(resetId: string): Promise<SessionDashboard> {
+  await requireUser();
+  return restoreReset(resetId);
 }
 
 export async function deleteShipmentAction(sessionId: string): Promise<void> {
