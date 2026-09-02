@@ -52,7 +52,7 @@ export default async function ShipmentDetailPage({
     <div className="flex-1 flex flex-col gap-6 p-4 pb-20 md:p-6 max-w-5xl mx-auto w-full">
       <div className="flex flex-col gap-3 route-line pb-3">
         <div className="flex items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             {/* Mobile: redundant now that the header itself has a
                 back-to-shipments-log icon (see
                 ShipmentDetailHeaderMobileActions) — desktop has no header
@@ -60,7 +60,14 @@ export default async function ShipmentDetailPage({
             <Link href="/shipments" className="hidden md:inline tag-label hover:!text-ink">
               ← Shipments
             </Link>
-            <h1 className="font-stencil text-2xl tracking-wide mt-1">{session.shipDate}</h1>
+            <h1 className="data text-lg tracking-wide mt-1 truncate" title={session.id}>
+              {session.id}
+            </h1>
+            {session.status === "submitted" && session.submittedBy && (
+              <div className="mt-1 -mx-1 px-1.5 py-0.5 bg-paper-dim text-green-ink font-condensed text-xs inline-block">
+                Submitted by {userNames[session.submittedBy] ?? "Unknown"}
+              </div>
+            )}
           </div>
             {/* Bigger than the standard tag-label size (0.65rem) so status
               — the thing a packer scans this page for — actually stands
@@ -75,11 +82,6 @@ export default async function ShipmentDetailPage({
               <span className="tag-label !text-base !text-white">{session.status}</span>
             {session.status === "submitted" && session.submittedAt && (
               <span className="font-condensed text-xs">{formatWarehouseTimestamp(session.submittedAt)}</span>
-            )}
-            {session.status === "submitted" && session.submittedBy && (
-              <div className="mt-1 -mx-1 px-1.5 py-0.5 bg-paper-dim text-green-ink font-condensed text-xs text-center">
-                Submitted by {userNames[session.submittedBy] ?? "Unknown"}
-              </div>
             )}
           </div>
         </div>

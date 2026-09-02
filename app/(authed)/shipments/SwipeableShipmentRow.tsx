@@ -267,7 +267,7 @@ export default function SwipeableShipmentRow({
                 s.status === "submitted" ? "bg-green-dim !text-green-ink" : "bg-amber-dim !text-amber-ink"
               }`}
             >
-              {s.status}
+              {s.status === "submitted" ? `${s.status} · ${s.shipDate}` : s.status}
             </span>
           </div>
           {/* Mobile: explicit full width so the courier counts always span
@@ -281,7 +281,7 @@ export default function SwipeableShipmentRow({
             {s.boxCount > 0 && <span className="text-ink-soft">{s.boxCount} box(es)</span>}
           </div>
           <div className="flex items-center gap-2 sm:flex-col sm:items-end sm:gap-1 sm:shrink-0 sm:text-right">
-            {s.awbNumber && <span className="tag-label !normal-case">{s.awbNumber}</span>}
+            {s.awbNumber && <span className="tag-label !normal-case">AWB {s.awbNumber}</span>}
             {s.totals.epg > 0 && s.masterUpsTracking && (
               <span
                 title={`Master UPS ${s.masterUpsTracking}${s.masterUpsStatusAt ? ` — as of ${formatCarrierTimestamp(s.masterUpsStatusAt)}` : ""}`}
