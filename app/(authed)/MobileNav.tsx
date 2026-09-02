@@ -13,13 +13,33 @@ export default function MobileNav({
   isAdmin: boolean;
   operatorName: string;
 }) {
+  // Two states, not one: `mounted` controls whether the drawer subtree
+  // exists in the DOM at all, `open` controls its animated position. They
+  // have to be separate — conditionally mounting on `open` alone unmounts
+  // the drawer the instant it's told to close, before the slide-out
+  // transition ever gets a frame to play.
+  const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
+
+  function openDrawer() {
+    setMounted(true);
+    // Mount in the closed position first, then flip to open on a later
+    // frame — otherwise the browser can coalesce both style states into
+    // one paint and the drawer just snaps open with no visible slide.
+    requestAnimationFrame(() => requestAnimationFrame(() => setOpen(true)));
+  }
+
+  function closeDrawer() {
+    // Unmounting happens in onExited, once the slide-out transition
+    // actually finishes (see MobileNavDrawer's onTransitionEnd).
+    setOpen(false);
+  }
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openDrawer}
         aria-label="Open menu"
         aria-expanded={open}
         className="md:hidden flex flex-col justify-center gap-1 w-8 h-8 -m-1 shrink-0"
@@ -29,11 +49,13 @@ export default function MobileNav({
         <span className="block h-0.5 w-5 bg-paper" />
       </button>
 
-      {open && (
+      {mounted && (
         <MobileNavDrawer
           isAdmin={isAdmin}
           operatorName={operatorName}
-          onClose={() => setOpen(false)}
+          open={open}
+          onClose={closeDrawer}
+          onExited={() => setMounted(false)}
         />
       )}
     </>
@@ -43,22 +65,38 @@ export default function MobileNav({
 function MobileNavDrawer({
   isAdmin,
   operatorName,
+  open,
   onClose,
+  onExited,
 }: {
   isAdmin: boolean;
   operatorName: string;
+  open: boolean;
   onClose: () => void;
+  onExited: () => void;
 }) {
   // Same escape-to-close/focus-restore treatment as every other dialog in
-  // the app (SubmitDialog, ConfirmDialog, OrderPanel) — this component only
-  // mounts while the drawer is open, matching what the hook expects.
+  // the app (SubmitDialog, ConfirmDialog, OrderPanel) — this component now
+  // stays mounted through the close animation too, but the hook only cares
+  // about intercepting Escape/outside-click while the drawer is up, which
+  // holds for its entire mounted lifetime here regardless of `open`.
   useDismissable(onClose);
   const router = useRouter();
 
   return (
     <div className="fixed inset-0 z-30 md:hidden" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-ink/60" onClick={onClose} />
-      <div className="absolute top-0 right-0 h-full w-64 max-w-[80vw] bg-ink text-paper flex flex-col p-4 gap-1 corners">
+      <div
+        className={`absolute inset-0 bg-ink/60 transition-opacity duration-300 ${open ? "opacity-100" : "opacity-0"}`}
+        onClick={onClose}
+      />
+      <div
+        className={`absolute top-0 right-0 h-full w-64 max-w-[80vw] bg-ink text-paper flex flex-col p-4 gap-1 corners transition-transform duration-300 ease-out ${
+          open ? "translate-x-0" : "translate-x-full"
+        }`}
+        onTransitionEnd={(e) => {
+          if (e.propertyName === "transform" && !open) onExited();
+        }}
+      >
         <div className="flex items-center justify-between mb-3">
           <span className="tag-label !text-paper/40">Menu</span>
           <button
