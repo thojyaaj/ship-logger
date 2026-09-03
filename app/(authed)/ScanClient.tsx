@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { RestorableReset, SessionDashboard } from "@/lib/shiplog";
 import type { SessionUser } from "@/lib/auth";
 import { carrierLabel, type Carrier } from "@/lib/carrier";
@@ -13,6 +13,7 @@ import {
   removeEmptyBoxAction,
   resetSessionAction,
   restoreResetAction,
+  resolveScanOrdersAction,
 } from "./scan-actions";
 import SubmitDialog from "./SubmitDialog";
 import OrderPanel from "./OrderPanel";
@@ -154,6 +155,22 @@ function playTone(kind: ToneKind) {
   }
 }
 
+// §9c.4 — recordScan's order lookup runs exactly once, at insert, against a
+// local index fed only by Shopify's fulfilment webhook. A parcel that reaches
+// the bench before that webhook does records with a blank order, and though
+// upsertOrderIndex back-fills the row in the database moments later, nothing
+// pushes that to an already-open screen. These constants split the wait into
+// "still plausibly just lag" and "worth a packer's attention now."
+const UNMATCHED_POLL_MS = 5_000;
+// Once every unmatched row is past the warning threshold, a late webhook is
+// still worth catching — but not at bench-latency cadence.
+const UNMATCHED_SLOW_POLL_MS = 30_000;
+const UNMATCHED_WARNING_MS = 60_000;
+// How closely a row's escalation tracks the threshold above. Coarser than the
+// poll on purpose: crossing it re-renders the whole manifest, which is real
+// work on a long shipment, and nobody is watching for the exact second.
+const UNMATCHED_TICK_MS = 10_000;
+
 export function timeAgo(dbTimestamp: string): string {
   const diff = Date.now() - parseDbTimestamp(dbTimestamp).getTime();
   const mins = Math.floor(diff / 60000);
@@ -278,6 +295,130 @@ export default function ScanClient({
     const id = ++requestSeq.current;
     return () => id === requestSeq.current;
   }, []);
+
+  // Scans still waiting on an order match, plus the instant the newest of
+  // them stops being explainable as webhook lag. Both are derived together so
+  // the effects below can depend on a stable string and a number rather than
+  // on a fresh array identity every render.
+  const { unmatchedKey, unmatchedFreshUntil } = useMemo(() => {
+    const unmatched = (dashboard?.scans ?? []).filter((s) => !s.orderGid);
+    const newestScannedAt = unmatched.reduce(
+      (max, s) => Math.max(max, parseDbTimestamp(s.scannedAt).getTime()),
+      0,
+    );
+    return {
+      unmatchedKey: unmatched.map((s) => s.id).join(","),
+      unmatchedFreshUntil: newestScannedAt + UNMATCHED_WARNING_MS,
+    };
+  }, [dashboard]);
+
+  // `null` until after mount, deliberately: this component is server-rendered
+  // too, and reading Date.now() during render would let the server decide a
+  // row is already stale while the client's first paint says it isn't — a
+  // hydration mismatch. Staleness is a client-only concern, so it starts
+  // unknown (nothing escalates) and the ticker below supplies the clock.
+  const [nowMs, setNowMs] = useState<number | null>(null);
+
+  const sessionId = dashboard?.session.id ?? null;
+
+  // Re-resolve loop. A self-rescheduling timeout rather than setInterval so
+  // the cadence can be decided per tick from the current clock — rows age
+  // while this effect is alive, and putting that in the dependency list would
+  // tear down and rebuild the timer on every tick instead.
+  useEffect(() => {
+    if (!sessionId || !unmatchedKey) return;
+    // Captured locally so the null check above narrows inside `run` — it's a
+    // hoisted function declaration, which TypeScript won't narrow through.
+    const activeSessionId = sessionId;
+    const ids = unmatchedKey.split(",");
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const schedule = (delayMs?: number) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(
+        run,
+        delayMs ??
+          (Date.now() < unmatchedFreshUntil ? UNMATCHED_POLL_MS : UNMATCHED_SLOW_POLL_MS),
+      );
+    };
+
+    async function run() {
+      // A backgrounded tab (or a tablet whose screen has gone off — that
+      // reports hidden too) has nobody to show a resolved row to, so skip the
+      // request but keep the timer alive. Waiting out a full interval on
+      // return would be the worst of both, hence the listener below.
+      if (!document.hidden) {
+        try {
+          const resolved = await resolveScanOrdersAction(activeSessionId, ids);
+          if (cancelled) return;
+          if (Object.keys(resolved).length > 0) {
+            // Merges into rows that are *still* null rather than replacing
+            // the dashboard: this can't drop a scan a concurrent request just
+            // added, or clobber a match, so it stays out of the way of the
+            // scan/undo sequencing entirely.
+            setDashboard((d) =>
+              d
+                ? {
+                    ...d,
+                    scans: d.scans.map((s) =>
+                      !s.orderGid && resolved[s.id] ? { ...s, ...resolved[s.id] } : s,
+                    ),
+                  }
+                : d,
+            );
+          }
+        } catch {
+          // Purely additive enrichment — a failed poll just leaves the row as
+          // it is until the next one. Never worth a banner: the packer's scan
+          // itself committed fine, and this is decoration on top of it.
+        }
+      }
+      if (!cancelled) schedule();
+    }
+
+    // Coming back to the screen is exactly when an answer that landed while
+    // it was hidden matters most — ask straight away rather than making the
+    // packer stare at a stale row for up to a full slow interval.
+    const onVisibilityChange = () => {
+      if (!document.hidden && !cancelled) schedule(0);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    schedule();
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (timer) clearTimeout(timer);
+    };
+  }, [sessionId, unmatchedKey, unmatchedFreshUntil]);
+
+  // Clock for the warning escalation. The merge above leaves state untouched
+  // when nothing resolved, so it can't be what re-renders a row across the
+  // threshold — hence a separate tick.
+  useEffect(() => {
+    if (!unmatchedKey) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = () => {
+      const t = Date.now();
+      setNowMs(t);
+      // Self-terminating: once the newest unmatched row is past its deadline
+      // every older one is too, so there's nothing left for a clock to change
+      // until the next unmatched scan lands and restarts this effect.
+      if (t < unmatchedFreshUntil) timer = setTimeout(tick, UNMATCHED_TICK_MS);
+    };
+
+    // First tick on its own task rather than inline in the effect body:
+    // seeding nowMs synchronously there is a cascading render (what
+    // react-hooks/set-state-in-effect flags), but a session reloaded with
+    // rows already past the threshold shouldn't wait a full interval to
+    // escalate them.
+    timer = setTimeout(tick, 0);
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [unmatchedKey, unmatchedFreshUntil]);
 
   const overlayOpen = Boolean(showSubmit || openOrderGid || showResetConfirm || paletteOpen);
   const overlayOpenRef = useRef(overlayOpen);
@@ -589,6 +730,11 @@ export default function ScanClient({
             scan={s}
             scannedByName={dashboard.userNames[s.scannedBy] ?? "?"}
             isFlashing={flashScanId === s.id}
+            unmatchedIsStale={
+              !s.orderGid &&
+              nowMs !== null &&
+              nowMs - parseDbTimestamp(s.scannedAt).getTime() >= UNMATCHED_WARNING_MS
+            }
             onOpenOrder={setOpenOrderGid}
             onUndo={undo}
           />

@@ -452,6 +452,53 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
   return { status: "ok", dashboard, carrier: finalCarrier, boxNumber };
 }
 
+// A session realistically holds a few hundred parcels, so this only ever
+// bites on a malformed/hostile caller rather than real bench traffic. The
+// unmatched set drains as rows resolve, so even a session past the cap works
+// its way through it across successive polls instead of stalling.
+const MAX_RESOLVE_IDS = 500;
+
+/**
+ * §9c.4 — re-reads the order columns for scans that came back unmatched at
+ * scan time, so an open bench screen fills them in without a page reload.
+ *
+ * A miss in recordScan's index lookup is nearly always webhook lag: the
+ * parcel reached the bench before Shopify's fulfilment webhook did. When that
+ * delivery lands, upsertOrderIndex back-fills the `scan` table directly (see
+ * lib/order-index.ts), so the answer is already in the database — this makes
+ * no Shopify call, it's the same local read recordScan does, just repeated
+ * for the rows that missed.
+ *
+ * Returns only the ids that now resolve, so the client can merge into rows it
+ * still holds as null. A response can therefore never remove a scan or
+ * overwrite an existing match, which is why this needs none of the
+ * `requestSeq` sequencing ScanClient wraps around the dashboard-mutating
+ * actions — it cannot rewind the manifest no matter how it interleaves.
+ */
+export async function resolveScanOrders(
+  sessionId: string,
+  scanIds: string[],
+): Promise<Record<string, { orderGid: string; orderName: string }>> {
+  const ids = scanIds.slice(0, MAX_RESOLVE_IDS);
+  if (ids.length === 0) return {};
+
+  const rows = await db
+    .select({ id: scan.id, orderGid: scan.orderGid, orderName: scan.orderName })
+    .from(scan)
+    .where(and(eq(scan.sessionId, sessionId), inArray(scan.id, ids), isNotNull(scan.orderGid)));
+
+  const resolved: Record<string, { orderGid: string; orderName: string }> = {};
+  for (const row of rows) {
+    // Both writers (recordScan, upsertOrderIndex) set gid and name together,
+    // so isNotNull on the gid already implies the name — this narrows the
+    // type rather than guarding a case that occurs.
+    if (row.orderGid && row.orderName) {
+      resolved[row.id] = { orderGid: row.orderGid, orderName: row.orderName };
+    }
+  }
+  return resolved;
+}
+
 /**
  * Editing history is an admin-only capability (deleteShipment is gated behind
  * requireAdmin). The per-scan/per-box edit actions are only requireUser, so

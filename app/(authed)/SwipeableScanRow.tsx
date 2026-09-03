@@ -30,12 +30,17 @@ export default function SwipeableScanRow({
   scan: s,
   scannedByName,
   isFlashing,
+  unmatchedIsStale,
   onOpenOrder,
   onUndo,
 }: {
   scan: ScanRow;
   scannedByName: string;
   isFlashing: boolean;
+  // Computed by the parent rather than here: escalation needs a ticking
+  // clock, and one in ScanClient covers the whole manifest instead of every
+  // row owning a timer. Keeps this component presentational.
+  unmatchedIsStale: boolean;
   onOpenOrder: (orderGid: string) => void;
   onUndo: (scanId: string) => void;
 }) {
@@ -158,6 +163,14 @@ export default function SwipeableScanRow({
               (EPG only, previously) made the manifest list visibly uneven. */}
           {s.orderName ? (
             <span className="text-xs text-blue hover:underline">{s.orderName}</span>
+          ) : unmatchedIsStale ? (
+            /* §9c.4 — past the point where webhook lag still explains it, an
+               unmatched tracking number is a mis-scan or the wrong label on
+               the parcel, and the bench is the last place that's cheap to
+               fix. Muted grey reads as "not yet"; this has to read as "check
+               this one." The glyph carries the same signal as the color so
+               it doesn't rest on red alone. */
+            <span className="text-xs text-red font-semibold">⚠ no order match — check label</span>
           ) : (
             <span className="text-xs text-ink-faint">no order match yet</span>
           )}

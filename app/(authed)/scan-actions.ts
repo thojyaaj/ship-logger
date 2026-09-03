@@ -7,6 +7,7 @@ import {
   createBox,
   setActiveBox,
   removeEmptyBox,
+  resolveScanOrders,
   submitSession,
   reopenSession,
   resetSession,
@@ -48,6 +49,27 @@ export async function scanAction(
     // Only admins may push a scan past the previous-shipment duplicate block (§8.4b).
     forcePastDuplicate: opts?.forcePastDuplicate && user.isAdmin,
   });
+}
+
+/**
+ * §9c.4 — fills in scans that were unmatched at scan time, for the poll in
+ * ScanClient. Read-only and additive by construction (see resolveScanOrders),
+ * so it needs no gate beyond "is signed in."
+ */
+export async function resolveScanOrdersAction(
+  sessionId: string,
+  scanIds: string[],
+): Promise<Record<string, { orderGid: string; orderName: string }>> {
+  await requireUser();
+  // Same reasoning as validForceCarrier above: TypeScript's parameter types
+  // are erased at the Server Action boundary, so a non-array (or an array of
+  // non-strings) would reach inArray() and fail as a driver-level error
+  // rather than a no-op.
+  if (!Array.isArray(scanIds)) return {};
+  return resolveScanOrders(
+    sessionId,
+    scanIds.filter((id): id is string => typeof id === "string"),
+  );
 }
 
 export async function undoScanAction(sessionId: string, scanId: string): Promise<SessionDashboard> {
