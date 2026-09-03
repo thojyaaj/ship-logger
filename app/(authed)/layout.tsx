@@ -2,6 +2,7 @@ import Link from "next/link";
 import { pageRequireUser } from "@/lib/auth";
 import SwitchUserButton from "./SwitchUserButton";
 import MobileSwitchUserButton from "./MobileSwitchUserButton";
+import IdleLogout from "./IdleLogout";
 import CommandPalette from "./CommandPalette";
 import { CommandPaletteStateProvider } from "./CommandPaletteState";
 import ScanHeaderMobileActions from "./ScanHeaderMobileActions";
@@ -16,6 +17,7 @@ export default async function AuthedLayout({ children }: { children: React.React
   return (
     <ScanHeaderStateProvider>
       <CommandPaletteStateProvider>
+        <IdleLogout />
         <div className="flex flex-col min-h-screen">
           <header id="app-header" className="sticky top-0 z-10 bg-ink text-paper">
             <div className="flex items-center justify-between gap-4 px-4 md:px-6 py-3 flex-wrap">
