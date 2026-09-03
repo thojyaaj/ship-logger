@@ -7,7 +7,7 @@ import { useDismissable } from "./useDismissable";
 
 /**
  * §9c click-through — "any tracking in history opens an order panel: order
- * #, date, customer, line items, ship-to, and a deep link into the Shopify
+ * #, date, line items, ship-to, and a deep link into the Shopify
  * admin." Fetches live on open rather than caching, since this is an
  * on-demand click, not scan-time enrichment.
  */
@@ -52,7 +52,6 @@ export default function OrderPanel({ orderGid, onClose }: { orderGid: string; on
           <>
             <dl className="flex flex-col gap-2 text-sm">
               <Field label="Order date" value={new Date(order.createdAt).toLocaleString()} />
-              <Field label="Customer" value={order.customerName ?? "—"} />
               <Field label="Ship to" value={order.shippingAddress ?? "—"} />
             </dl>
 
