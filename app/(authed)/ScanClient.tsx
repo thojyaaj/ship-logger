@@ -16,6 +16,7 @@ import {
   resolveScanOrdersAction,
 } from "./scan-actions";
 import SubmitDialog from "./SubmitDialog";
+import DhlPickupPromptModal from "./DhlPickupPromptModal";
 import OrderPanel from "./OrderPanel";
 import ConfirmDialog from "./ConfirmDialog";
 import SwipeableScanRow from "./SwipeableScanRow";
@@ -194,6 +195,9 @@ export default function ScanClient({
   const [banner, setBanner] = useState<Banner | null>(null);
   const [flashScanId, setFlashScanId] = useState<string | null>(null);
   const [showSubmit, setShowSubmit] = useState(false);
+  const [dhlPickupPrompt, setDhlPickupPrompt] = useState<{ sessionId: string; dhlCount: number } | null>(
+    null,
+  );
   const [openOrderGid, setOpenOrderGid] = useState<string | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [restorableReset, setRestorableReset] = useState(initialRestorableReset);
@@ -420,7 +424,9 @@ export default function ScanClient({
     };
   }, [unmatchedKey, unmatchedFreshUntil]);
 
-  const overlayOpen = Boolean(showSubmit || openOrderGid || showResetConfirm || paletteOpen);
+  const overlayOpen = Boolean(
+    showSubmit || openOrderGid || showResetConfirm || paletteOpen || dhlPickupPrompt,
+  );
   const overlayOpenRef = useRef(overlayOpen);
   // useLayoutEffect, not useEffect: this ref is read from a setTimeout
   // scheduled in onBlur. Layout effects flush synchronously on commit, so the
@@ -1007,8 +1013,25 @@ export default function ScanClient({
           dashboard={dashboard}
           onClose={() => setShowSubmit(false)}
           onSubmitted={() => {
+            // Reloading wipes all client state, so the DHL prompt has to be
+            // decided before that — a packer who just submitted a shipment
+            // with DHL parcels gets one shot at scheduling pickup right now
+            // instead of having to remember to come back for it later.
+            if (dashboard.totals.dhl > 0) {
+              setShowSubmit(false);
+              setDhlPickupPrompt({ sessionId: dashboard.session.id, dhlCount: dashboard.totals.dhl });
+              return;
+            }
             window.location.reload();
           }}
+        />
+      )}
+
+      {dhlPickupPrompt && (
+        <DhlPickupPromptModal
+          sessionId={dhlPickupPrompt.sessionId}
+          dhlCount={dhlPickupPrompt.dhlCount}
+          onDone={() => window.location.reload()}
         />
       )}
 

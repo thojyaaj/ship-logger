@@ -11,10 +11,12 @@ import { TruckIcon, XCircleIcon } from "./icons";
 
 /**
  * Only rendered when the parent page has already confirmed this shipment is
- * submitted and has DHL parcels — see shipments/[id]/page.tsx. Booking a
- * pickup is never automatic: every path here requires an explicit admin
- * click on a dialog that shows the computed weight/count/window before
- * anything is actually sent to DHL.
+ * submitted and has DHL parcels — see shipments/[id]/page.tsx (admin-only on
+ * this page; the packer who submitted the shipment gets an equivalent prompt
+ * right after submitting instead, see DhlPickupPromptModal). Booking a
+ * pickup is never automatic: every path here requires an explicit click on a
+ * dialog that shows the computed weight/count/window before anything is
+ * actually sent to DHL.
  */
 export default function DhlPickupPanel({
   sessionId,
