@@ -177,6 +177,22 @@ function isCustomerFieldAccessDenied(err: unknown): boolean {
 }
 
 /**
+ * The retry below is silent by design (that's the whole point — a scope gap
+ * shouldn't cost an error), but that means nothing distinguishes "the grant
+ * is fine" from "still denied, quietly degrading every single call" once
+ * this ships. One line per fallback, not a full trace — this can fire on
+ * every order lookup while the scope stays denied, so it's a low-noise
+ * `warn` (won't cluster in get_runtime_errors the way the old 503s did) meant
+ * to be grepped for, not triaged as a new failure each time.
+ */
+function warnCustomerFieldFallback(context: string): void {
+  console.warn(
+    `[shopify] customer field access denied — degrading (${context}). ` +
+      "Check read_customers / protected customer data access in the Partner Dashboard.",
+  );
+}
+
+/**
  * §9c click-through — full order detail for the order panel. Live query,
  * fine for an on-demand click.
  *
@@ -216,6 +232,7 @@ export async function getOrderDetail(orderGid: string): Promise<OrderDetail | nu
     order = data.order;
   } catch (err) {
     if (!isCustomerFieldAccessDenied(err)) throw err;
+    warnCustomerFieldFallback(`getOrderDetail ${orderGid}`);
     // See isCustomerFieldAccessDenied — retry without the one field the
     // current grant doesn't cover, rather than showing the packer "Not
     // found" for an order that's actually right there.
@@ -291,6 +308,7 @@ export async function getOrderSummary(orderId: string | number): Promise<OrderSu
     order = data.order;
   } catch (err) {
     if (!isCustomerFieldAccessDenied(err)) throw err;
+    warnCustomerFieldFallback(`getOrderSummary ${gid}`);
     // See isCustomerFieldAccessDenied — gid/name/destination are what §9c's
     // scan-time enrichment and the order index actually depend on; customer
     // name is a nice-to-have on the order panel. A scope gap on one display
