@@ -158,51 +158,93 @@ export type OrderDetail = {
 };
 
 /**
+ * `customer` needs the `read_customers` scope plus protected-customer-data
+ * access on top of the base scopes this app otherwise runs on — a narrower
+ * grant than the rest of an order query needs, and one that in practice has
+ * flipped between granted and denied independently of the rest (see the Dev
+ * Dashboard gap noted in PRD §9, Step 0). shopifyGraphql throws on *any*
+ * top-level GraphQL error, discarding whatever data did resolve — so denying
+ * just this one field previously took an entire order lookup down with it,
+ * including id/name/shippingAddress/lineItems, which need nothing beyond the
+ * scopes already confirmed working. Detected by message text rather than a
+ * structured error code since ShopifyGraphqlResult only types `.message`;
+ * scoped specifically to "customer field" so a real outage (bad token,
+ * network failure, a different missing scope) still propagates instead of
+ * silently degrading.
+ */
+function isCustomerFieldAccessDenied(err: unknown): boolean {
+  return err instanceof Error && /access denied for customer field/i.test(err.message);
+}
+
+/**
  * §9c click-through — full order detail for the order panel. Live query,
  * fine for an on-demand click.
  *
- * `customer` needs the `read_customers` scope plus protected-customer-data
- * access — both now granted (see the Dev Dashboard gap noted in PRD §9,
- * Step 0). `displayName` is used over first/last name directly since it's
- * Shopify's own null-safe computed field (falls back to email, then
- * "Customer", rather than rendering blank/undefined for a guest checkout
- * with no name on file). `customer` itself can still be null — a deleted
- * customer, or an order placed without an account.
+ * `displayName` is used over first/last name directly since it's Shopify's
+ * own null-safe computed field (falls back to email, then "Customer", rather
+ * than rendering blank/undefined for a guest checkout with no name on file).
+ * `customer` itself can still be null even when the field resolves — a
+ * deleted customer, or an order placed without an account.
  */
 export async function getOrderDetail(orderGid: string): Promise<OrderDetail | null> {
-  const data = await shopifyGraphql<{
-    order: {
-      id: string;
-      name: string;
-      createdAt: string;
-      customer: { displayName: string } | null;
-      shippingAddress: { formatted: string[] } | null;
-      lineItems: { edges: { node: { title: string; quantity: number } }[] };
-    } | null;
-  }>(
-    `query($id: ID!) {
-      order(id: $id) {
-        id
-        name
-        createdAt
-        customer { displayName }
-        shippingAddress { formatted }
-        lineItems(first: 25) {
-          edges { node { title quantity } }
+  type OrderFields = {
+    id: string;
+    name: string;
+    createdAt: string;
+    customer: { displayName: string } | null;
+    shippingAddress: { formatted: string[] } | null;
+    lineItems: { edges: { node: { title: string; quantity: number } }[] };
+  };
+
+  let order: OrderFields | null;
+  try {
+    const data = await shopifyGraphql<{ order: OrderFields | null }>(
+      `query($id: ID!) {
+        order(id: $id) {
+          id
+          name
+          createdAt
+          customer { displayName }
+          shippingAddress { formatted }
+          lineItems(first: 25) {
+            edges { node { title quantity } }
+          }
         }
-      }
-    }`,
-    { id: orderGid },
-  );
-  if (!data.order) return null;
-  const numericId = data.order.id.split("/").pop();
+      }`,
+      { id: orderGid },
+    );
+    order = data.order;
+  } catch (err) {
+    if (!isCustomerFieldAccessDenied(err)) throw err;
+    // See isCustomerFieldAccessDenied — retry without the one field the
+    // current grant doesn't cover, rather than showing the packer "Not
+    // found" for an order that's actually right there.
+    const data = await shopifyGraphql<{ order: Omit<OrderFields, "customer"> | null }>(
+      `query($id: ID!) {
+        order(id: $id) {
+          id
+          name
+          createdAt
+          shippingAddress { formatted }
+          lineItems(first: 25) {
+            edges { node { title quantity } }
+          }
+        }
+      }`,
+      { id: orderGid },
+    );
+    order = data.order ? { ...data.order, customer: null } : null;
+  }
+
+  if (!order) return null;
+  const numericId = order.id.split("/").pop();
   return {
-    gid: data.order.id,
-    name: data.order.name,
-    createdAt: data.order.createdAt,
-    customerName: data.order.customer?.displayName ?? null,
-    shippingAddress: data.order.shippingAddress?.formatted.join(", ") ?? null,
-    lineItems: data.order.lineItems.edges.map((e) => e.node),
+    gid: order.id,
+    name: order.name,
+    createdAt: order.createdAt,
+    customerName: order.customer?.displayName ?? null,
+    shippingAddress: order.shippingAddress?.formatted.join(", ") ?? null,
+    lineItems: order.lineItems.edges.map((e) => e.node),
     adminUrl: `https://${store()}/admin/orders/${numericId}`,
   };
 }
@@ -225,29 +267,53 @@ export async function getOrderSummary(orderId: string | number): Promise<OrderSu
   const gid = String(orderId).startsWith("gid://")
     ? String(orderId)
     : `gid://shopify/Order/${orderId}`;
-  const data = await shopifyGraphql<{
-    order: {
-      id: string;
-      name: string;
-      customer: { displayName: string } | null;
-      shippingAddress: { formatted: string[] } | null;
-    } | null;
-  }>(
-    `query($id: ID!) {
-      order(id: $id) {
-        id
-        name
-        customer { displayName }
-        shippingAddress { formatted }
-      }
-    }`,
-    { id: gid },
-  );
-  if (!data.order) return null;
+
+  type OrderFields = {
+    id: string;
+    name: string;
+    customer: { displayName: string } | null;
+    shippingAddress: { formatted: string[] } | null;
+  };
+
+  let order: OrderFields | null;
+  try {
+    const data = await shopifyGraphql<{ order: OrderFields | null }>(
+      `query($id: ID!) {
+        order(id: $id) {
+          id
+          name
+          customer { displayName }
+          shippingAddress { formatted }
+        }
+      }`,
+      { id: gid },
+    );
+    order = data.order;
+  } catch (err) {
+    if (!isCustomerFieldAccessDenied(err)) throw err;
+    // See isCustomerFieldAccessDenied — gid/name/destination are what §9c's
+    // scan-time enrichment and the order index actually depend on; customer
+    // name is a nice-to-have on the order panel. A scope gap on one display
+    // field shouldn't blank the whole index the way it did until this fix
+    // (every fulfillment webhook delivery 503'd, silently, for hours).
+    const data = await shopifyGraphql<{ order: Omit<OrderFields, "customer"> | null }>(
+      `query($id: ID!) {
+        order(id: $id) {
+          id
+          name
+          shippingAddress { formatted }
+        }
+      }`,
+      { id: gid },
+    );
+    order = data.order ? { ...data.order, customer: null } : null;
+  }
+
+  if (!order) return null;
   return {
-    gid: data.order.id,
-    name: data.order.name,
-    customerName: data.order.customer?.displayName ?? null,
-    destination: data.order.shippingAddress?.formatted.join(", ") ?? null,
+    gid: order.id,
+    name: order.name,
+    customerName: order.customer?.displayName ?? null,
+    destination: order.shippingAddress?.formatted.join(", ") ?? null,
   };
 }
