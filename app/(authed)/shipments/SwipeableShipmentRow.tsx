@@ -280,10 +280,17 @@ export default function SwipeableShipmentRow({
           {/* Mobile: explicit full width so the courier counts always span
               the row edge-to-edge; sm:w-auto hands sizing back to flex-1
               (share of the row alongside the session id/status and AWB/
-              tracking columns) on desktop. sm:justify-center spreads them
-              into the extra room the wider first column leaves behind
-              instead of leaving them bunched against it. */}
-          <div className="flex-1 flex flex-wrap gap-x-4 gap-y-1 text-sm data w-full sm:w-auto sm:justify-center">
+              tracking columns) on desktop. Left-aligned (the flex default),
+              not centered: this column's own content width is usually
+              identical row to row, but the AWB/status column beside it
+              (sm:shrink-0) isn't — "STATUS PENDING" vs "DEPARTED FROM
+              FACILITY" is a very different width — so centering here meant
+              centering identical content within a *different* leftover
+              width each row, staggering where "EPG" starts down the list.
+              Anchoring to the fixed-width first column's edge instead keeps
+              every row's stats starting at the same x regardless of what
+              the status column next to it is doing. */}
+          <div className="flex-1 flex flex-wrap gap-x-4 gap-y-1 text-sm data w-full sm:w-auto">
             <span className="text-orange">EPG {s.totals.epg}</span>
             <span className="text-blue">UPS {s.totals.ups}</span>
             <span className="text-amber">DHL {s.totals.dhl}</span>
