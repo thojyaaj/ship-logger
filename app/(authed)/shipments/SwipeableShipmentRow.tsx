@@ -301,7 +301,7 @@ export default function SwipeableShipmentRow({
             {s.totals.epg > 0 && s.masterUpsTracking && (
               <span
                 title={`Master UPS ${s.masterUpsTracking}${s.masterUpsStatusAt ? ` — as of ${formatCarrierTimestamp(s.masterUpsStatusAt)}` : ""}`}
-                className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block whitespace-nowrap ${statusTone(s.masterUpsStatusLabel)}`}
+                className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block max-w-[12rem] truncate ${statusTone(s.masterUpsStatusLabel)}`}
               >
                 {s.masterUpsStatusLabel ?? "STATUS PENDING"}
               </span>
