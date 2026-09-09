@@ -71,6 +71,13 @@
       "when": 1788383906733,
       "tag": "0009_add_packer_code",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788400000000,
+      "tag": "0010_enable_shipment_reset_rls",
+      "breakpoints": true
     }
   ]
 }

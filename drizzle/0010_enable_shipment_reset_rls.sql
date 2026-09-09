@@ -1,0 +1,1 @@
+ALTER TABLE "shipment_reset" ENABLE ROW LEVEL SECURITY;
