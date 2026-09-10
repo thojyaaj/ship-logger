@@ -309,6 +309,15 @@ export async function findVariantBySku(sku: string): Promise<{ gid: string; titl
 export async function searchVariantsByTitle(
   titleQuery: string,
 ): Promise<{ gid: string; title: string; sku: string }[]> {
+  // Deliberately searches the `products` connection, not `productVariants`.
+  // A `title:` filter on productVariants matches the VARIANT's own title —
+  // "Default Title" for every single-variant product in this catalog, i.e.
+  // almost everything — never the product name a human actually typed.
+  // That bug meant this function returned zero results for every query
+  // ever run against it, including guaranteed-present terms, until caught
+  // live batch-testing real Fruugo orders. `products.title:` searches the
+  // field that's actually the product name.
+  //
   // Shopify's search syntax only supports a *trailing* wildcard (`word*`),
   // not `*word*` — a leading wildcard silently matches nothing rather than
   // erroring, which reads exactly like "this product isn't in Shopify" even
@@ -320,16 +329,26 @@ export async function searchVariantsByTitle(
     .filter(Boolean)
     .map((word) => `title:${word.replace(/["\\:*]/g, "")}*`);
   const data = await shopifyGraphql<{
-    productVariants: { edges: { node: { id: string; sku: string; displayName: string } }[] };
+    products: {
+      edges: { node: { variants: { edges: { node: { id: string; sku: string; displayName: string } }[] } } }[];
+    };
   }>(
     `query($query: String!) {
-      productVariants(first: 10, query: $query) {
-        edges { node { id sku displayName } }
+      products(first: 10, query: $query) {
+        edges {
+          node {
+            variants(first: 10) {
+              edges { node { id sku displayName } }
+            }
+          }
+        }
       }
     }`,
     { query: clauses.join(" ") },
   );
-  return data.productVariants.edges.map((e) => ({ gid: e.node.id, title: e.node.displayName, sku: e.node.sku }));
+  return data.products.edges.flatMap((p) =>
+    p.node.variants.edges.map((e) => ({ gid: e.node.id, title: e.node.displayName, sku: e.node.sku })),
+  );
 }
 
 export type NewOrderLineItem = {
