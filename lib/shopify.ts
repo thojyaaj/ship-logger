@@ -326,8 +326,17 @@ export async function searchVariantsByTitle(
   // approximation of an unordered substring search this syntax allows.
   const clauses = titleQuery
     .split(/\s+/)
-    .filter(Boolean)
-    .map((word) => `title:${word.replace(/["\\:*]/g, "")}*`);
+    .map((word) => word.replace(/["\\:*]/g, ""))
+    // A lone "-" (or other punctuation-only token — Fruugo titles commonly
+    // have one from " - Color Name" formatting) survives the character
+    // strip above and becomes `title:-*`. Shopify's search syntax treats a
+    // leading "-" as a NOT operator, so a bare "-" with nothing after it is
+    // a malformed clause that silently zeroes out the ENTIRE query it's
+    // part of — not just that one word — which reads as "no match" even
+    // when every other word is a real hit. Dropping any token with no
+    // letters or digits at all avoids emitting it in the first place.
+    .filter((word) => /[a-zA-Z0-9]/.test(word))
+    .map((word) => `title:${word}*`);
   const data = await shopifyGraphql<{
     products: {
       edges: { node: { variants: { edges: { node: { id: string; sku: string; displayName: string } }[] } } }[];
