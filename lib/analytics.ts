@@ -1,8 +1,8 @@
 import "server-only";
 import { db } from "./db";
 import { appUser, shipmentSession, box, scan, shipmentReset, dhlPickupRequest } from "./db/schema";
-import { and, eq, sql, ne, isNull, isNotNull, inArray, desc } from "drizzle-orm";
-import { localCalendarDate, toSqlTimestamp, parseDbTimestamp, warehouseLocalTime } from "./date";
+import { and, eq, sql, ne, isNull, isNotNull, inArray } from "drizzle-orm";
+import { localCalendarDate, toSqlTimestamp, parseDbTimestamp, parseCarrierTimestamp, warehouseLocalTime } from "./date";
 import type { Carrier } from "./carrier";
 
 /**
@@ -80,6 +80,55 @@ export async function getOverviewStats(days: number): Promise<OverviewStats> {
     avgPackagesPerShipment: sessions.length > 0 ? totalPackages / sessions.length : 0,
     avgBoxesPerShipment: sessions.length > 0 ? totalBoxes / sessions.length : 0,
     avgHoursToSubmit: durationsHours.length > 0 ? durationsHours.reduce((a, b) => a + b, 0) / durationsHours.length : null,
+  };
+}
+
+export type EpgFinalMileTime = { avgDays: number | null; sampleSize: number };
+
+/**
+ * How long it takes an individual EPG parcel to actually reach the
+ * customer, measured *after* it's already inside the master UPS
+ * multi-piece shipment that consolidates every EPG box to the ePost Global
+ * hub (see docs/PRD.md §7 and schema.ts's master_ups_tracking comment) —
+ * i.e. hub arrival to final-mile delivery, not label-creation to delivery.
+ * Only counts sessions/scans where both halves have actually delivered;
+ * a still-in-transit parcel has no end timestamp to measure against yet
+ * and is silently excluded rather than skewing the average with a partial
+ * duration.
+ */
+export async function getEpgFinalMileTime(days: number): Promise<EpgFinalMileTime> {
+  const rows = await db
+    .select({
+      masterUpsStatusAt: shipmentSession.masterUpsStatusAt,
+      statusAt: scan.statusAt,
+    })
+    .from(scan)
+    .innerJoin(shipmentSession, eq(scan.sessionId, shipmentSession.id))
+    .where(
+      and(
+        submittedInWindow(days),
+        eq(scan.carrier, "epg"),
+        sql`${shipmentSession.masterUpsStatusLabel} ~* 'delivered'`,
+        sql`${scan.statusLabel} ~* 'delivered'`,
+        isNotNull(shipmentSession.masterUpsStatusAt),
+        isNotNull(scan.statusAt),
+      ),
+    );
+
+  const days_: number[] = [];
+  for (const r of rows) {
+    const hubDeliveredAt = parseCarrierTimestamp(r.masterUpsStatusAt!);
+    const finalDeliveredAt = parseCarrierTimestamp(r.statusAt!);
+    const diffDays = (finalDeliveredAt.getTime() - hubDeliveredAt.getTime()) / (24 * 60 * 60 * 1000);
+    // Guards against the two sources disagreeing about order (a data
+    // problem, not a real "delivered before it arrived" event) rather than
+    // letting a negative duration drag the average down.
+    if (diffDays >= 0) days_.push(diffDays);
+  }
+
+  return {
+    avgDays: days_.length > 0 ? days_.reduce((a, b) => a + b, 0) / days_.length : null,
+    sampleSize: days_.length,
   };
 }
 
@@ -206,18 +255,47 @@ export async function getOrderMatchRate(days: number): Promise<OrderMatchStat[]>
 
 export type StatusBreakdownPoint = { label: string; count: number };
 
-/** Top current carrier-status labels across submitted shipments in the window — a live read of "where is everything" (delivered vs in-transit vs exception) without opening every shipment. */
+/**
+ * Top current carrier-status labels across submitted shipments in the
+ * window — a live read of "where is everything" (delivered vs in-transit
+ * vs exception) without opening every shipment.
+ *
+ * Grouped in JS on a case/whitespace-normalized key, not the raw SQL group
+ * — the same real-world status comes back worded slightly differently per
+ * carrier ("Delivered" from EPG vs UPS's "DELIVERED " with a trailing
+ * space), which fragmented what should be one bar into several. Only
+ * collapses exact matches once normalized, not different-but-related
+ * wording (e.g. "Arrived at Facility" stays separate from "Departed from
+ * Facility") — that would need a real per-carrier status taxonomy, which
+ * is a bigger, more error-prone undertaking than fixing formatting noise.
+ */
 export async function getStatusBreakdown(days: number): Promise<StatusBreakdownPoint[]> {
   const rows = await db
     .select({ label: scan.statusLabel, count: sql<number>`count(*)` })
     .from(scan)
     .innerJoin(shipmentSession, eq(scan.sessionId, shipmentSession.id))
     .where(and(submittedInWindow(days), isNotNull(scan.statusLabel)))
-    .groupBy(scan.statusLabel)
-    .orderBy(desc(sql`count(*)`))
-    .limit(10);
+    .groupBy(scan.statusLabel);
 
-  return rows.map((r) => ({ label: r.label ?? "Unknown", count: Number(r.count) }));
+  const byKey = new Map<string, { label: string; count: number }>();
+  for (const r of rows) {
+    const raw = (r.label ?? "Unknown").trim();
+    const key = raw.toLowerCase();
+    const count = Number(r.count);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, { label: raw, count });
+      continue;
+    }
+    existing.count += count;
+    // Prefer a display label that isn't SHOUTING when variants disagree on
+    // case — cosmetic only, doesn't affect which bucket anything counts in.
+    if (raw !== raw.toUpperCase() && existing.label === existing.label.toUpperCase()) {
+      existing.label = raw;
+    }
+  }
+
+  return [...byKey.values()].sort((a, b) => b.count - a.count).slice(0, 10);
 }
 
 export type DhlPickupStats = {

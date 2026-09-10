@@ -12,6 +12,7 @@ import {
   getOperationalHealth,
   getWeekdayVolume,
   getPeriodComparison,
+  getEpgFinalMileTime,
 } from "@/lib/analytics";
 import { carrierLabel, type Carrier } from "@/lib/carrier";
 import { getProblemSummary } from "@/lib/shipment-alerts";
@@ -72,7 +73,7 @@ export default async function AnalyticsPage({
   const { days: daysParam } = await searchParams;
   const days = (RANGE_OPTIONS as readonly number[]).includes(Number(daysParam)) ? Number(daysParam) : 30;
 
-  const [dailyVolume, overview, carrierMix, packers, hourly, orderMatch, statusBreakdown, dhlStats, health, weekday, comparison, problems] =
+  const [dailyVolume, overview, carrierMix, packers, hourly, orderMatch, statusBreakdown, dhlStats, health, weekday, comparison, problems, epgFinalMile] =
     await Promise.all([
       getDailyVolume(days),
       getOverviewStats(days),
@@ -86,6 +87,7 @@ export default async function AnalyticsPage({
       getWeekdayVolume(days),
       getPeriodComparison(days),
       getProblemSummary(),
+      getEpgFinalMileTime(days),
     ]);
   const problemTotal = problems.exceptionCount + problems.staleCount;
 
@@ -155,6 +157,11 @@ export default async function AnalyticsPage({
           value={String(health.reopenedShipments)}
           sub="needed correction"
           accent={health.reopenedShipments > 0 ? "!text-amber-ink" : undefined}
+        />
+        <StatTile
+          label="EPG final-mile"
+          value={epgFinalMile.avgDays !== null ? `${epgFinalMile.avgDays.toFixed(1)}d` : "—"}
+          sub={epgFinalMile.sampleSize > 0 ? `hub → door · ${epgFinalMile.sampleSize} parcels` : "no delivered parcels yet"}
         />
       </div>
 
