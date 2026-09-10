@@ -3,7 +3,7 @@ import { db } from "./db";
 import { scan, shipmentSession } from "./db/schema";
 import { and, eq, gt, inArray, isNull, ne } from "drizzle-orm";
 import { toSqlTimestamp, parseCarrierTimestamp } from "./date";
-import { carrierLabel, trackingUrl, type Carrier } from "./carrier";
+import { carrierLabel, trackingUrl, EXCEPTION_STATUS_RE, type Carrier } from "./carrier";
 import { sendAlertEmail } from "./email";
 
 const LOOKBACK_DAYS = 90;
@@ -23,18 +23,9 @@ function isTerminal(statusLabel: string | null): boolean {
   return /delivered|returned to sender|return to shipper/i.test(statusLabel);
 }
 
-// Broader than lib/carrier.ts's statusTone regex on purpose: this gates an
-// email, so it's tuned toward catching real customs/payment problems (the
-// motivating case: "duties are due") even at some risk of a false positive,
-// rather than toward clean display styling. Untested against live carrier
-// text for every case — like lib/ups.ts, expect to tune this once real
-// exception strings are seen in production.
-const EXCEPTION_RE =
-  /exception|duty|duties|customs|clearance|payment.*(due|required)|action required|delivery attempt|refused|undeliverable|held at/i;
-
 function isException(statusLabel: string | null): boolean {
   if (!statusLabel) return false;
-  return EXCEPTION_RE.test(statusLabel);
+  return EXCEPTION_STATUS_RE.test(statusLabel);
 }
 
 export type ProblemScan = {
