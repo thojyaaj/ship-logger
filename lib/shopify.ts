@@ -21,8 +21,6 @@
  * documented in the PRD's carrier-API research.
  */
 
-import { getOfflineAccessToken } from "./shopify-oauth";
-
 const API_VERSION = "2026-10";
 
 // Matches the EPG and UPS clients, which both already set one. Without a
@@ -381,6 +379,13 @@ export async function createOrder(input: NewOrderInput): Promise<CreatedOrder> {
   // shopifyGraphql uses everywhere else in this file ("This mutation is
   // only accessible to apps authenticated using offline access tokens") —
   // see lib/shopify-oauth.ts for how that token gets minted.
+  // Lazy import: lib/shopify-oauth.ts pulls in lib/db, which throws at
+  // module load if DATABASE_URL isn't set — a static top-level import
+  // here made that a hard requirement for every caller of this file,
+  // including read-only scripts and --dry-run runs that never reach
+  // this function. Deferring the import means DATABASE_URL is only
+  // needed for an actual order create, same as before.
+  const { getOfflineAccessToken } = await import("./shopify-oauth");
   const token = await getOfflineAccessToken();
   const data = await postGraphql<{
     orderCreate: {
