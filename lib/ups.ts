@@ -86,6 +86,15 @@ type TrackResponse = {
       package?: {
         trackingNumber?: string;
         activity?: TrackActivity[]; // UPS returns newest-first
+        // UPS's consumer tracking site shows these as a separate yellow
+        // "clearance pending / missing information" banner above the plain
+        // milestone status ("In Warehouse" etc.) — a real customs/action-
+        // needed signal the milestone text alone never surfaces. NOT YET
+        // VERIFIED against a live response (same caveat as the rest of this
+        // file) — field name/shape guessed from UPS's published Track API
+        // reference; confirm once real UPS credentials are available and
+        // adjust if `alert` turns out to live somewhere else in the payload.
+        alert?: { code?: string; description?: string }[];
       }[];
     }[];
   };
@@ -98,14 +107,26 @@ function parseTrackResponse(trackingNumber: string, data: TrackResponse): UpsSta
   }
 
   const notFound = (shipment.warnings ?? []).some((w) => w.code === "TW0001");
-  const activity = shipment.package?.[0]?.activity?.[0];
+  const pkg = shipment.package?.[0];
+  const activity = pkg?.activity?.[0];
   const status = activity?.status;
   const statusAt = activity?.date && activity?.time ? `${activity.date} ${activity.time}` : null;
+
+  // An alert (customs hold, missing info, etc.) is a stronger, more
+  // actionable signal than the plain milestone status, so it's surfaced
+  // ahead of it rather than alongside — this is exactly the text
+  // lib/shipment-alerts.ts's exception detection needs to see.
+  const alertDescription = pkg?.alert?.find((a) => a.description)?.description;
+  const statusLabel = alertDescription
+    ? status?.description
+      ? `${status.description} — ${alertDescription}`
+      : alertDescription
+    : (status?.description ?? null);
 
   return {
     trackingNumber,
     statusCode: status?.code ?? status?.type ?? null,
-    statusLabel: status?.description ?? null,
+    statusLabel,
     statusAt,
     notFound,
   };
