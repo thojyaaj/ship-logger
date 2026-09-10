@@ -138,6 +138,62 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 /**
+ * Fetches and parses one batch, writing results into `results`. On a
+ * non-2xx response, halves the batch and retries each half instead of
+ * dropping it outright — epgtrack.com 500s on a combined-events payload
+ * past a certain size, well under BATCH_SIZE (measured: 20 tracking
+ * numbers with rich event histories succeeds, 21 already 500s), and that
+ * threshold depends on how much history each parcel happens to carry, not
+ * on a fixed count. Without splitting, one oversized batch silently loses
+ * every tracking number in it — including ones that would have succeeded
+ * on their own — and since the caller only advances `statusCheckedAt` on
+ * a miss, those parcels look "checked" while quietly never updating again.
+ */
+async function fetchBatch(
+  batch: string[],
+  results: Map<string, EpgRecord | null>,
+): Promise<void> {
+  try {
+    const res = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "ShipLog/1.0 (+internal warehouse tracking tool)",
+      },
+      body: new URLSearchParams({ id: batch.join(",") }),
+      // Be a good citizen (§5.6): this is unofficial, don't hammer it.
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      if (batch.length > 1) {
+        const mid = Math.ceil(batch.length / 2);
+        await fetchBatch(batch.slice(0, mid), results);
+        await fetchBatch(batch.slice(mid), results);
+      }
+      // A single tracking number failing on its own isn't a size problem —
+      // leave it unset for the caller to treat as "no data this run".
+      return;
+    }
+
+    // Reject an oversized body before parsing it. Content-Length is only a
+    // hint (it may be absent, or wrong on a chunked response), so the slice
+    // below is the actual enforcement — truncating rather than parsing
+    // megabytes. A legitimate response never comes close to this.
+    const declaredLength = Number(res.headers.get("content-length") ?? "0");
+    if (declaredLength > MAX_RESPONSE_BYTES) return;
+    const body = await res.text();
+    const html = body.length > MAX_RESPONSE_BYTES ? body.slice(0, MAX_RESPONSE_BYTES) : body;
+
+    for (const { trackingNumber, record } of parseEpgResponse(html)) {
+      results.set(trackingNumber, record);
+    }
+  } catch {
+    // Network error, timeout, or the endpoint changed shape. Skip this
+    // batch; whatever wasn't set stays "no data" for the caller to retry.
+  }
+}
+
+/**
  * Looks up a batch of EPG tracking numbers. Never throws for a partial or
  * total failure — callers get an empty map and should treat that as "status
  * unavailable right now", not as a signal anything else is wrong (§8.9).
@@ -149,36 +205,7 @@ export async function lookupEpgStatuses(
   const batches = chunk(Array.from(new Set(trackingNumbers)), BATCH_SIZE);
 
   for (const batch of batches) {
-    try {
-      const res = await fetch(ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "ShipLog/1.0 (+internal warehouse tracking tool)",
-        },
-        body: new URLSearchParams({ id: batch.join(",") }),
-        // Be a good citizen (§5.6): this is unofficial, don't hammer it.
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!res.ok) continue;
-
-      // Reject an oversized body before parsing it. Content-Length is only a
-      // hint (it may be absent, or wrong on a chunked response), so the slice
-      // below is the actual enforcement — truncating rather than parsing
-      // megabytes. A legitimate response never comes close to this.
-      const declaredLength = Number(res.headers.get("content-length") ?? "0");
-      if (declaredLength > MAX_RESPONSE_BYTES) continue;
-      const body = await res.text();
-      const html = body.length > MAX_RESPONSE_BYTES ? body.slice(0, MAX_RESPONSE_BYTES) : body;
-
-      for (const { trackingNumber, record } of parseEpgResponse(html)) {
-        results.set(trackingNumber, record);
-      }
-    } catch {
-      // Network error, timeout, or the endpoint changed shape. Skip this
-      // batch; whatever wasn't set stays "no data" for the caller to retry.
-      continue;
-    }
+    await fetchBatch(batch, results);
   }
 
   return results;
