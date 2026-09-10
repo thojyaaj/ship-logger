@@ -292,6 +292,29 @@ export async function findVariantBySku(sku: string): Promise<{ gid: string; titl
   return { gid: node.id, title: node.displayName };
 }
 
+/**
+ * Free-text product title search, for the case where a Fruugo listing's SKU
+ * doesn't match what's in Shopify (different SKU scheme, or the Fruugo SKU
+ * is a marketplace-side id) — lets a human find the right variant to key
+ * the import off instead of guessing at SKU spellings.
+ */
+export async function searchVariantsByTitle(
+  titleQuery: string,
+): Promise<{ gid: string; title: string; sku: string }[]> {
+  const quoted = `"${titleQuery.replace(/["\\]/g, (ch) => `\\${ch}`)}"`;
+  const data = await shopifyGraphql<{
+    productVariants: { edges: { node: { id: string; sku: string; displayName: string } }[] };
+  }>(
+    `query($query: String!) {
+      productVariants(first: 10, query: $query) {
+        edges { node { id sku displayName } }
+      }
+    }`,
+    { query: `title:*${quoted}*` },
+  );
+  return data.productVariants.edges.map((e) => ({ gid: e.node.id, title: e.node.displayName, sku: e.node.sku }));
+}
+
 export type NewOrderLineItem = {
   variantGid: string;
   quantity: number;
