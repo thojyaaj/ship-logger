@@ -91,26 +91,52 @@ function validate(raw: unknown): FruugoOrderFile {
 }
 
 type ResolveResult =
-  | { status: "resolved"; gid: string; title: string; sku: string }
-  | { status: "ambiguous"; candidates: { title: string; sku: string }[] }
+  | { status: "resolved"; gid: string; title: string; sku: string; matchedOn: string }
+  | { status: "ambiguous"; candidates: { title: string; sku: string }[]; matchedOn: string }
   | { status: "not_found" };
 
+/**
+ * Fruugo's product name and this store's Shopify title are almost never
+ * word-for-word identical (different unit notation, extra descriptors, a
+ * different word order) — searchVariantsByTitle ANDs every word as a
+ * trailing-wildcard clause, so requiring the FULL title to match is too
+ * strict and returns nothing even when the product obviously exists (this
+ * is what happened live: all six line items in a batch came back "no
+ * match" on their full titles).
+ *
+ * So this tries the full title first, then progressively drops trailing
+ * words (the ones most likely to be size/count/color descriptors that
+ * differ between the two listings) and retries, stopping at the first
+ * query length that returns exactly one candidate — or, among several,
+ * exactly one whose title exactly equals the *original* full title. Still
+ * refuses to guess: a query that comes back with 2+ candidates and no
+ * exact match is reported ambiguous rather than picked from, and a query
+ * that never returns anything down to a single word is not_found.
+ */
 async function resolveByTitle(title: string): Promise<ResolveResult> {
-  const candidates = await searchVariantsByTitle(title);
-  if (candidates.length === 0) return { status: "not_found" };
-  if (candidates.length === 1) {
-    const c = candidates[0];
-    return { status: "resolved", gid: c.gid, title: c.title, sku: c.sku };
+  const words = title.trim().split(/\s+/).filter(Boolean);
+  const normalizedFull = title.trim().toLowerCase();
+
+  for (let n = words.length; n >= 1; n--) {
+    const query = words.slice(0, n).join(" ");
+    const candidates = await searchVariantsByTitle(query);
+    if (candidates.length === 0) continue;
+
+    if (candidates.length === 1) {
+      const c = candidates[0];
+      return { status: "resolved", gid: c.gid, title: c.title, sku: c.sku, matchedOn: query };
+    }
+
+    const exactMatches = candidates.filter((c) => c.title.trim().toLowerCase() === normalizedFull);
+    if (exactMatches.length === 1) {
+      const c = exactMatches[0];
+      return { status: "resolved", gid: c.gid, title: c.title, sku: c.sku, matchedOn: query };
+    }
+
+    return { status: "ambiguous", candidates, matchedOn: query };
   }
 
-  const normalized = title.trim().toLowerCase();
-  const exactMatches = candidates.filter((c) => c.title.trim().toLowerCase() === normalized);
-  if (exactMatches.length === 1) {
-    const c = exactMatches[0];
-    return { status: "resolved", gid: c.gid, title: c.title, sku: c.sku };
-  }
-
-  return { status: "ambiguous", candidates };
+  return { status: "not_found" };
 }
 
 async function main() {
@@ -124,14 +150,15 @@ async function main() {
   for (const li of order.lineItems) {
     const result = await resolveByTitle(li.title);
     if (result.status === "resolved") {
-      console.log(`  "${li.title}" -> ${result.title} (${result.sku}) x${li.quantity} @ ${li.price}`);
+      const viaNote = result.matchedOn.toLowerCase() !== li.title.trim().toLowerCase() ? ` [matched via "${result.matchedOn}"]` : "";
+      console.log(`  "${li.title}" -> ${result.title} (${result.sku}) x${li.quantity} @ ${li.price}${viaNote}`);
       resolvedLineItems.push({ variantGid: result.gid, quantity: li.quantity, priceAmount: li.price });
     } else if (result.status === "not_found") {
       hadFailure = true;
       console.error(`  "${li.title}" -> NO MATCH in Shopify catalog`);
     } else {
       hadFailure = true;
-      console.error(`  "${li.title}" -> AMBIGUOUS, ${result.candidates.length} candidates:`);
+      console.error(`  "${li.title}" -> AMBIGUOUS on search "${result.matchedOn}", ${result.candidates.length} candidates:`);
       for (const c of result.candidates) {
         console.error(`      ${c.sku || "(no sku)"} — ${c.title}`);
       }
