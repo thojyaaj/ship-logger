@@ -1,0 +1,19 @@
+{
+  "fruugoOrderNumber": "FRG-1234567",
+  "customerEmail": "customer@example.com",
+  "currency": "USD",
+  "shippingAddress": {
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "address1": "123 Main St",
+    "address2": "Apt 4B",
+    "city": "Springfield",
+    "province": "IL",
+    "zip": "62704",
+    "countryCode": "US",
+    "phone": "+13125551234"
+  },
+  "lineItems": [
+    { "sku": "OTC-EXAMPLE-001", "quantity": 2, "price": "19.99" }
+  ]
+}
