@@ -51,6 +51,7 @@ See [`.env.example`](.env.example).
 - `CRON_SECRET` — optional, protects `/api/cron/epg-status` from being triggered by anyone who finds the URL. Vercel Cron sends this automatically when set (see `vercel.json`).
 - `SHOPIFY_STORE`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` — the custom app credential used for order lookups. The app needs `read_orders`, `read_all_orders`, `read_fulfillments`, and `read_customers` scopes approved on the store, plus protected customer data access configured in the Dev Dashboard (see PRD §9, Step 0) — without these, `orders`/`order` queries (or just the `customer` field on them) fail with `ACCESS_DENIED`.
 - `SHOPIFY_APP_URL` — this app's own deployed URL, no trailing slash (e.g. `https://ship-logger.vercel.app`). Only needed to actually create Fruugo orders (not for order lookups) — see below.
+- `SHOPIFY_OFFLINE_ACCESS_TOKEN` — optional. Lets `import-fruugo-order.ts` create orders from a machine with no production database access, by supplying the offline token directly instead of reading it from the `shopify_offline_token` table. Get the value from that table yourself (e.g. Supabase's SQL editor) — don't reset `DATABASE_URL`'s credentials to work around a lost/hidden value; that breaks the live app until every consumer of it is updated to match.
 
 ## Creating orders via the API (one-time setup)
 
