@@ -266,6 +266,111 @@ export async function getOrderDetail(orderGid: string): Promise<OrderDetail | nu
   };
 }
 
+/**
+ * Resolves a product variant by SKU so an imported order's line items point
+ * at real inventory instead of a bare title/price — otherwise the warehouse
+ * has nothing to pull off the shelf and stock never decrements. Requires the
+ * `read_products` scope in addition to the order scopes this file already
+ * needs; not yet requested as of the read-only §9 approval, so this (and
+ * everything below it) needs its own scope round trip — see the Fruugo
+ * import script's usage notes.
+ */
+export async function findVariantBySku(sku: string): Promise<{ gid: string; title: string } | null> {
+  const quoted = `"${sku.replace(/["\\]/g, (ch) => `\\${ch}`)}"`;
+  const data = await shopifyGraphql<{
+    productVariants: { edges: { node: { id: string; sku: string; displayName: string } }[] };
+  }>(
+    `query($query: String!) {
+      productVariants(first: 1, query: $query) {
+        edges { node { id sku displayName } }
+      }
+    }`,
+    { query: `sku:${quoted}` },
+  );
+  const node = data.productVariants.edges[0]?.node;
+  if (!node || node.sku !== sku) return null;
+  return { gid: node.id, title: node.displayName };
+}
+
+export type NewOrderLineItem = {
+  variantGid: string;
+  quantity: number;
+  priceAmount: string;
+};
+
+export type NewOrderInput = {
+  email?: string;
+  note: string;
+  tags: string[];
+  currency: string;
+  lineItems: NewOrderLineItem[];
+  shippingAddress: {
+    firstName?: string;
+    lastName?: string;
+    address1: string;
+    address2?: string;
+    city: string;
+    province?: string;
+    zip: string;
+    countryCode: string;
+    phone?: string;
+  };
+};
+
+export type CreatedOrder = { gid: string; name: string; adminUrl: string };
+
+/**
+ * Creates a real Shopify order (marketplace-channel style import, not a
+ * checkout) via `orderCreate`. Left unfulfilled and marked PAID — a Fruugo
+ * order is already paid on Fruugo's side, and leaving fulfillment status
+ * alone is what makes the new order show up for packers to scan and ship
+ * normally through the rest of this app.
+ *
+ * Requires `write_orders` in addition to this file's existing read scopes.
+ */
+export async function createOrder(input: NewOrderInput): Promise<CreatedOrder> {
+  const data = await shopifyGraphql<{
+    orderCreate: {
+      order: { id: string; name: string } | null;
+      userErrors: { field: string[]; message: string }[];
+    };
+  }>(
+    `mutation($order: OrderCreateOrderInput!, $options: OrderCreateOptionsInput) {
+      orderCreate(order: $order, options: $options) {
+        order { id name }
+        userErrors { field message }
+      }
+    }`,
+    {
+      order: {
+        email: input.email,
+        note: input.note,
+        tags: input.tags,
+        currency: input.currency,
+        financialStatus: "PAID",
+        lineItems: input.lineItems.map((li) => ({
+          variantId: li.variantGid,
+          quantity: li.quantity,
+          priceSet: {
+            shopMoney: { amount: li.priceAmount, currencyCode: input.currency },
+          },
+        })),
+        shippingAddress: input.shippingAddress,
+      },
+      options: { inventoryBehaviour: "DECREMENT_OBEYING_POLICY" },
+    },
+  );
+
+  const { order, userErrors } = data.orderCreate;
+  if (userErrors.length > 0) {
+    throw new Error(`orderCreate rejected: ${userErrors.map((e) => `${e.field?.join(".")}: ${e.message}`).join("; ")}`);
+  }
+  if (!order) throw new Error("orderCreate returned no order and no userErrors.");
+
+  const numericId = order.id.split("/").pop();
+  return { gid: order.id, name: order.name, adminUrl: `https://${store()}/admin/orders/${numericId}` };
+}
+
 export type OrderSummary = {
   gid: string;
   name: string;
