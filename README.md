@@ -38,6 +38,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run shopify:register-webhook` | Register the fulfillment webhooks against a callback URL (`CALLBACK_URL=... npm run shopify:register-webhook`) — run once per deployment domain |
 | `npm run shopify:backfill-orders` | One-time backfill of the order index from existing Shopify order history (`--days N`, default 180) |
 | `npx tsx scripts/import-fruugo-order.ts <file.json> [--dry-run]` | Creates a Shopify order from a Fruugo order transcribed into JSON (Fruugo has no order API). Always run with `--dry-run` first. See `scripts/fruugo-order.example.json` for the file shape. Needs `read_products` + `write_orders` scopes in addition to this app's existing read scopes. |
+| `npx tsx scripts/import-fruugo-order.ts <file.json>` (no `--dry-run`) | Actually creates the order. Requires a one-time OAuth install first — see below. |
 | `npx tsx scripts/search-product.ts "search terms"` | Finds a variant's real SKU by product title — for when a Fruugo order's SKU doesn't match what's in Shopify. |
 | `npm run lint` | ESLint |
 
@@ -49,6 +50,18 @@ See [`.env.example`](.env.example).
 - `SESSION_SECRET` — signs the session cookie. Falls back to an insecure dev-only value if unset; **never deploy without setting it**.
 - `CRON_SECRET` — optional, protects `/api/cron/epg-status` from being triggered by anyone who finds the URL. Vercel Cron sends this automatically when set (see `vercel.json`).
 - `SHOPIFY_STORE`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` — the custom app credential used for order lookups. The app needs `read_orders`, `read_all_orders`, `read_fulfillments`, and `read_customers` scopes approved on the store, plus protected customer data access configured in the Dev Dashboard (see PRD §9, Step 0) — without these, `orders`/`order` queries (or just the `customer` field on them) fail with `ACCESS_DENIED`.
+- `SHOPIFY_APP_URL` — this app's own deployed URL, no trailing slash (e.g. `https://ship-logger.vercel.app`). Only needed to actually create Fruugo orders (not for order lookups) — see below.
+
+## Creating orders via the API (one-time setup)
+
+`import-fruugo-order.ts`'s `createOrder` calls Shopify's `orderCreate` mutation, which Shopify restricts to apps authenticated with a genuine **offline** access token — the client-credentials token above (short-lived, re-minted automatically) is rejected outright regardless of scopes, with `Access denied for orderCreate field... This mutation is only accessible to apps authenticated using offline access tokens`.
+
+To mint one:
+
+1. Add `https://<your-app-url>/api/auth/callback` to this app's allowed redirect URLs in the Shopify Partner/Dev Dashboard (same place the existing scopes got approved — see PRD §9, Step 0).
+2. Set `SHOPIFY_APP_URL` in the deployment's environment.
+3. Log into Ship Logger as an admin, then visit `/api/auth/install` in the same browser (also logged into Shopify Admin for the store). It redirects to Shopify's OAuth consent screen; approving it stores an offline token in the `shopify_offline_token` table.
+4. Order creation now works. The token doesn't expire, so this is a one-time step per deployment — only redo it if the app is ever uninstalled from the store.
 
 ## Notes for future work
 
