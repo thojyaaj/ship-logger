@@ -301,7 +301,16 @@ export async function findVariantBySku(sku: string): Promise<{ gid: string; titl
 export async function searchVariantsByTitle(
   titleQuery: string,
 ): Promise<{ gid: string; title: string; sku: string }[]> {
-  const quoted = `"${titleQuery.replace(/["\\]/g, (ch) => `\\${ch}`)}"`;
+  // Shopify's search syntax only supports a *trailing* wildcard (`word*`),
+  // not `*word*` — a leading wildcard silently matches nothing rather than
+  // erroring, which reads exactly like "this product isn't in Shopify" even
+  // when it is. ANDing a trailing-wildcard clause per word (stripped of
+  // characters that have meaning in the search DSL) is the closest
+  // approximation of an unordered substring search this syntax allows.
+  const clauses = titleQuery
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => `title:${word.replace(/["\\:*]/g, "")}*`);
   const data = await shopifyGraphql<{
     productVariants: { edges: { node: { id: string; sku: string; displayName: string } }[] };
   }>(
@@ -310,7 +319,7 @@ export async function searchVariantsByTitle(
         edges { node { id sku displayName } }
       }
     }`,
-    { query: `title:*${quoted}*` },
+    { query: clauses.join(" ") },
   );
   return data.productVariants.edges.map((e) => ({ gid: e.node.id, title: e.node.displayName, sku: e.node.sku }));
 }
