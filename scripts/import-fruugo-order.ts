@@ -113,6 +113,19 @@ type ResolveResult =
  * exact match is reported ambiguous rather than picked from, and a query
  * that never returns anything down to a single word is not_found.
  */
+// Shopify's displayName is "<product title> - <variant title>", and almost
+// every variant in this catalog is the lone "Default Title" one — so a
+// candidate's displayName almost never equals a transcribed Fruugo title
+// verbatim even for a perfect match. Stripping that specific suffix before
+// comparing is what makes the exact-match fallback below actually fire
+// instead of silently never matching (caught live: "Crystal Light...
+// Lemonade" vs "...Raspberry Lemonade" stayed "ambiguous" even when the
+// order file's title was copied character-for-character from the correct
+// candidate's own displayName).
+function stripDefaultTitleSuffix(displayName: string): string {
+  return displayName.replace(/\s*-\s*default title\s*$/i, "").trim();
+}
+
 async function resolveByTitle(title: string): Promise<ResolveResult> {
   const words = title.trim().split(/\s+/).filter(Boolean);
   const normalizedFull = title.trim().toLowerCase();
@@ -127,7 +140,9 @@ async function resolveByTitle(title: string): Promise<ResolveResult> {
       return { status: "resolved", gid: c.gid, title: c.title, sku: c.sku, matchedOn: query };
     }
 
-    const exactMatches = candidates.filter((c) => c.title.trim().toLowerCase() === normalizedFull);
+    const exactMatches = candidates.filter(
+      (c) => stripDefaultTitleSuffix(c.title).toLowerCase() === normalizedFull,
+    );
     if (exactMatches.length === 1) {
       const c = exactMatches[0];
       return { status: "resolved", gid: c.gid, title: c.title, sku: c.sku, matchedOn: query };
