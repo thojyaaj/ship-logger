@@ -9,20 +9,28 @@
  * Usage:
  *   npx tsx scripts/import-fruugo-order.ts path/to/order.json [--dry-run]
  *
- * --dry-run resolves every SKU to a variant and prints what WOULD be
+ * --dry-run resolves every line item to a variant and prints what WOULD be
  * created, without calling orderCreate. Always run with --dry-run first.
+ *
+ * Line items are matched by PRODUCT TITLE, not SKU — Fruugo's SKUs don't
+ * correspond to anything in this store's catalog (see the "sku" field's own
+ * comment), so a SKU-based lookup would just fail on every single order.
+ * Title search only auto-resolves when it's unambiguous: exactly one
+ * catalog match, or exactly one *exact* title match among several loose
+ * ones. Anything else stops and lists the candidates rather than guessing —
+ * a wrong guess here is a real order for the wrong product.
  *
  * See scripts/fruugo-order.example.json for the expected shape.
  *
  * Requires SHOPIFY_STORE / SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET with
- * read_products + write_orders scopes approved (read_orders/read_all_orders/
- * read_fulfillments alone, as configured for the rest of this app, are not
- * enough — see lib/shopify.ts).
+ * read_products + write_orders scopes approved, PLUS a one-time OAuth
+ * install for order creation specifically — see README's "Creating orders
+ * via the API" section.
  */
 process.loadEnvFile?.(".env.local");
 
 import { readFileSync } from "node:fs";
-import { createOrder, findVariantBySku } from "../lib/shopify";
+import { createOrder, searchVariantsByTitle } from "../lib/shopify";
 
 type FruugoOrderFile = {
   fruugoOrderNumber: string;
@@ -39,7 +47,15 @@ type FruugoOrderFile = {
     countryCode: string;
     phone?: string;
   };
-  lineItems: { sku: string; quantity: number; price: string }[];
+  lineItems: {
+    title: string;
+    quantity: number;
+    price: string;
+    // Fruugo's own SKU, if shown on the order — recorded in the order note
+    // for reconciliation only, never used to look up the Shopify variant
+    // (Fruugo's SKUs have been changed and no longer match this catalog).
+    fruugoSku?: string;
+  }[];
   shipping?: { title?: string; price: string };
 };
 
@@ -63,7 +79,7 @@ function validate(raw: unknown): FruugoOrderFile {
   if (!o.shippingAddress?.countryCode) errors.push("shippingAddress.countryCode is required");
   if (!o.lineItems?.length) errors.push("lineItems must have at least one item");
   o.lineItems?.forEach((li, i) => {
-    if (!li.sku) errors.push(`lineItems[${i}].sku is required`);
+    if (!li.title) errors.push(`lineItems[${i}].title is required`);
     if (!li.quantity || li.quantity < 1) errors.push(`lineItems[${i}].quantity must be >= 1`);
     if (!li.price) errors.push(`lineItems[${i}].price is required`);
   });
@@ -74,27 +90,56 @@ function validate(raw: unknown): FruugoOrderFile {
   return o as FruugoOrderFile;
 }
 
+type ResolveResult =
+  | { status: "resolved"; gid: string; title: string; sku: string }
+  | { status: "ambiguous"; candidates: { title: string; sku: string }[] }
+  | { status: "not_found" };
+
+async function resolveByTitle(title: string): Promise<ResolveResult> {
+  const candidates = await searchVariantsByTitle(title);
+  if (candidates.length === 0) return { status: "not_found" };
+  if (candidates.length === 1) {
+    const c = candidates[0];
+    return { status: "resolved", gid: c.gid, title: c.title, sku: c.sku };
+  }
+
+  const normalized = title.trim().toLowerCase();
+  const exactMatches = candidates.filter((c) => c.title.trim().toLowerCase() === normalized);
+  if (exactMatches.length === 1) {
+    const c = exactMatches[0];
+    return { status: "resolved", gid: c.gid, title: c.title, sku: c.sku };
+  }
+
+  return { status: "ambiguous", candidates };
+}
+
 async function main() {
   const raw = JSON.parse(readFileSync(filePath, "utf-8"));
   const order = validate(raw);
 
-  console.log(`Fruugo order ${order.fruugoOrderNumber} — resolving ${order.lineItems.length} line item(s)...`);
+  console.log(`Fruugo order ${order.fruugoOrderNumber} — resolving ${order.lineItems.length} line item(s) by title...`);
 
   const resolvedLineItems = [];
-  const unresolvedSkus: string[] = [];
+  let hadFailure = false;
   for (const li of order.lineItems) {
-    const variant = await findVariantBySku(li.sku);
-    if (!variant) {
-      unresolvedSkus.push(li.sku);
-      continue;
+    const result = await resolveByTitle(li.title);
+    if (result.status === "resolved") {
+      console.log(`  "${li.title}" -> ${result.title} (${result.sku}) x${li.quantity} @ ${li.price}`);
+      resolvedLineItems.push({ variantGid: result.gid, quantity: li.quantity, priceAmount: li.price });
+    } else if (result.status === "not_found") {
+      hadFailure = true;
+      console.error(`  "${li.title}" -> NO MATCH in Shopify catalog`);
+    } else {
+      hadFailure = true;
+      console.error(`  "${li.title}" -> AMBIGUOUS, ${result.candidates.length} candidates:`);
+      for (const c of result.candidates) {
+        console.error(`      ${c.sku || "(no sku)"} — ${c.title}`);
+      }
     }
-    console.log(`  ${li.sku} -> ${variant.title} x${li.quantity} @ ${li.price}`);
-    resolvedLineItems.push({ variantGid: variant.gid, quantity: li.quantity, priceAmount: li.price });
   }
 
-  if (unresolvedSkus.length > 0) {
-    console.error(`\nNo Shopify variant found for SKU(s): ${unresolvedSkus.join(", ")}`);
-    console.error("Fix the SKU in the order file (or create/publish the variant in Shopify) and re-run.");
+  if (hadFailure) {
+    console.error("\nFix lineItems[].title in the order file to match the catalog exactly and re-run.");
     process.exit(1);
   }
 
@@ -107,9 +152,14 @@ async function main() {
     process.exit(0);
   }
 
+  const fruugoSkuNote = order.lineItems
+    .filter((li) => li.fruugoSku)
+    .map((li) => `${li.title}: ${li.fruugoSku}`)
+    .join("; ");
+
   const created = await createOrder({
     email: order.customerEmail,
-    note: `Imported from Fruugo order ${order.fruugoOrderNumber}`,
+    note: `Imported from Fruugo order ${order.fruugoOrderNumber}` + (fruugoSkuNote ? ` (Fruugo SKUs — ${fruugoSkuNote})` : ""),
     tags: ["fruugo", "imported"],
     currency: order.currency,
     lineItems: resolvedLineItems,
