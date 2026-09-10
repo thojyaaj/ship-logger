@@ -27,6 +27,19 @@ export async function GET(req: Request) {
   const expectedState = cookieStore.get(STATE_COOKIE)?.value;
   cookieStore.delete(STATE_COOKIE);
   if (!expectedState || expectedState !== state) {
+    // Diagnostic only — never logs the actual state value, just whether the
+    // round-trip cookie survived at all. The two failure shapes point at
+    // very different causes: "MISSING" means the browser never sent the
+    // cookie back (third-party cookie blocking, a domain mismatch between
+    // /install and /callback, or the install link opened in a different
+    // browser/profile than the one that completed Shopify's consent
+    // screen); "present but mismatched" means two installs raced (e.g. the
+    // link opened twice) and a later one's cookie overwrote an earlier
+    // one's in-flight state.
+    console.warn(
+      `[auth/callback] state check failed — cookie ${expectedState ? "present but mismatched" : "MISSING"}, ` +
+        `request had ${cookieStore.getAll().length} cookie(s) total.`,
+    );
     return new NextResponse(
       "Invalid or expired install session — restart from /api/auth/install.",
       { status: 401 },
