@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { trackingUrl } from "@/lib/carrier";
+import { trackingUrl, statusTone } from "@/lib/carrier";
 import { formatDbTimestamp } from "@/lib/date";
 import OrderPanel from "../../OrderPanel";
 
@@ -73,11 +73,16 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                     <span className="text-ink-faint">—</span>
                   )}
                 </td>
-                <td
-                  className="hidden md:table-cell px-3 py-2 text-ink-faint data truncate"
-                  title={r.statusLabel ?? undefined}
-                >
-                  {r.statusLabel ?? "—"}
+                <td className="hidden md:table-cell px-3 py-2 truncate" title={r.statusLabel ?? undefined}>
+                  {r.statusLabel ? (
+                    <span
+                      className={`tag-label !text-[0.65rem] px-1.5 py-0.5 inline-block max-w-full truncate ${statusTone(r.statusLabel)}`}
+                    >
+                      {r.statusLabel}
+                    </span>
+                  ) : (
+                    <span className="text-ink-faint">—</span>
+                  )}
                 </td>
                 <td className="hidden md:table-cell md:sticky md:right-0 md:z-[1] text-center px-3 py-2 text-ink-faint data truncate bg-paper-panel border-l border-line">
                   {formatDbTimestamp(r.scannedAt)}
