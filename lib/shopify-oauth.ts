@@ -7,9 +7,13 @@
 // granted. This file exists only to get that one token; every other Admin
 // API call in this app still goes through lib/shopify.ts as before.
 import crypto from "node:crypto";
-import { db } from "./db";
-import { shopifyOfflineToken } from "./db/schema";
-import { eq } from "drizzle-orm";
+// db/schema are imported lazily (inside the two functions that need them)
+// rather than at module scope: lib/db/index.ts throws at import time if
+// DATABASE_URL isn't set, and getOfflineAccessToken has an env-var
+// fallback (SHOPIFY_OFFLINE_ACCESS_TOKEN) specifically so a machine that
+// only has Shopify credentials configured — no database access at all —
+// can still run the Fruugo order-import script. A static top-level import
+// here would defeat that fallback by requiring DATABASE_URL regardless.
 
 // Mirrors the scopes already approved for this app's client-credentials
 // token (see README's Environment variables section) so the offline token
@@ -91,6 +95,8 @@ export async function exchangeCodeForOfflineToken(code: string): Promise<{ acces
 }
 
 export async function storeOfflineToken(accessToken: string, scope: string): Promise<void> {
+  const { db } = await import("./db");
+  const { shopifyOfflineToken } = await import("./db/schema");
   await db
     .insert(shopifyOfflineToken)
     .values({ shop: store(), accessToken, scope })
@@ -104,8 +110,23 @@ export async function storeOfflineToken(accessToken: string, scope: string): Pro
  * Read by lib/shopify.ts's createOrder. Throws with the install URL rather
  * than a bare "not found" — the failure mode here is always "nobody has
  * completed the one-time install yet," and the fix is always the same link.
+ *
+ * SHOPIFY_OFFLINE_ACCESS_TOKEN, if set, short-circuits the database lookup
+ * entirely — for running the Fruugo import script from a machine that has
+ * Shopify credentials but not (and shouldn't need) production database
+ * access. Get the value from the `shopify_offline_token` table directly
+ * (e.g. via the Supabase SQL editor, logged in as yourself) rather than
+ * the app's shared DATABASE_URL — resetting that connection's credentials
+ * to work around a lost/hidden value would take down the live production
+ * app until every consumer of it is updated in lockstep.
  */
 export async function getOfflineAccessToken(): Promise<string> {
+  const envToken = process.env.SHOPIFY_OFFLINE_ACCESS_TOKEN;
+  if (envToken) return envToken;
+
+  const { db } = await import("./db");
+  const { shopifyOfflineToken } = await import("./db/schema");
+  const { eq } = await import("drizzle-orm");
   const rows = await db
     .select()
     .from(shopifyOfflineToken)
@@ -115,7 +136,8 @@ export async function getOfflineAccessToken(): Promise<string> {
   if (!row) {
     throw new Error(
       `No Shopify offline access token on file for ${store()}. ` +
-        `Visit ${appUrl()}/api/auth/install as an admin to install the app and mint one.`,
+        `Visit ${appUrl()}/api/auth/install as an admin to install the app and mint one, ` +
+        `or set SHOPIFY_OFFLINE_ACCESS_TOKEN directly.`,
     );
   }
   return row.accessToken;
