@@ -10,9 +10,14 @@ import ShipmentsHeaderMobileActions from "./ShipmentsHeaderMobileActions";
 import ShipmentDetailHeaderMobileActions from "./ShipmentDetailHeaderMobileActions";
 import { ScanHeaderStateProvider } from "./ScanHeaderState";
 import { PadlockIcon } from "./icons";
+import { getProblemSummary } from "@/lib/shipment-alerts";
 
 export default async function AuthedLayout({ children }: { children: React.ReactNode }) {
   const user = await pageRequireUser();
+  // Admin-only, and cheap (counts only — see getProblemSummary) since this
+  // runs on every authed page load, not just the pages that show detail.
+  const problems = user.isAdmin ? await getProblemSummary() : null;
+  const problemTotal = problems ? problems.exceptionCount + problems.staleCount : 0;
 
   return (
     <ScanHeaderStateProvider>
@@ -69,6 +74,14 @@ export default async function AuthedLayout({ children }: { children: React.React
             </div>
             <div className="barcode h-1" />
           </header>
+          {problemTotal > 0 && (
+            <Link
+              href="/admin/exceptions"
+              className="flex items-center justify-center gap-2 px-4 py-1.5 bg-red-dim text-red-ink text-xs font-condensed font-semibold uppercase tracking-widest hover:bg-red-dim/80"
+            >
+              {problemTotal} shipment{problemTotal === 1 ? "" : "s"} need attention — view exceptions
+            </Link>
+          )}
           <main className="flex-1 flex flex-col">{children}</main>
         </div>
       </CommandPaletteStateProvider>

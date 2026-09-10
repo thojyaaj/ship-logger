@@ -44,12 +44,29 @@ export function formatWarehouseTimestamp(value: string): string {
 }
 
 /**
- * Formats a carrier-supplied tracking timestamp for display. UPS returns its
- * status time as an unzoned `YYYYMMDD HHMMSS` wall-clock value. It must not
- * be converted between timezones, or the carrier's event time would shift.
+ * Parses a carrier-supplied tracking timestamp into a real Date. UPS returns
+ * its status time as an unzoned `YYYYMMDD HHMMSS` wall-clock value, treated
+ * as UTC here (matching formatCarrierTimestamp below) purely so elapsed-time
+ * math has a fixed, consistent offset — it is not a claim about what
+ * timezone the event actually happened in.
+ */
+export function parseCarrierTimestamp(value: string): Date {
+  const upsMatch = /^(\d{4})(\d{2})(\d{2})\s?(\d{2})(\d{2})(\d{2})$/.exec(value.trim());
+  if (upsMatch) {
+    const [, year, month, day, hour, minute, second] = upsMatch;
+    return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)));
+  }
+  return parseDbTimestamp(value);
+}
+
+/**
+ * Formats a carrier-supplied tracking timestamp for display. UPS's value
+ * must not be converted between timezones, or the carrier's event time
+ * would shift — displayed in UTC rather than the warehouse's own zone for
+ * that reason, same as parseCarrierTimestamp's interpretation of it.
  */
 export function formatCarrierTimestamp(value: string): string {
-  const upsMatch = /^(\d{4})(\d{2})(\d{2})\s?(\d{2})(\d{2})(\d{2})$/.exec(value.trim());
+  const upsMatch = /^(\d{4})(\d{2})(\d{2})\s?(\d{2})(\d{2})(\d{2})$/.test(value.trim());
   const options: Intl.DateTimeFormatOptions = {
     year: "numeric",
     month: "short",
@@ -58,15 +75,8 @@ export function formatCarrierTimestamp(value: string): string {
     minute: "2-digit",
   };
 
-  if (upsMatch) {
-    const [, year, month, day, hour, minute, second] = upsMatch;
-    return new Intl.DateTimeFormat("en-US", { ...options, timeZone: "UTC" }).format(
-      new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second))),
-    );
-  }
-
-  return new Intl.DateTimeFormat("en-US", { ...options, timeZone: WAREHOUSE_TZ }).format(
-    parseDbTimestamp(value),
+  return new Intl.DateTimeFormat("en-US", { ...options, timeZone: upsMatch ? "UTC" : WAREHOUSE_TZ }).format(
+    parseCarrierTimestamp(value),
   );
 }
 
