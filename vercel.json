@@ -25,6 +25,10 @@
     {
       "path": "/api/cron/purge-trash",
       "schedule": "30 9 * * *"
+    },
+    {
+      "path": "/api/cron/shipment-alerts",
+      "schedule": "40 9 * * *"
     }
   ]
 }

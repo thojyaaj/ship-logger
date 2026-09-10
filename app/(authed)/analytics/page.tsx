@@ -14,6 +14,7 @@ import {
   getPeriodComparison,
 } from "@/lib/analytics";
 import { carrierLabel, type Carrier } from "@/lib/carrier";
+import { getProblemSummary } from "@/lib/shipment-alerts";
 import VolumeChart from "../shipments/VolumeChart";
 import HourlyChart from "./HourlyChart";
 import BarList from "./BarList";
@@ -71,7 +72,7 @@ export default async function AnalyticsPage({
   const { days: daysParam } = await searchParams;
   const days = (RANGE_OPTIONS as readonly number[]).includes(Number(daysParam)) ? Number(daysParam) : 30;
 
-  const [dailyVolume, overview, carrierMix, packers, hourly, orderMatch, statusBreakdown, dhlStats, health, weekday, comparison] =
+  const [dailyVolume, overview, carrierMix, packers, hourly, orderMatch, statusBreakdown, dhlStats, health, weekday, comparison, problems] =
     await Promise.all([
       getDailyVolume(days),
       getOverviewStats(days),
@@ -84,7 +85,9 @@ export default async function AnalyticsPage({
       getOperationalHealth(days),
       getWeekdayVolume(days),
       getPeriodComparison(days),
+      getProblemSummary(),
     ]);
+  const problemTotal = problems.exceptionCount + problems.staleCount;
 
   const maxStatusCount = Math.max(1, ...statusBreakdown.map((s) => s.count));
   const maxWeekdayCount = Math.max(1, ...weekday.map((w) => w.count));
@@ -94,7 +97,17 @@ export default async function AnalyticsPage({
   return (
     <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
       <div className="flex items-center justify-between flex-wrap gap-2 route-line pb-2">
-        <h1 className="font-stencil text-2xl tracking-wide">Analytics</h1>
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="font-stencil text-2xl tracking-wide">Analytics</h1>
+          <Link
+            href="/admin/exceptions"
+            className={`tag-label px-2.5 py-1 border ${
+              problemTotal > 0 ? "border-red-ink bg-red-dim !text-red-ink" : "border-line-strong hover:bg-paper-dim"
+            }`}
+          >
+            {problemTotal > 0 ? `${problemTotal} exception${problemTotal === 1 ? "" : "s"}` : "Exceptions"}
+          </Link>
+        </div>
         {/* Plain links with a search param, not client state — a fresh
             server render per range keeps every card (and its own query)
             in sync with the same window, no client-side refetch wiring. */}
