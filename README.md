@@ -37,7 +37,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run db:seed` | Seed an admin user (PIN from `SEED_ADMIN_PIN`, default `1234`) |
 | `npm run shopify:register-webhook` | Register the fulfillment webhooks against a callback URL (`CALLBACK_URL=... npm run shopify:register-webhook`) — run once per deployment domain |
 | `npm run shopify:backfill-orders` | One-time backfill of the order index from existing Shopify order history (`--days N`, default 180) |
-| `npx tsx scripts/import-fruugo-order.ts <file.json> [--dry-run]` | Creates a Shopify order from a Fruugo order transcribed into JSON (Fruugo has no order API). Always run with `--dry-run` first. See `scripts/fruugo-order.example.json` for the file shape. Needs `read_products` + `write_orders` scopes in addition to this app's existing read scopes. |
+| `npx tsx scripts/import-fruugo-order.ts <file.json> [--dry-run]` | Creates a Shopify order from a Fruugo order transcribed into JSON (Fruugo has no order API). Line items are matched by **product title**, not SKU — Fruugo's SKUs don't correspond to anything in this catalog. Always run with `--dry-run` first. See `scripts/fruugo-order.example.json` for the file shape. Needs `read_products` + `write_orders` scopes in addition to this app's existing read scopes. |
 | `npx tsx scripts/import-fruugo-order.ts <file.json>` (no `--dry-run`) | Actually creates the order. Requires a one-time OAuth install first — see below. |
 | `npx tsx scripts/search-product.ts "search terms"` | Finds a variant's real SKU by product title — for when a Fruugo order's SKU doesn't match what's in Shopify. |
 | `npm run lint` | ESLint |
