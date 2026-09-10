@@ -120,10 +120,24 @@ export function trackingUrl(carrier: Carrier, trackingNumber: string): string | 
   }
 }
 
+/**
+ * Single source of truth for "this status text means something's actually
+ * wrong" — shared by statusTone's red badge below and
+ * lib/shipment-alerts.ts's exception detection. Previously those two lived
+ * as separate, drifting regexes; a real one caught live ("We tried to
+ * deliver the package, but were unable to receive payment...") matched
+ * neither, so it displayed as a plain blue "in transit" badge and never
+ * reached the exceptions page or the alert email. Broad on purpose — a
+ * false positive here just means an extra red badge or an extra row on
+ * the exceptions page, not a wrong delivery outcome.
+ */
+export const EXCEPTION_STATUS_RE =
+  /exception|duty|duties|customs|clearance|payment|action required|delivery attempt|attempted delivery|unable to deliver|unable to receive|refused|undeliverable|held at|reschedul|return to sender|return to shipper/i;
+
 /** Tailwind classes for a status badge, shared by the shipments list and detail pages. */
 export function statusTone(label: string | null): string {
   if (!label) return "bg-paper-dim !text-ink-faint";
   if (/delivered/i.test(label)) return "bg-green-dim !text-green-ink";
-  if (/exception|return/i.test(label)) return "bg-red-dim !text-red-ink";
+  if (EXCEPTION_STATUS_RE.test(label)) return "bg-red-dim !text-red-ink";
   return "bg-blue-dim !text-blue-ink";
 }
