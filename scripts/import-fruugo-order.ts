@@ -40,6 +40,7 @@ type FruugoOrderFile = {
     phone?: string;
   };
   lineItems: { sku: string; quantity: number; price: string }[];
+  shipping?: { title?: string; price: string };
 };
 
 const filePath = process.argv[2];
@@ -97,6 +98,10 @@ async function main() {
     process.exit(1);
   }
 
+  if (order.shipping) {
+    console.log(`  Shipping: ${order.shipping.title ?? "Standard Shipping"} @ ${order.shipping.price}`);
+  }
+
   if (dryRun) {
     console.log("\n--dry-run: no order created. Re-run without --dry-run to create it in Shopify.");
     process.exit(0);
@@ -108,6 +113,9 @@ async function main() {
     tags: ["fruugo", "imported"],
     currency: order.currency,
     lineItems: resolvedLineItems,
+    shippingLine: order.shipping
+      ? { title: order.shipping.title ?? "Standard Shipping", priceAmount: order.shipping.price }
+      : undefined,
     shippingAddress: order.shippingAddress,
   });
 
