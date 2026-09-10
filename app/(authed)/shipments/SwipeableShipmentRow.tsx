@@ -298,7 +298,7 @@ export default function SwipeableShipmentRow({
           </div>
           <div className="flex items-center gap-2 sm:flex-col sm:items-end sm:gap-1 sm:shrink-0 sm:text-right">
             {s.awbNumber && <span className="tag-label !normal-case">AWB {s.awbNumber}</span>}
-            {s.totals.epg > 0 && s.masterUpsTracking && (
+            {s.masterUpsTracking && (
               <span
                 title={`Master UPS ${s.masterUpsTracking}${s.masterUpsStatusAt ? ` — as of ${formatCarrierTimestamp(s.masterUpsStatusAt)}` : ""}`}
                 className={`tag-label !text-[0.6rem] px-1.5 py-0.5 inline-block max-w-[12rem] truncate ${statusTone(s.masterUpsStatusLabel)}`}
