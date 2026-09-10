@@ -149,6 +149,12 @@ export async function lookupUpsStatus(trackingNumber: string): Promise<UpsStatus
     );
     if (!res.ok) return null;
     const data = (await res.json()) as TrackResponse;
+    // TEMPORARY — diagnosing why UPS's own "clearance pending" banner never
+    // shows up in what this app stores (the `alert` field parseTrackResponse
+    // reads is an unverified guess). Remove once the real response shape for
+    // an in-progress-exception parcel has actually been seen. Truncated to
+    // keep one log line from ballooning on a parcel with a long history.
+    console.log(`[ups debug] ${trackingNumber} raw:`, JSON.stringify(data).slice(0, 4000));
     return parseTrackResponse(trackingNumber, data);
   } catch {
     return null;
