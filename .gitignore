@@ -47,8 +47,3 @@ next-env.d.ts
 *.db-wal
 *.db-shm
 
-# per-order Fruugo import files carry real customer name/address/phone —
-# never commit one to this public repo. scripts/fruugo-order.example.json
-# is the only tracked file in this family and is explicitly exempted.
-scripts/fruugo-order-*.json
-!scripts/fruugo-order.example.json

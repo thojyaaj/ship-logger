@@ -189,20 +189,6 @@ export const dhlPickupSettings = pgTable("dhl_pickup_settings", {
   updatedBy: text("updated_by").references(() => appUser.id),
 });
 
-// A genuine Shopify "offline" OAuth access token — separate from the
-// short-lived client-credentials token lib/shopify.ts mints for every read
-// query, because Shopify restricts some mutations (orderCreate) to apps
-// authenticated with an offline token from the standard Authorization Code
-// install flow. Minted once via app/api/auth/install + .../callback (see
-// lib/shopify-oauth.ts) and reused indefinitely — offline tokens don't
-// expire the way the client-credentials token does.
-export const shopifyOfflineToken = pgTable("shopify_offline_token", {
-  shop: text("shop").primaryKey(),
-  accessToken: text("access_token").notNull(),
-  scope: text("scope").notNull(),
-  installedAt: text("installed_at").notNull().default(nowUtcText),
-});
-
 // One row per DHL pickup request attempt against a submitted shipment.
 // Deliberately NOT part of shipment_session — a shipment can accumulate
 // multiple rows across retries (a failed attempt, then a successful one; a

@@ -73,11 +73,11 @@ async function getAccessToken(): Promise<string> {
 
 export type ShopifyGraphqlResult<T> = { data?: T; errors?: { message: string }[] };
 
-async function postGraphql<T>(
-  token: string,
+export async function shopifyGraphql<T>(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T> {
+  const token = await getAccessToken();
   const res = await fetch(`https://${store()}/admin/api/${API_VERSION}/graphql.json`, {
     method: "POST",
     headers: {
@@ -96,14 +96,6 @@ async function postGraphql<T>(
   }
   if (!json.data) throw new Error("Shopify GraphQL response had no data.");
   return json.data;
-}
-
-export async function shopifyGraphql<T>(
-  query: string,
-  variables?: Record<string, unknown>,
-): Promise<T> {
-  const token = await getAccessToken();
-  return postGraphql<T>(token, query, variables);
 }
 
 export type ResolvedOrder = { gid: string; name: string };
@@ -272,200 +264,6 @@ export async function getOrderDetail(orderGid: string): Promise<OrderDetail | nu
     lineItems: order.lineItems.edges.map((e) => e.node),
     adminUrl: `https://${store()}/admin/orders/${numericId}`,
   };
-}
-
-/**
- * Resolves a product variant by SKU so an imported order's line items point
- * at real inventory instead of a bare title/price — otherwise the warehouse
- * has nothing to pull off the shelf and stock never decrements. Requires the
- * `read_products` scope in addition to the order scopes this file already
- * needs; not yet requested as of the read-only §9 approval, so this (and
- * everything below it) needs its own scope round trip — see the Fruugo
- * import script's usage notes.
- */
-export async function findVariantBySku(sku: string): Promise<{ gid: string; title: string } | null> {
-  const quoted = `"${sku.replace(/["\\]/g, (ch) => `\\${ch}`)}"`;
-  const data = await shopifyGraphql<{
-    productVariants: { edges: { node: { id: string; sku: string; displayName: string } }[] };
-  }>(
-    `query($query: String!) {
-      productVariants(first: 1, query: $query) {
-        edges { node { id sku displayName } }
-      }
-    }`,
-    { query: `sku:${quoted}` },
-  );
-  const node = data.productVariants.edges[0]?.node;
-  if (!node || node.sku !== sku) return null;
-  return { gid: node.id, title: node.displayName };
-}
-
-/**
- * Free-text product title search, for the case where a Fruugo listing's SKU
- * doesn't match what's in Shopify (different SKU scheme, or the Fruugo SKU
- * is a marketplace-side id) — lets a human find the right variant to key
- * the import off instead of guessing at SKU spellings.
- */
-export async function searchVariantsByTitle(
-  titleQuery: string,
-): Promise<{ gid: string; title: string; sku: string }[]> {
-  // Deliberately searches the `products` connection, not `productVariants`.
-  // A `title:` filter on productVariants matches the VARIANT's own title —
-  // "Default Title" for every single-variant product in this catalog, i.e.
-  // almost everything — never the product name a human actually typed.
-  // That bug meant this function returned zero results for every query
-  // ever run against it, including guaranteed-present terms, until caught
-  // live batch-testing real Fruugo orders. `products.title:` searches the
-  // field that's actually the product name.
-  //
-  // Shopify's search syntax only supports a *trailing* wildcard (`word*`),
-  // not `*word*` — a leading wildcard silently matches nothing rather than
-  // erroring, which reads exactly like "this product isn't in Shopify" even
-  // when it is. ANDing a trailing-wildcard clause per word (stripped of
-  // characters that have meaning in the search DSL) is the closest
-  // approximation of an unordered substring search this syntax allows.
-  const clauses = titleQuery
-    .split(/\s+/)
-    .map((word) => word.replace(/["\\:*]/g, ""))
-    // A lone "-" (or other punctuation-only token — Fruugo titles commonly
-    // have one from " - Color Name" formatting) survives the character
-    // strip above and becomes `title:-*`. Shopify's search syntax treats a
-    // leading "-" as a NOT operator, so a bare "-" with nothing after it is
-    // a malformed clause that silently zeroes out the ENTIRE query it's
-    // part of — not just that one word — which reads as "no match" even
-    // when every other word is a real hit. Dropping any token with no
-    // letters or digits at all avoids emitting it in the first place.
-    .filter((word) => /[a-zA-Z0-9]/.test(word))
-    .map((word) => `title:${word}*`);
-  const data = await shopifyGraphql<{
-    products: {
-      edges: { node: { variants: { edges: { node: { id: string; sku: string; displayName: string } }[] } } }[];
-    };
-  }>(
-    `query($query: String!) {
-      products(first: 10, query: $query) {
-        edges {
-          node {
-            variants(first: 10) {
-              edges { node { id sku displayName } }
-            }
-          }
-        }
-      }
-    }`,
-    { query: clauses.join(" ") },
-  );
-  return data.products.edges.flatMap((p) =>
-    p.node.variants.edges.map((e) => ({ gid: e.node.id, title: e.node.displayName, sku: e.node.sku })),
-  );
-}
-
-export type NewOrderLineItem = {
-  variantGid: string;
-  quantity: number;
-  priceAmount: string;
-};
-
-export type NewOrderInput = {
-  email?: string;
-  note: string;
-  tags: string[];
-  currency: string;
-  lineItems: NewOrderLineItem[];
-  // Fruugo shows shipping as its own priced line on the order, separate
-  // from product subtotal — omit it and the imported order's total silently
-  // undercounts what the customer actually paid.
-  shippingLine?: { title: string; priceAmount: string };
-  shippingAddress: {
-    firstName?: string;
-    lastName?: string;
-    address1: string;
-    address2?: string;
-    city: string;
-    province?: string;
-    zip: string;
-    countryCode: string;
-    phone?: string;
-  };
-};
-
-export type CreatedOrder = { gid: string; name: string; adminUrl: string };
-
-/**
- * Creates a real Shopify order (marketplace-channel style import, not a
- * checkout) via `orderCreate`. Left unfulfilled and marked PAID — a Fruugo
- * order is already paid on Fruugo's side, and leaving fulfillment status
- * alone is what makes the new order show up for packers to scan and ship
- * normally through the rest of this app.
- *
- * Requires `write_orders` in addition to this file's existing read scopes,
- * and — unlike every other call in this file — a genuine offline access
- * token rather than the client-credentials one; see lib/shopify-oauth.ts.
- */
-export async function createOrder(input: NewOrderInput): Promise<CreatedOrder> {
-  // orderCreate specifically rejects the client-credentials token
-  // shopifyGraphql uses everywhere else in this file ("This mutation is
-  // only accessible to apps authenticated using offline access tokens") —
-  // see lib/shopify-oauth.ts for how that token gets minted.
-  // Lazy import: lib/shopify-oauth.ts pulls in lib/db, which throws at
-  // module load if DATABASE_URL isn't set — a static top-level import
-  // here made that a hard requirement for every caller of this file,
-  // including read-only scripts and --dry-run runs that never reach
-  // this function. Deferring the import means DATABASE_URL is only
-  // needed for an actual order create, same as before.
-  const { getOfflineAccessToken } = await import("./shopify-oauth");
-  const token = await getOfflineAccessToken();
-  const data = await postGraphql<{
-    orderCreate: {
-      order: { id: string; name: string } | null;
-      userErrors: { field: string[]; message: string }[];
-    };
-  }>(
-    token,
-    `mutation($order: OrderCreateOrderInput!, $options: OrderCreateOptionsInput) {
-      orderCreate(order: $order, options: $options) {
-        order { id name }
-        userErrors { field message }
-      }
-    }`,
-    {
-      order: {
-        email: input.email,
-        note: input.note,
-        tags: input.tags,
-        currency: input.currency,
-        financialStatus: "PAID",
-        lineItems: input.lineItems.map((li) => ({
-          variantId: li.variantGid,
-          quantity: li.quantity,
-          priceSet: {
-            shopMoney: { amount: li.priceAmount, currencyCode: input.currency },
-          },
-        })),
-        shippingAddress: input.shippingAddress,
-        shippingLines: input.shippingLine
-          ? [
-              {
-                title: input.shippingLine.title,
-                priceSet: {
-                  shopMoney: { amount: input.shippingLine.priceAmount, currencyCode: input.currency },
-                },
-              },
-            ]
-          : undefined,
-      },
-      options: { inventoryBehaviour: "DECREMENT_OBEYING_POLICY" },
-    },
-  );
-
-  const { order, userErrors } = data.orderCreate;
-  if (userErrors.length > 0) {
-    throw new Error(`orderCreate rejected: ${userErrors.map((e) => `${e.field?.join(".")}: ${e.message}`).join("; ")}`);
-  }
-  if (!order) throw new Error("orderCreate returned no order and no userErrors.");
-
-  const numericId = order.id.split("/").pop();
-  return { gid: order.id, name: order.name, adminUrl: `https://${store()}/admin/orders/${numericId}` };
 }
 
 export type OrderSummary = {
