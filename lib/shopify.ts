@@ -21,6 +21,8 @@
  * documented in the PRD's carrier-API research.
  */
 
+import { getOfflineAccessToken } from "./shopify-oauth";
+
 const API_VERSION = "2026-10";
 
 // Matches the EPG and UPS clients, which both already set one. Without a
@@ -73,11 +75,11 @@ async function getAccessToken(): Promise<string> {
 
 export type ShopifyGraphqlResult<T> = { data?: T; errors?: { message: string }[] };
 
-export async function shopifyGraphql<T>(
+async function postGraphql<T>(
+  token: string,
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T> {
-  const token = await getAccessToken();
   const res = await fetch(`https://${store()}/admin/api/${API_VERSION}/graphql.json`, {
     method: "POST",
     headers: {
@@ -96,6 +98,14 @@ export async function shopifyGraphql<T>(
   }
   if (!json.data) throw new Error("Shopify GraphQL response had no data.");
   return json.data;
+}
+
+export async function shopifyGraphql<T>(
+  query: string,
+  variables?: Record<string, unknown>,
+): Promise<T> {
+  const token = await getAccessToken();
+  return postGraphql<T>(token, query, variables);
 }
 
 export type ResolvedOrder = { gid: string; name: string };
@@ -362,15 +372,23 @@ export type CreatedOrder = { gid: string; name: string; adminUrl: string };
  * alone is what makes the new order show up for packers to scan and ship
  * normally through the rest of this app.
  *
- * Requires `write_orders` in addition to this file's existing read scopes.
+ * Requires `write_orders` in addition to this file's existing read scopes,
+ * and — unlike every other call in this file — a genuine offline access
+ * token rather than the client-credentials one; see lib/shopify-oauth.ts.
  */
 export async function createOrder(input: NewOrderInput): Promise<CreatedOrder> {
-  const data = await shopifyGraphql<{
+  // orderCreate specifically rejects the client-credentials token
+  // shopifyGraphql uses everywhere else in this file ("This mutation is
+  // only accessible to apps authenticated using offline access tokens") —
+  // see lib/shopify-oauth.ts for how that token gets minted.
+  const token = await getOfflineAccessToken();
+  const data = await postGraphql<{
     orderCreate: {
       order: { id: string; name: string } | null;
       userErrors: { field: string[]; message: string }[];
     };
   }>(
+    token,
     `mutation($order: OrderCreateOrderInput!, $options: OrderCreateOptionsInput) {
       orderCreate(order: $order, options: $options) {
         order { id name }
