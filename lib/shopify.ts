@@ -304,6 +304,10 @@ export type NewOrderInput = {
   tags: string[];
   currency: string;
   lineItems: NewOrderLineItem[];
+  // Fruugo shows shipping as its own priced line on the order, separate
+  // from product subtotal — omit it and the imported order's total silently
+  // undercounts what the customer actually paid.
+  shippingLine?: { title: string; priceAmount: string };
   shippingAddress: {
     firstName?: string;
     lastName?: string;
@@ -356,6 +360,16 @@ export async function createOrder(input: NewOrderInput): Promise<CreatedOrder> {
           },
         })),
         shippingAddress: input.shippingAddress,
+        shippingLines: input.shippingLine
+          ? [
+              {
+                title: input.shippingLine.title,
+                priceSet: {
+                  shopMoney: { amount: input.shippingLine.priceAmount, currencyCode: input.currency },
+                },
+              },
+            ]
+          : undefined,
       },
       options: { inventoryBehaviour: "DECREMENT_OBEYING_POLICY" },
     },

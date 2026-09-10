@@ -15,5 +15,6 @@
   },
   "lineItems": [
     { "sku": "OTC-EXAMPLE-001", "quantity": 2, "price": "19.99" }
-  ]
+  ],
+  "shipping": { "title": "Standard Shipping", "price": "5.99" }
 }
