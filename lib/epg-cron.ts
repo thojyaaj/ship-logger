@@ -99,7 +99,7 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
       if (indexed) {
         await db
           .update(scan)
-          .set({ orderGid: indexed.orderGid, orderName: indexed.orderName })
+          .set({ orderGid: indexed.orderGid, orderName: indexed.orderName, destinationCountry: indexed.destinationCountry })
           .where(eq(scan.id, s.id));
         s.orderGid = indexed.orderGid;
         s.orderName = indexed.orderName;
@@ -121,7 +121,12 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
           if (order) {
             await db
               .update(scan)
-              .set({ orderGid: order.gid, orderName: order.name, statusCheckedAt: now })
+              .set({
+                orderGid: order.gid,
+                orderName: order.name,
+                destinationCountry: order.destinationCountry,
+                statusCheckedAt: now,
+              })
               .where(eq(scan.id, s.id));
             ordersResolved += 1;
             continue;
@@ -143,6 +148,7 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
     // call in this cron (§8.9: never let one bad thing take the rest down).
     let orderGid: string | null = null;
     let orderName: string | null = null;
+    let destinationCountry: string | null = null;
     // Fall back to the ERef already stored from an earlier run. EPG's response
     // isn't guaranteed to repeat every field on every call, and dropping back
     // to null for one poll shouldn't cost us a lookup we could still make.
@@ -153,6 +159,7 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
         if (order) {
           orderGid = order.gid;
           orderName = order.name;
+          destinationCountry = order.destinationCountry;
           ordersResolved += 1;
         } else {
           // ERef present but no matching order — a genuine data problem
@@ -175,7 +182,7 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
         statusLabel: record.latestEvent?.event ?? null,
         statusAt: record.latestEvent?.eventAt ?? null,
         statusCheckedAt: now,
-        ...(orderGid ? { orderGid, orderName } : {}),
+        ...(orderGid ? { orderGid, orderName, destinationCountry } : {}),
       })
       .where(eq(scan.id, s.id));
     updated += 1;

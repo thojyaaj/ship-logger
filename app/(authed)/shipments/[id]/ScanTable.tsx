@@ -12,6 +12,7 @@ type Row = {
   scannedAt: string;
   orderGid: string | null;
   orderName: string | null;
+  destinationCountry: string | null;
   statusLabel: string | null;
 };
 
@@ -52,13 +53,29 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
             return (
               <tr key={r.id} className="border-t border-line bg-paper-panel">
                 <td className="px-3 py-2 data truncate">
-                  {url ? (
-                    <a href={url} target="_blank" rel="noreferrer" className="text-blue hover:underline">
-                      {r.trackingNumber}
-                    </a>
-                  ) : (
-                    r.trackingNumber
-                  )}
+                  <span className="inline-flex items-center gap-1.5 max-w-full">
+                    {/* Destination country — deliberately a solid-fill "stamp"
+                        rather than the dim/pastel status badges elsewhere, so
+                        it reads as its own thing rather than another status.
+                        Shown on every viewport (unlike Status/Scanned At)
+                        since it's the one piece of info here the user wants
+                        visible at a glance, not just on desktop. */}
+                    {r.destinationCountry && (
+                      <span
+                        className="shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wide bg-ink text-paper"
+                        title={`Destination: ${r.destinationCountry}`}
+                      >
+                        {r.destinationCountry}
+                      </span>
+                    )}
+                    {url ? (
+                      <a href={url} target="_blank" rel="noreferrer" className="text-blue hover:underline truncate">
+                        {r.trackingNumber}
+                      </a>
+                    ) : (
+                      <span className="truncate">{r.trackingNumber}</span>
+                    )}
+                  </span>
                 </td>
                 <td className="px-3 py-2 data truncate">
                   {r.orderGid ? (

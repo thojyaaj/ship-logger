@@ -20,7 +20,7 @@ type OrdersPage = {
       node: {
         id: string;
         name: string;
-        shippingAddress: { formatted: string[] } | null;
+        shippingAddress: { formatted: string[]; countryCodeV2: string | null } | null;
         fulfillments: { trackingInfo: { number: string | null }[] }[];
       };
     }[];
@@ -35,7 +35,7 @@ const QUERY = `
         node {
           id
           name
-          shippingAddress { formatted }
+          shippingAddress { formatted countryCodeV2 }
           fulfillments(first: 10) {
             trackingInfo { number }
           }
@@ -73,6 +73,7 @@ async function main() {
         // Always null — read_customers wasn't part of §9's scope request; see lib/shopify.ts.
         customerName: null,
         destination: node.shippingAddress?.formatted.join(", ") ?? null,
+        destinationCountry: node.shippingAddress?.countryCodeV2 ?? null,
       });
       trackingNumbersIndexed += numbers.length;
     }
