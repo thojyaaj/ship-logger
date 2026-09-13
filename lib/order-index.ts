@@ -2,10 +2,10 @@
 // reason: it's also used by standalone scripts run via bare tsx.
 import { db } from "./db";
 import { shopifyOrderIndex, scan } from "./db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, and, isNotNull, isNull } from "drizzle-orm";
 import { nowSqlTimestamp } from "./date";
 import { normalizeTrackingNumber } from "./carrier";
-import type { OrderSummary } from "./shopify";
+import { getOrderSummary, type OrderSummary } from "./shopify";
 
 /**
  * Upserts one row per tracking number into the local index (§9b), then
@@ -73,6 +73,71 @@ export async function lookupOrderIndex(
     .where(eq(shopifyOrderIndex.trackingNumber, normalizeTrackingNumber(trackingNumber)))
     .limit(1);
   return rows[0] ?? null;
+}
+
+// One click's worth of order lookups — each is a single Shopify GraphQL call
+// (getOrderSummary, by id), so this is a time/quota budget, not a rate limit
+// like DHL's tracking API. Admin can just click again if a backlog is bigger
+// than this; matches this app's existing "bounded per run, resumable across
+// runs" convention (see lib/dhl-status-cron.ts) even though this one's
+// triggered by a click, not a cron.
+const MAX_ORDERS_PER_BACKFILL_RUN = 40;
+
+export type BackfillCountriesResult = {
+  /** Distinct already-matched orders still missing a country, before this run. */
+  candidates: number;
+  processed: number;
+  updated: number;
+  errors: number;
+};
+
+/**
+ * Fills in `destinationCountry` for scans that already had an order matched
+ * *before* that field existed — `upsertOrderIndex`'s scan update only runs
+ * when a matching order is (re-)resolved, so a scan matched in the past and
+ * never touched since stays permanently null otherwise. Reuses the exact
+ * same write path as every other order match (getOrderSummary +
+ * upsertOrderIndex) rather than a separate one-off lookup, so there is only
+ * one place that ever decides what gets written to these columns.
+ *
+ * Grouped by order, not by scan — a single order (an EPG box's several
+ * parcels, say) can back multiple `scan` rows, and this only needs to ask
+ * Shopify once per distinct order regardless of how many parcels matched it.
+ */
+export async function backfillDestinationCountries(): Promise<BackfillCountriesResult> {
+  const rows = await db
+    .select({ orderGid: scan.orderGid, trackingNumber: scan.trackingNumber })
+    .from(scan)
+    .where(and(isNotNull(scan.orderGid), isNull(scan.destinationCountry)));
+
+  const trackingByOrder = new Map<string, string[]>();
+  for (const r of rows) {
+    if (!r.orderGid) continue;
+    const list = trackingByOrder.get(r.orderGid);
+    if (list) list.push(r.trackingNumber);
+    else trackingByOrder.set(r.orderGid, [r.trackingNumber]);
+  }
+
+  const candidates = trackingByOrder.size;
+  const orderGids = [...trackingByOrder.keys()].slice(0, MAX_ORDERS_PER_BACKFILL_RUN);
+
+  let updated = 0;
+  let errors = 0;
+  for (const orderGid of orderGids) {
+    try {
+      const order = await getOrderSummary(orderGid);
+      // Order genuinely gone (deleted/cancelled since it was scanned) — no
+      // country to fill in, and retrying won't change that, so it's simply
+      // skipped rather than counted as an error.
+      if (!order) continue;
+      await upsertOrderIndex(trackingByOrder.get(orderGid)!, order);
+      updated += 1;
+    } catch {
+      errors += 1;
+    }
+  }
+
+  return { candidates, processed: orderGids.length, updated, errors };
 }
 
 /** Prevents a signed-in user from using the order panel as a general Shopify lookup. */
