@@ -80,46 +80,51 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
               r.shipstationCostAmount > r.customerShippingAmount;
             return (
               <tr key={r.id} className="border-t border-line bg-paper-panel">
-                <td className="px-3 py-2 data truncate">
-                  <span className="inline-flex items-center gap-1.5 max-w-full">
-                    {/* Destination country — deliberately a solid-fill "stamp"
-                        rather than the dim/pastel status badges elsewhere, so
-                        it reads as its own thing rather than another status.
-                        Shown on every viewport (unlike Status/Scanned At)
-                        since it's the one piece of info here the user wants
-                        visible at a glance, not just on desktop. */}
-                    {r.destinationCountry && (
-                      <span
-                        className="shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wide bg-ink text-paper"
-                        title={`Destination: ${r.destinationCountry}`}
-                      >
-                        {r.destinationCountry}
-                      </span>
-                    )}
-                    {url ? (
-                      <a href={url} target="_blank" rel="noreferrer" className="text-blue hover:underline truncate">
-                        {r.trackingNumber}
-                      </a>
-                    ) : (
-                      <span className="truncate">{r.trackingNumber}</span>
-                    )}
-                  </span>
-                  {/* What we paid ShipStation for this label — moved here
-                      (was under Order) so it sits with the tracking number
-                      itself; the alert badge next to it is the whole point
-                      of tracking this at all. */}
-                  {cost && (
-                    <span className="flex items-center gap-1.5 text-[0.65rem] text-ink-faint">
-                      {cost}
-                      {isLoss && (
+                <td className="px-3 py-2 data">
+                  {/* Tracking number gets its own line, full width — no
+                      badge crowding it, which is what made the previous
+                      layout hard to read. Country/cost/profit-check are a
+                      second, smaller line underneath instead of squeezed
+                      onto the same line or split across two cells. */}
+                  {url ? (
+                    <a href={url} target="_blank" rel="noreferrer" className="block text-blue hover:underline truncate">
+                      {r.trackingNumber}
+                    </a>
+                  ) : (
+                    <span className="block truncate">{r.trackingNumber}</span>
+                  )}
+                  {(r.destinationCountry || cost) && (
+                    <span className="flex items-center gap-1.5 mt-1 flex-wrap">
+                      {/* Destination country — a solid-fill "stamp" rather
+                          than the dim/pastel status badges elsewhere, so it
+                          reads as its own thing rather than another status. */}
+                      {r.destinationCountry && (
                         <span
-                          className="inline-flex items-center justify-center px-1 py-0.5 text-[0.6rem] font-bold bg-red text-paper"
-                          title={`Paid ${cost} but only charged ${charged} for shipping — ${formatCost(
-                            Math.round((r.shipstationCostAmount! - r.customerShippingAmount!) * 100) / 100,
-                            r.shipstationCostCurrency,
-                          )} lost on this parcel.`}
+                          className="shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wide bg-ink text-paper"
+                          title={`Destination: ${r.destinationCountry}`}
                         >
-                          !
+                          {r.destinationCountry}
+                        </span>
+                      )}
+                      {cost && <span className="text-[0.65rem] text-ink-faint">{cost}</span>}
+                      {/* Confirmation bubble — only rendered once both cost
+                          paid and amount charged are known, so it's never a
+                          false "profitable" read against incomplete data.
+                          Green check confirms this parcel didn't lose money;
+                          red "!" is the same loss condition surfaced in
+                          lib/shipment-alerts.ts's exceptions system. */}
+                      {r.shipstationCostAmount !== null && r.customerShippingAmount !== null && (
+                        <span
+                          className={`shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full text-[0.6rem] font-bold ${
+                            isLoss ? "bg-red text-paper" : "bg-green text-paper"
+                          }`}
+                          title={
+                            isLoss
+                              ? `Losing money: paid ${cost}, charged ${charged}.`
+                              : `Paid ${cost}, charged ${charged} — no loss on this parcel.`
+                          }
+                        >
+                          {isLoss ? "!" : "✓"}
                         </span>
                       )}
                     </span>
