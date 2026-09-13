@@ -1,6 +1,6 @@
 "use server";
 
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, requireSuperAdmin } from "@/lib/auth";
 import {
   saveDhlPickupSettings,
   clearDhlPickupHistory,
@@ -15,7 +15,9 @@ export async function saveDhlPickupSettingsAction(
   return saveDhlPickupSettings(input, admin.id);
 }
 
+// Superadmin-gated — an irreversible full wipe of pickup history, not a
+// day-to-day admin control (see lib/auth.ts's requireSuperAdmin).
 export async function clearDhlPickupHistoryAction(): Promise<{ deleted: number }> {
-  await requireAdmin();
+  await requireSuperAdmin();
   return clearDhlPickupHistory();
 }

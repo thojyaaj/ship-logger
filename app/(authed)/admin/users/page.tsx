@@ -32,8 +32,16 @@ export default async function AdminPage() {
       <UsersClient initialUsers={users} currentUserId={admin.id} />
       <DhlPickupSettingsClient initialSettings={dhlSettings} />
       <DisplaySettingsClient initialBoxesAsTabs={displaySettings.boxesAsTabs} />
-      <BackfillCountriesClient />
-      <ClearPickupHistoryClient />
+      {/* Order-data backfill and DHL pickup history wipe are superadmin-only
+          — bulk/irreversible tools most admins here never need (see
+          lib/auth.ts's requireSuperAdmin). Hidden, not just disabled, so a
+          regular admin doesn't even see a button they can't use. */}
+      {admin.isSuperAdmin && (
+        <>
+          <BackfillCountriesClient />
+          <ClearPickupHistoryClient />
+        </>
+      )}
     </div>
   );
 }
