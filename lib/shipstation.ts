@@ -3,10 +3,10 @@ import "server-only";
 /**
  * ShipStation v2 API client — read-only label lookup by tracking number.
  * Every EPG/UPS/DHL label the warehouse ships is printed through ShipStation,
- * so a label's `packages[]` carries the real weight/dimensions used to buy
- * it — a source of truth Ship Logger otherwise never gets, since it only
- * records already-printed labels (see docs/PRD.md's "we're recording what
- * already exists").
+ * so a label carries the real weight/dimensions and cost used to buy it — a
+ * source of truth Ship Logger otherwise never gets, since it only records
+ * already-printed labels (see docs/PRD.md's "we're recording what already
+ * exists").
  *
  * NOT YET VERIFIED AGAINST A LIVE SHIPSTATION RESPONSE — built from
  * ShipStation's published v2 API reference (docs.shipstation.com/list-labels)
@@ -32,6 +32,9 @@ export type ShipstationLabel = {
   lengthIn: number;
   widthIn: number;
   heightIn: number;
+  /** What was actually paid for this label — null when the label response carries no cost (e.g. a void). */
+  costAmount: number | null;
+  costCurrency: string | null;
 };
 
 type WeightUnit = "pound" | "ounce" | "gram" | "kilogram";
@@ -40,6 +43,7 @@ type DimensionUnit = "inch" | "centimeter";
 type LabelsResponse = {
   labels?: {
     tracking_number?: string;
+    shipment_cost?: { amount?: number; currency?: string };
     packages?: {
       weight?: { value?: number; unit?: WeightUnit };
       dimensions?: { length?: number; width?: number; height?: number; unit?: DimensionUnit };
@@ -73,12 +77,15 @@ function parseLabel(trackingNumber: string, data: LabelsResponse): ShipstationLa
     return null;
   }
 
+  const cost = label?.shipment_cost;
   return {
     trackingNumber,
     weightLb: toLb(weight.value, weight.unit),
     lengthIn: toInches(dimensions.length, dimensions.unit),
     widthIn: toInches(dimensions.width, dimensions.unit),
     heightIn: toInches(dimensions.height, dimensions.unit),
+    costAmount: cost?.amount ?? null,
+    costCurrency: cost?.currency ?? null,
   };
 }
 

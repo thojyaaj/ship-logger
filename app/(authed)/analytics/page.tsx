@@ -13,6 +13,7 @@ import {
   getWeekdayVolume,
   getPeriodComparison,
   getEpgFinalMileTime,
+  getCostStats,
 } from "@/lib/analytics";
 import { carrierLabel, type Carrier } from "@/lib/carrier";
 import { getProblemSummary } from "@/lib/shipment-alerts";
@@ -30,6 +31,15 @@ function formatHours(hours: number | null): string {
   const m = Math.round((hours - h) * 60);
   if (h === 0) return `${m}m`;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+function formatMoney(amount: number | null, currency: string | null): string {
+  if (amount === null) return "—";
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: currency ?? "USD" }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)}${currency ? ` ${currency}` : ""}`;
+  }
 }
 
 function carrierBarClass(carrier: Carrier): string {
@@ -73,26 +83,42 @@ export default async function AnalyticsPage({
   const { days: daysParam } = await searchParams;
   const days = (RANGE_OPTIONS as readonly number[]).includes(Number(daysParam)) ? Number(daysParam) : 30;
 
-  const [dailyVolume, overview, carrierMix, packers, hourly, orderMatch, statusBreakdown, dhlStats, health, weekday, comparison, problems, epgFinalMile] =
-    await Promise.all([
-      getDailyVolume(days),
-      getOverviewStats(days),
-      getCarrierMix(days),
-      getPackerLeaderboard(days),
-      getHourlyActivity(days),
-      getOrderMatchRate(days),
-      getStatusBreakdown(days),
-      getDhlPickupStats(days),
-      getOperationalHealth(days),
-      getWeekdayVolume(days),
-      getPeriodComparison(days),
-      getProblemSummary(),
-      getEpgFinalMileTime(days),
-    ]);
+  const [
+    dailyVolume,
+    overview,
+    carrierMix,
+    packers,
+    hourly,
+    orderMatch,
+    statusBreakdown,
+    dhlStats,
+    health,
+    weekday,
+    comparison,
+    problems,
+    epgFinalMile,
+    costStats,
+  ] = await Promise.all([
+    getDailyVolume(days),
+    getOverviewStats(days),
+    getCarrierMix(days),
+    getPackerLeaderboard(days),
+    getHourlyActivity(days),
+    getOrderMatchRate(days),
+    getStatusBreakdown(days),
+    getDhlPickupStats(days),
+    getOperationalHealth(days),
+    getWeekdayVolume(days),
+    getPeriodComparison(days),
+    getProblemSummary(),
+    getEpgFinalMileTime(days),
+    getCostStats(days),
+  ]);
   const problemTotal = problems.exceptionCount + problems.staleCount;
 
   const maxStatusCount = Math.max(1, ...statusBreakdown.map((s) => s.count));
   const maxWeekdayCount = Math.max(1, ...weekday.map((w) => w.count));
+  const maxCarrierCost = Math.max(1, ...costStats.byCarrier.map((c) => c.totalCost));
   // EPG-only — UPS/DHL parcels are never boxed (see totalEpgPackages).
   const avgParcelsPerBox = overview.totalBoxes > 0 ? overview.totalEpgPackages / overview.totalBoxes : null;
 
@@ -163,6 +189,20 @@ export default async function AnalyticsPage({
           value={epgFinalMile.avgDays !== null ? `${epgFinalMile.avgDays.toFixed(1)}d` : "—"}
           sub={epgFinalMile.sampleSize > 0 ? `hub → door · ${epgFinalMile.sampleSize} parcels` : "no delivered parcels yet"}
         />
+        <StatTile
+          label="Total shipping cost"
+          value={formatMoney(costStats.totalCost, costStats.currency)}
+          sub={
+            costStats.byCarrier.length > 0
+              ? `${costStats.byCarrier.reduce((n, c) => n + c.count, 0)} parcels costed`
+              : "no cost data backfilled yet"
+          }
+        />
+        <StatTile
+          label="Avg cost / package"
+          value={formatMoney(costStats.avgCostPerPackage, costStats.currency)}
+          sub="from ShipStation labels"
+        />
       </div>
 
       <VolumeChart points={dailyVolume} />
@@ -194,6 +234,19 @@ export default async function AnalyticsPage({
           emptyMessage="No submitted shipments in this window."
         />
       </div>
+
+      <BarList
+        title="Cost by carrier"
+        rows={costStats.byCarrier.map((c) => ({
+          key: c.carrier,
+          label: carrierLabel(c.carrier),
+          value: c.totalCost,
+          displayValue: formatMoney(c.totalCost, costStats.currency),
+          pct: (c.totalCost / maxCarrierCost) * 100,
+          barClassName: carrierBarClass(c.carrier),
+        }))}
+        emptyMessage="No cost data backfilled yet."
+      />
 
       <BarList
         title="Volume by day of week"

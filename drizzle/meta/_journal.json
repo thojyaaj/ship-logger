@@ -92,6 +92,13 @@
       "when": 1789284415707,
       "tag": "0012_solid_photon",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789316324319,
+      "tag": "0013_cooing_siren",
+      "breakpoints": true
     }
   ]
 }
