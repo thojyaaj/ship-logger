@@ -176,7 +176,7 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                 <td className="hidden md:table-cell px-3 py-2 align-top" title={r.statusLabel ?? undefined}>
                   {r.statusLabel ? (
                     <span
-                      className={`tag-label !text-[0.65rem] px-1.5 py-0.5 inline-block max-w-[220px] truncate align-bottom ${statusTone(r.statusLabel)}`}
+                      className={`tag-label !text-[0.65rem] px-1.5 py-0.5 inline-block max-w-full truncate align-bottom ${statusTone(r.statusLabel)}`}
                     >
                       {r.statusLabel}
                     </span>
