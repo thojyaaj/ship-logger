@@ -130,6 +130,10 @@ export const scan = pgTable(
     // cost (e.g. a void), which shouldn't be treated as "not yet backfilled".
     shipstationCostAmount: real("shipstation_cost_amount"),
     shipstationCostCurrency: text("shipstation_cost_currency"),
+    // ShipStation's own carrier code for this label (e.g. "ups") — feeds
+    // lib/shipstation-delivery-cron.ts's tracking lookup so it never has to
+    // guess a mapping from this app's own epg/ups/dhl carrier enum.
+    shipstationCarrierCode: text("shipstation_carrier_code"),
     shipstationCheckedAt: text("shipstation_checked_at"),
     // Order-match fallback (lib/shipstation-order-fallback-cron.ts) — only
     // ever populated when Shopify's own matching (orderGid above) has
@@ -138,6 +142,13 @@ export const scan = pgTable(
     shipstationOrderFallback: text("shipstation_order_fallback"),
     shipstationShipToName: text("shipstation_ship_to_name"),
     shipstationOrderFallbackCheckedAt: text("shipstation_order_fallback_checked_at"),
+    // On-time-delivery % (lib/shipstation-delivery-cron.ts) — see
+    // lookupShipstationTracking's own comment in lib/shipstation.ts for why
+    // this whole pair is flagged unverified. Delivered-on-time means
+    // shipstationActualDeliveryAt <= shipstationEstimatedDeliveryAt.
+    shipstationEstimatedDeliveryAt: text("shipstation_estimated_delivery_at"),
+    shipstationActualDeliveryAt: text("shipstation_actual_delivery_at"),
+    shipstationDeliveryCheckedAt: text("shipstation_delivery_checked_at"),
   },
   (t) => [uniqueIndex("scan_tracking_number_idx").on(t.trackingNumber)],
 );

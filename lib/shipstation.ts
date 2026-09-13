@@ -35,6 +35,8 @@ export type ShipstationLabel = {
   /** What was actually paid for this label — null when the label response carries no cost (e.g. a void). */
   costAmount: number | null;
   costCurrency: string | null;
+  /** ShipStation's own carrier code (e.g. "ups", "dhl_express") — captured here rather than guessed, so lookupShipstationTracking's carrier_code param is always the real one for this label, not a mapping this app made up. */
+  carrierCode: string | null;
 };
 
 type WeightUnit = "pound" | "ounce" | "gram" | "kilogram";
@@ -43,6 +45,7 @@ type DimensionUnit = "inch" | "centimeter";
 type LabelsResponse = {
   labels?: {
     tracking_number?: string;
+    carrier_code?: string;
     shipment_cost?: { amount?: number; currency?: string };
     packages?: {
       weight?: { value?: number; unit?: WeightUnit };
@@ -86,6 +89,7 @@ function parseLabel(trackingNumber: string, data: LabelsResponse): ShipstationLa
     heightIn: toInches(dimensions.height, dimensions.unit),
     costAmount: cost?.amount ?? null,
     costCurrency: cost?.currency ?? null,
+    carrierCode: label?.carrier_code ?? null,
   };
 }
 
@@ -180,6 +184,65 @@ export async function lookupShipstationShipment(trackingNumber: string): Promise
 
     const data = (await res.json()) as ShipmentsResponse;
     return parseShipment(trackingNumber, data);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * GENUINELY UNVERIFIED — more so than every other function in this file.
+ * `estimated_delivery_date`/`actual_delivery_date` are confirmed fields to
+ * exist somewhere in ShipStation's docs, but the only endpoint found for
+ * them (`GET /v1/tracking?carrier_code=...&tracking_number=...`) sits under
+ * a `/v1`, ShipEngine-branded doc path — a different version number than
+ * every other endpoint this app calls (`/v2/...`). Before trusting this:
+ * confirm (a) whether `PROD_BASE`/`SHIPSTATION_API_KEY` even work against
+ * `/v1/tracking` or whether it needs a different host/key entirely, and
+ * (b) whether the `carrier_code` a `/v2/labels` response returns (what
+ * `lookupShipstationLabel` now captures and this function is fed) is the
+ * same vocabulary `/v1/tracking` expects — it may not be, since v1 and v2
+ * are different API generations. Degrades to `null` on any failure — a
+ * wrong guess here only means the on-time-delivery analytics stay empty,
+ * nothing else in this app depends on it.
+ */
+export type ShipstationTracking = {
+  trackingNumber: string;
+  estimatedDeliveryAt: string | null;
+  actualDeliveryAt: string | null;
+};
+
+type TrackingResponse = {
+  estimated_delivery_date?: string | null;
+  actual_delivery_date?: string | null;
+};
+
+const TRACKING_BASE = "https://api.shipstation.com/v1";
+
+export async function lookupShipstationTracking(
+  carrierCode: string,
+  trackingNumber: string,
+): Promise<ShipstationTracking | null> {
+  const apiKey = process.env.SHIPSTATION_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const url = new URL(`${process.env.SHIPSTATION_TRACKING_API_BASE ?? TRACKING_BASE}/tracking`);
+    url.searchParams.set("carrier_code", carrierCode);
+    url.searchParams.set("tracking_number", trackingNumber);
+
+    const res = await fetch(url, {
+      headers: { "API-Key": apiKey },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) return null;
+
+    const data = (await res.json()) as TrackingResponse;
+    return {
+      trackingNumber,
+      estimatedDeliveryAt: data.estimated_delivery_date ?? null,
+      actualDeliveryAt: data.actual_delivery_date ?? null,
+    };
   } catch {
     return null;
   }

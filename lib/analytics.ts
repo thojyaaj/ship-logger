@@ -211,6 +211,51 @@ export async function getCostStats(days: number): Promise<CostStats> {
   };
 }
 
+export type OnTimeDeliveryPoint = { carrier: Carrier; onTime: number; late: number; total: number; pct: number | null };
+
+/**
+ * % of delivered parcels that arrived at or before ShipStation's own
+ * estimate, by carrier — see lookupShipstationTracking's comment in
+ * lib/shipstation.ts for why this data source is flagged unverified. Only
+ * counts parcels where both an estimate and an actual delivery date were
+ * captured; a parcel still in transit (no actual date yet) is excluded
+ * rather than counted as "on time" by default.
+ */
+export async function getOnTimeDeliveryStats(days: number): Promise<OnTimeDeliveryPoint[]> {
+  const rows = await db
+    .select({
+      carrier: scan.carrier,
+      estimatedAt: scan.shipstationEstimatedDeliveryAt,
+      actualAt: scan.shipstationActualDeliveryAt,
+    })
+    .from(scan)
+    .innerJoin(shipmentSession, eq(scan.sessionId, shipmentSession.id))
+    .where(
+      and(
+        submittedInWindow(days),
+        isNotNull(scan.shipstationEstimatedDeliveryAt),
+        isNotNull(scan.shipstationActualDeliveryAt),
+      ),
+    );
+
+  const byCarrier = new Map<Carrier, { onTime: number; late: number }>();
+  for (const r of rows) {
+    const carrier = r.carrier as Carrier;
+    const entry = byCarrier.get(carrier) ?? { onTime: 0, late: 0 };
+    const estimated = parseCarrierTimestamp(r.estimatedAt!);
+    const actual = parseCarrierTimestamp(r.actualAt!);
+    if (actual.getTime() <= estimated.getTime()) entry.onTime += 1;
+    else entry.late += 1;
+    byCarrier.set(carrier, entry);
+  }
+
+  return CARRIER_ORDER.filter((c) => byCarrier.has(c)).map((carrier) => {
+    const entry = byCarrier.get(carrier)!;
+    const total = entry.onTime + entry.late;
+    return { carrier, onTime: entry.onTime, late: entry.late, total, pct: total > 0 ? (entry.onTime / total) * 100 : null };
+  });
+}
+
 export type PackerStat = {
   userId: string;
   name: string;
