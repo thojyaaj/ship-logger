@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "./db";
 import { scan } from "./db/schema";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, or } from "drizzle-orm";
 import { lookupShipstationLabel } from "./shipstation";
 import { nowSqlTimestamp, toSqlTimestamp } from "./date";
 
@@ -34,10 +34,22 @@ export type ShipstationLabelCronResult = {
  * every scanned parcel (see lib/shipstation.ts) — every EPG/UPS/DHL label
  * ships through ShipStation, so this covers all three, not just DHL (DHL
  * pickup's weight calculation was the only consumer when this started, but
- * cost analytics needs full coverage). A scan missing
- * `shipstationWeightLb` is the "not yet backfilled" signal; a lookup that
- * fails or comes back empty just gets `shipstationCheckedAt` stamped so it
- * cycles to the back of the queue instead of blocking the batch every run.
+ * cost analytics needs full coverage). A scan missing either
+ * `shipstationWeightLb` or `shipstationCostAmount` is a candidate; a lookup
+ * that fails or comes back empty just gets `shipstationCheckedAt` stamped
+ * so it cycles to the back of the queue instead of blocking the batch
+ * every run.
+ *
+ * Checking both fields (not just weight) matters in practice, not just in
+ * theory — DHL scans got `shipstationWeightLb` backfilled under the
+ * original DHL-only version of this cron, long before cost tracking
+ * existed. A weight-only candidate check permanently excludes every one of
+ * those scans from ever being revisited, so they'd never pick up a cost no
+ * matter how many times this cron runs (caught live: EPG/UPS scans — first
+ * processed after cost tracking already existed — got cost immediately,
+ * DHL's older scans didn't, until this was widened to catch either field
+ * missing). Same class of bug as the admin backfill button's fix in
+ * lib/order-index.ts.
  *
  * A found label with no weight/dimensions on file (an older or
  * manually-entered label) still writes whatever it *does* have — cost in
@@ -52,7 +64,12 @@ export async function runShipstationLabelCron(): Promise<ShipstationLabelCronRes
   const allRecent = await db
     .select()
     .from(scan)
-    .where(and(isNull(scan.shipstationWeightLb), gt(scan.scannedAt, cutoff)));
+    .where(
+      and(
+        or(isNull(scan.shipstationWeightLb), isNull(scan.shipstationCostAmount)),
+        gt(scan.scannedAt, cutoff),
+      ),
+    );
 
   // Oldest-checked-first (nulls — never checked — sort first) so a backlog
   // beyond MAX_LOOKUPS_PER_RUN drains breadth-first across runs instead of

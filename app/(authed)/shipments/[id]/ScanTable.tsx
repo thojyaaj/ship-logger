@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { trackingUrl, statusTone } from "@/lib/carrier";
 import { formatDbTimestamp } from "@/lib/date";
 import OrderPanel from "../../OrderPanel";
@@ -59,22 +59,40 @@ function Stamp({ bg, title, children }: { bg: string; title?: string; children: 
  * fights that by forcing wraps/truncation to hit a column width chosen in
  * advance. Auto layout sizes each column to its content instead, and the
  * outer `overflow-x-auto` wrapper below picks up the slack on narrow
- * viewports — the same tradeoff this table already made for wide content
- * (see the Status column) is now just handled by the browser instead of a
- * hand-picked width.
+ * viewports. Tracking/Order/Scanned-At are pinned to their content's own
+ * width (`w-px whitespace-nowrap` — a standard auto-layout trick: a 1px
+ * width request just means "shrink to content" since the cell can never
+ * actually get that small) rather than being stretched by `w-full` on the
+ * table, so only Status — the one column with genuinely variable-length
+ * content — absorbs the table's leftover width.
  */
 export default function ScanTable({ rows }: { rows: Row[] }) {
   const [openOrderGid, setOpenOrderGid] = useState<string | null>(null);
+  // Click (not hover) to reveal the exact scan timestamp — only one open at
+  // a time, closed by clicking its own icon again or anywhere else.
+  const [openScannedAtId, setOpenScannedAtId] = useState<string | null>(null);
+  const scannedAtRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!openScannedAtId) return;
+    function handlePointerDown(e: MouseEvent) {
+      if (scannedAtRef.current && !scannedAtRef.current.contains(e.target as Node)) {
+        setOpenScannedAtId(null);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [openScannedAtId]);
 
   return (
     <div className="overflow-x-auto border border-line">
       <table className="w-full text-sm">
         <thead className="bg-paper-dim text-ink-faint">
           <tr>
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
+            <th className="w-px whitespace-nowrap text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
+            <th className="w-px whitespace-nowrap text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
             <th className="hidden md:table-cell text-left px-3 py-2 tag-label !text-ink-faint">Status</th>
-            <th className="hidden md:table-cell md:sticky md:right-0 md:z-[1] text-center px-3 py-2 tag-label !text-ink-faint bg-paper-dim border-l border-line">
+            <th className="hidden md:table-cell md:sticky md:right-0 md:z-[1] w-px whitespace-nowrap text-center px-3 py-2 tag-label !text-ink-faint bg-paper-dim border-l border-line">
               <span className="sr-only">Scanned At</span>
               <ClockIcon className="w-3.5 h-3.5 inline-block" />
             </th>
@@ -93,7 +111,7 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
               r.shipstationCostAmount > r.customerShippingAmount;
             return (
               <tr key={r.id} className="border-t border-line bg-paper-panel">
-                <td className="px-3 py-2 data align-top whitespace-nowrap">
+                <td className="w-px whitespace-nowrap px-3 py-2 data align-top">
                   <span className="inline-flex items-center gap-1.5">
                     {url ? (
                       <a href={url} target="_blank" rel="noreferrer" className="text-blue hover:underline">
@@ -128,7 +146,7 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                     )}
                   </span>
                 </td>
-                <td className="px-3 py-2 data align-top whitespace-nowrap">
+                <td className="w-px whitespace-nowrap px-3 py-2 data align-top">
                   <span className="inline-flex items-center gap-1.5">
                     {r.orderGid ? (
                       <button type="button" onClick={() => setOpenOrderGid(r.orderGid)} className="text-blue hover:underline">
@@ -166,12 +184,23 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                     <span className="text-ink-faint">—</span>
                   )}
                 </td>
-                <td className="hidden md:table-cell md:sticky md:right-0 md:z-[1] text-center px-3 py-2 text-ink-faint bg-paper-panel border-l border-line align-top">
+                <td className="hidden md:table-cell md:sticky md:right-0 md:z-[1] w-px whitespace-nowrap text-center px-3 py-2 text-ink-faint bg-paper-panel border-l border-line align-top">
                   {/* Icon instead of the full timestamp to save row width —
-                      hover/focus for the actual date and time via the
-                      native title tooltip. */}
-                  <span title={formatDbTimestamp(r.scannedAt)} className="inline-flex">
-                    <ClockIcon className="w-4 h-4" />
+                      click (not hover, so it works the same on touch) to
+                      reveal the actual date and time. */}
+                  <span className="relative inline-flex" ref={openScannedAtId === r.id ? scannedAtRef : undefined}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenScannedAtId((id) => (id === r.id ? null : r.id))}
+                      className="inline-flex text-ink-faint hover:text-ink"
+                    >
+                      <ClockIcon className="w-4 h-4" />
+                    </button>
+                    {openScannedAtId === r.id && (
+                      <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 z-20 whitespace-nowrap bg-ink text-paper text-xs px-2 py-1 shadow">
+                        {formatDbTimestamp(r.scannedAt)}
+                      </span>
+                    )}
                   </span>
                 </td>
               </tr>
