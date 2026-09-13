@@ -8,7 +8,8 @@ import { carrierLabel, statusTone, type Carrier } from "@/lib/carrier";
 import { formatCarrierTimestamp } from "@/lib/date";
 import { dismissProblemAction } from "./actions";
 import { useClickPopover } from "../../useClickPopover";
-import { XCircleIcon, RotateCcwIcon } from "../../shipments/[id]/icons";
+import { XCircleIcon, RotateCcwIcon, InfoIcon } from "../../shipments/[id]/icons";
+import DetailModal, { DetailRow } from "./DetailModal";
 
 const CARRIER_ORDER: Carrier[] = ["ups", "dhl", "epg"];
 
@@ -314,73 +315,138 @@ function LossTable({
   onDismiss: (scanId: string, category: ProblemCategory) => void;
   onCancel: (k: string) => void;
 }) {
+  const [detail, setDetail] = useState<ShippingLossScan | null>(null);
+
   return (
-    <div className="overflow-x-auto border border-line">
-      {/* table-fixed + colgroup, not auto layout — caps the table at 100%
-          of its container so it never forces a horizontal scroll no matter
-          how long an order name or tracking number gets (see ScanTable.tsx's
-          identical reasoning). Tracking wraps via break-all instead of
-          truncating (never hide part of a tracking number); Order truncates
-          since it's the one column with real unbounded-length content. */}
-      <table className="w-full text-sm table-fixed">
-        <colgroup>
-          <col className="w-[4%]" />
-          <col className="w-[22%]" />
-          <col className="w-[26%]" />
-          <col className="w-[12%]" />
-          <col className="w-[12%]" />
-          <col className="w-[12%]" />
-          <col className="w-[8%]" />
-          <col className="w-[4%]" />
-        </colgroup>
-        <thead className="bg-paper-dim text-ink-faint">
-          <tr>
-            <th className="px-3 py-2" />
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Paid</th>
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Charged</th>
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Loss</th>
-            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Shipment</th>
-            <th className="px-3 py-2" />
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((i) => {
-            const k = rowKey("loss", i.id);
-            const pending = pendingKeys.has(k);
-            return (
-              <tr key={i.id} className={`border-t border-line bg-paper-panel align-top ${pending ? "opacity-50" : ""}`}>
-                <td className="px-3 py-2">
-                  <input type="checkbox" checked={selected.has(k)} onChange={() => onToggle(k)} aria-label={`Select ${i.trackingNumber}`} />
-                </td>
-                <td className="px-3 py-2 data break-all">
-                  {i.trackingUrl ? (
-                    <a href={i.trackingUrl} target="_blank" rel="noreferrer" className="text-blue hover:underline">
-                      {i.trackingNumber}
-                    </a>
-                  ) : (
-                    i.trackingNumber
-                  )}
-                </td>
-                <td className="px-3 py-2 data truncate">{i.orderName ?? <span className="text-ink-faint">—</span>}</td>
-                <td className="px-3 py-2 data">{formatMoney(i.costAmount, i.costCurrency)}</td>
-                <td className="px-3 py-2 data">{formatMoney(i.chargedAmount, i.chargedCurrency)}</td>
-                <td className="px-3 py-2 data font-semibold !text-red-ink">-{formatMoney(i.lossAmount, i.costCurrency)}</td>
-                <td className="px-3 py-2 data">
-                  <Link href={`/shipments/${i.sessionId}`} className="text-blue hover:underline">
-                    {i.sessionId.slice(0, 8).toUpperCase()}
-                  </Link>
-                </td>
-                <td className="px-3 py-2">
-                  <DismissCell pending={pending} onDismiss={() => onDismiss(i.id, "loss")} onCancel={() => onCancel(k)} />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <>
+      {/* Desktop: the full table. Mobile gets its own compact card list
+          below instead of squeezing 8 columns into a phone width — see
+          the card block's own comment. */}
+      <div className="hidden md:block overflow-x-auto border border-line">
+        {/* table-fixed + colgroup, not auto layout — caps the table at 100%
+            of its container so it never forces a horizontal scroll no matter
+            how long an order name or tracking number gets (see ScanTable.tsx's
+            identical reasoning). Tracking wraps via break-all instead of
+            truncating (never hide part of a tracking number); Order truncates
+            since it's the one column with real unbounded-length content. */}
+        <table className="w-full text-sm table-fixed">
+          <colgroup>
+            <col className="w-[4%]" />
+            <col className="w-[22%]" />
+            <col className="w-[26%]" />
+            <col className="w-[12%]" />
+            <col className="w-[12%]" />
+            <col className="w-[12%]" />
+            <col className="w-[8%]" />
+            <col className="w-[4%]" />
+          </colgroup>
+          <thead className="bg-paper-dim text-ink-faint">
+            <tr>
+              <th className="px-3 py-2" />
+              <th className="text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
+              <th className="text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
+              <th className="text-left px-3 py-2 tag-label !text-ink-faint">Paid</th>
+              <th className="text-left px-3 py-2 tag-label !text-ink-faint">Charged</th>
+              <th className="text-left px-3 py-2 tag-label !text-ink-faint">Loss</th>
+              <th className="text-left px-3 py-2 tag-label !text-ink-faint">Shipment</th>
+              <th className="px-3 py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((i) => {
+              const k = rowKey("loss", i.id);
+              const pending = pendingKeys.has(k);
+              return (
+                <tr key={i.id} className={`border-t border-line bg-paper-panel align-top ${pending ? "opacity-50" : ""}`}>
+                  <td className="px-3 py-2">
+                    <input type="checkbox" checked={selected.has(k)} onChange={() => onToggle(k)} aria-label={`Select ${i.trackingNumber}`} />
+                  </td>
+                  <td className="px-3 py-2 data break-all">
+                    {i.trackingUrl ? (
+                      <a href={i.trackingUrl} target="_blank" rel="noreferrer" className="text-blue hover:underline">
+                        {i.trackingNumber}
+                      </a>
+                    ) : (
+                      i.trackingNumber
+                    )}
+                  </td>
+                  <td className="px-3 py-2 data truncate">{i.orderName ?? <span className="text-ink-faint">—</span>}</td>
+                  <td className="px-3 py-2 data">{formatMoney(i.costAmount, i.costCurrency)}</td>
+                  <td className="px-3 py-2 data">{formatMoney(i.chargedAmount, i.chargedCurrency)}</td>
+                  <td className="px-3 py-2 data font-semibold !text-red-ink">-{formatMoney(i.lossAmount, i.costCurrency)}</td>
+                  <td className="px-3 py-2 data">
+                    <Link href={`/shipments/${i.sessionId}`} className="text-blue hover:underline">
+                      {i.sessionId.slice(0, 8).toUpperCase()}
+                    </Link>
+                  </td>
+                  <td className="px-3 py-2">
+                    <DismissCell pending={pending} onDismiss={() => onDismiss(i.id, "loss")} onCancel={() => onCancel(k)} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile card list — tracking number and the one headline figure
+          (the loss amount, this section's whole reason for existing) up
+          front; everything else (paid, charged, shipment link) sits behind
+          the info icon's DetailModal instead of cramming 8 columns into a
+          phone width. */}
+      <div className="md:hidden flex flex-col gap-2">
+        {items.map((i) => {
+          const k = rowKey("loss", i.id);
+          const pending = pendingKeys.has(k);
+          return (
+            <div key={i.id} className={`border border-line bg-paper-panel p-3 flex items-center gap-2 ${pending ? "opacity-50" : ""}`}>
+              <input type="checkbox" checked={selected.has(k)} onChange={() => onToggle(k)} aria-label={`Select ${i.trackingNumber}`} />
+              <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                <span className="data text-sm break-all">{i.trackingNumber}</span>
+                <span className="text-xs text-ink-faint truncate">{i.orderName ?? "No order match"}</span>
+              </div>
+              <span className="data text-sm font-semibold !text-red-ink shrink-0">-{formatMoney(i.lossAmount, i.costCurrency)}</span>
+              <button
+                type="button"
+                onClick={() => setDetail(i)}
+                aria-label="View details"
+                className="text-ink-faint hover:text-ink shrink-0"
+              >
+                <InfoIcon className="w-5 h-5" />
+              </button>
+              <DismissCell pending={pending} onDismiss={() => onDismiss(i.id, "loss")} onCancel={() => onCancel(k)} />
+            </div>
+          );
+        })}
+      </div>
+
+      {detail && (
+        <DetailModal title={detail.trackingNumber} onClose={() => setDetail(null)}>
+          <DetailRow label="Order" value={detail.orderName ?? "—"} />
+          <DetailRow label="Paid" value={formatMoney(detail.costAmount, detail.costCurrency)} />
+          <DetailRow label="Charged" value={formatMoney(detail.chargedAmount, detail.chargedCurrency)} />
+          <DetailRow label="Loss" value={<span className="!text-red-ink font-semibold">-{formatMoney(detail.lossAmount, detail.costCurrency)}</span>} />
+          <DetailRow
+            label="Shipment"
+            value={
+              <Link href={`/shipments/${detail.sessionId}`} className="text-blue hover:underline">
+                {detail.sessionId.slice(0, 8).toUpperCase()}
+              </Link>
+            }
+          />
+          {detail.trackingUrl && (
+            <DetailRow
+              label="Track"
+              value={
+                <a href={detail.trackingUrl} target="_blank" rel="noreferrer" className="text-blue hover:underline break-all">
+                  {detail.trackingNumber}
+                </a>
+              }
+            />
+          )}
+        </DetailModal>
+      )}
+    </>
   );
 }
 
@@ -400,9 +466,11 @@ function CarrierTable({
   onCancel: (k: string) => void;
 }) {
   const status = useClickPopover<string>();
+  const [detail, setDetail] = useState<CarrierRow | null>(null);
 
   return (
-    <div className="overflow-x-auto border border-line">
+    <>
+    <div className="hidden md:block overflow-x-auto border border-line">
       {/* table-fixed + colgroup — same reasoning as LossTable above: caps
           the table at 100% width so it never scrolls horizontally. Status
           gets the largest share so its `truncate` (below) only clips once
@@ -489,5 +557,68 @@ function CarrierTable({
         </tbody>
       </table>
     </div>
+
+    {/* Mobile card list — tracking number and status badge up front (the
+        two things worth a glance); order, shipment link, and age sit
+        behind the info icon's DetailModal instead of a 7-column table
+        squeezed into a phone width. */}
+    <div className="md:hidden flex flex-col gap-2">
+      {items.map((i) => {
+        const k = rowKey(i.category, i.id);
+        const pending = pendingKeys.has(k);
+        return (
+          <div key={k} className={`border border-line bg-paper-panel p-3 flex items-center gap-2 ${pending ? "opacity-50" : ""}`}>
+            <input type="checkbox" checked={selected.has(k)} onChange={() => onToggle(k)} aria-label={`Select ${i.trackingNumber}`} />
+            <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+              <span className="data text-sm break-all">{i.trackingNumber}</span>
+              <span className="text-xs text-ink-faint truncate">{i.orderName ?? "No order match"}</span>
+            </div>
+            {i.statusLabel ? (
+              <span className={`tag-label !text-[0.6rem] px-1.5 py-0.5 shrink-0 max-w-[9rem] truncate ${statusTone(i.statusLabel)}`}>
+                {i.statusLabel}
+              </span>
+            ) : (
+              <span className="text-ink-faint text-xs shrink-0">no status</span>
+            )}
+            <button
+              type="button"
+              onClick={() => setDetail(i)}
+              aria-label="View details"
+              className="text-ink-faint hover:text-ink shrink-0"
+            >
+              <InfoIcon className="w-5 h-5" />
+            </button>
+            <DismissCell pending={pending} onDismiss={() => onDismiss(i.id, i.category)} onCancel={() => onCancel(k)} />
+          </div>
+        );
+      })}
+    </div>
+
+    {detail && (
+      <DetailModal title={detail.trackingNumber} onClose={() => setDetail(null)}>
+        <DetailRow label="Order" value={detail.orderName ?? "—"} />
+        <DetailRow label="Status" value={detail.statusLabel ?? "No status yet"} />
+        <DetailRow label="Age" value={`${detail.daysSinceUpdate}d${detail.statusAt ? ` · ${formatCarrierTimestamp(detail.statusAt)}` : ""}`} />
+        <DetailRow
+          label="Shipment"
+          value={
+            <Link href={`/shipments/${detail.sessionId}`} className="text-blue hover:underline">
+              {detail.sessionId.slice(0, 8).toUpperCase()}
+            </Link>
+          }
+        />
+        {detail.trackingUrl && (
+          <DetailRow
+            label="Track"
+            value={
+              <a href={detail.trackingUrl} target="_blank" rel="noreferrer" className="text-blue hover:underline break-all">
+                {detail.trackingNumber}
+              </a>
+            }
+          />
+        )}
+      </DetailModal>
+    )}
+    </>
   );
 }

@@ -85,6 +85,11 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
   // trigger again or anywhere else (see useClickPopover).
   const scannedAt = useClickPopover<string>();
   const status = useClickPopover<string>();
+  // Cost/charged stamps are hidden on mobile (see their own comments below),
+  // so the red "!" is the only surviving hint that a parcel lost money on a
+  // phone — click it to reveal the actual paid/charged/difference figures,
+  // same click-not-hover reasoning as status/scannedAt above.
+  const lossInfo = useClickPopover<string>();
 
   return (
     <div className="overflow-x-auto border border-line">
@@ -142,18 +147,41 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                         "profitable" read against incomplete data. Green
                         confirms this parcel didn't lose money; red is the
                         same loss condition surfaced in
-                        lib/shipment-alerts.ts's exceptions system. */}
+                        lib/shipment-alerts.ts's exceptions system. The red
+                        "!" is clickable (title still covers desktop hover)
+                        since it's the only loss indicator left on mobile
+                        once the cost/charged stamps above are hidden there —
+                        tapping it reveals the actual paid/charged/difference
+                        figures the hover title would otherwise carry. */}
                     {r.shipstationCostAmount !== null && r.customerShippingAmount !== null && (
-                      <Stamp
-                        bg={isLoss ? "bg-red" : "bg-green"}
-                        title={
-                          isLoss
-                            ? `Losing money: paid ${cost}, charged ${charged}.`
-                            : `Paid ${cost}, charged ${charged} — no loss on this parcel.`
-                        }
-                      >
-                        {isLoss ? "!" : "OK"}
-                      </Stamp>
+                      isLoss ? (
+                        <span
+                          className="relative inline-flex"
+                          ref={lossInfo.openId === r.id ? (lossInfo.ref as React.RefObject<HTMLSpanElement>) : undefined}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => lossInfo.setOpenId((id) => (id === r.id ? null : r.id))}
+                            title={`Losing money: paid ${cost}, charged ${charged}.`}
+                            className="shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wide text-paper bg-red"
+                          >
+                            !
+                          </button>
+                          {lossInfo.openId === r.id && (
+                            <span className="absolute left-0 top-full mt-1 z-20 whitespace-nowrap bg-ink text-paper text-xs px-2 py-1 shadow flex flex-col gap-0.5">
+                              <span>Paid {cost}</span>
+                              <span>Charged {charged}</span>
+                              <span className="font-semibold">
+                                Difference -{formatCost(r.shipstationCostAmount - r.customerShippingAmount, r.shipstationCostCurrency)}
+                              </span>
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <Stamp bg="bg-green" title={`Paid ${cost}, charged ${charged} — no loss on this parcel.`}>
+                          OK
+                        </Stamp>
+                      )
                     )}
                   </span>
                 </td>
