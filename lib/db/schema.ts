@@ -290,3 +290,30 @@ export const dhlPickupRequest = pgTable(
       .where(sql`${t.status} = 'requested'`),
   ],
 );
+
+// Lets an admin dismiss a specific problem (exception/stale/shipping-loss —
+// see lib/shipment-alerts.ts) off /admin/exceptions once they've looked at
+// it. lib/shipment-alerts.ts's getProblemShipments has no other persisted
+// state (a deliberate "always live" design, see its own comment) — this is
+// the one exception, since "already handled" genuinely needs to survive
+// across page loads and isn't derivable from the scan's own columns.
+// Keyed by (scan, category) rather than just scan: a shipping loss is a
+// fixed historical fact once cost/charged are known, so dismissing it stays
+// dismissed forever, but an exception or stale scan can go on to develop a
+// *different* problem later — dismissing today's doesn't pre-dismiss one
+// that hasn't happened yet.
+export const problemDismissal = pgTable(
+  "problem_dismissal",
+  {
+    id: text("id").primaryKey(),
+    scanId: text("scan_id")
+      .notNull()
+      .references(() => scan.id),
+    category: text("category", { enum: ["exception", "stale", "loss"] }).notNull(),
+    dismissedAt: text("dismissed_at").notNull().default(nowUtcText),
+    dismissedBy: text("dismissed_by")
+      .notNull()
+      .references(() => appUser.id),
+  },
+  (t) => [uniqueIndex("problem_dismissal_scan_category_idx").on(t.scanId, t.category)],
+);
