@@ -4,6 +4,7 @@ import { useState } from "react";
 import { trackingUrl, statusTone } from "@/lib/carrier";
 import { formatDbTimestamp } from "@/lib/date";
 import OrderPanel from "../../OrderPanel";
+import { ClockIcon } from "./icons";
 
 type Row = {
   id: string;
@@ -50,38 +51,32 @@ function Stamp({ bg, title, children }: { bg: string; title?: string; children: 
   );
 }
 
-/** §9c click-through, from history — same OrderPanel as the live scan screen. */
+/**
+ * §9c click-through, from history — same OrderPanel as the live scan screen.
+ *
+ * Deliberately NOT `table-fixed` — every row is meant to read as one line
+ * (tracking + its badges, order + its badge), and a fixed percentage layout
+ * fights that by forcing wraps/truncation to hit a column width chosen in
+ * advance. Auto layout sizes each column to its content instead, and the
+ * outer `overflow-x-auto` wrapper below picks up the slack on narrow
+ * viewports — the same tradeoff this table already made for wide content
+ * (see the Status column) is now just handled by the browser instead of a
+ * hand-picked width.
+ */
 export default function ScanTable({ rows }: { rows: Row[] }) {
   const [openOrderGid, setOpenOrderGid] = useState<string | null>(null);
 
   return (
     <div className="overflow-x-auto border border-line">
-      <table className="w-full text-sm table-fixed">
-        <colgroup>
-          <col className="w-[60%] md:w-[28%]" />
-          <col className="w-[40%] md:w-[14%]" />
-          {/* Narrowed from 41% so a full un-truncated UPS "1Z..." tracking
-              number (widened to 28% above) actually fits on desktop —
-              status labels are still legible at this width, they just wrap
-              or truncate a little sooner on the longest ones. */}
-          <col className="hidden md:table-column md:w-[33%]" />
-          <col className="hidden md:table-column md:w-[25%]" />
-        </colgroup>
+      <table className="w-full text-sm">
         <thead className="bg-paper-dim text-ink-faint">
           <tr>
             <th className="text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
             <th className="text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
-            {/* Status/At are useful on desktop for auditing but
-                just crowd the tracking/order columns on a phone-width
-                screen — dropped there rather than shrunk further. Scanned
-                At is pinned to the right edge (md:sticky) rather than
-                sharing the table-fixed split evenly — a timestamp doesn't
-                need much room, and pinning it frees the space for Status,
-                whose carrier-status labels ("DEPARTED FROM FACILITY") are
-                the ones that actually need it. */}
             <th className="hidden md:table-cell text-left px-3 py-2 tag-label !text-ink-faint">Status</th>
             <th className="hidden md:table-cell md:sticky md:right-0 md:z-[1] text-center px-3 py-2 tag-label !text-ink-faint bg-paper-dim border-l border-line">
-              Scanned At
+              <span className="sr-only">Scanned At</span>
+              <ClockIcon className="w-3.5 h-3.5 inline-block" />
             </th>
           </tr>
         </thead>
@@ -98,83 +93,72 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
               r.shipstationCostAmount > r.customerShippingAmount;
             return (
               <tr key={r.id} className="border-t border-line bg-paper-panel">
-                <td className="px-3 py-2 data align-top">
-                  {/* Tracking number gets its own line, full width — no
-                      badge crowding it, which is what made the previous
-                      layout hard to read. Country/cost/profit-check are a
-                      second, smaller line underneath instead of squeezed
-                      onto the same line or split across two cells. */}
-                  {url ? (
-                    <a href={url} target="_blank" rel="noreferrer" className="block text-blue hover:underline truncate">
-                      {r.trackingNumber}
-                    </a>
-                  ) : (
-                    <span className="block truncate">{r.trackingNumber}</span>
-                  )}
-                  {(r.destinationCountry || cost) && (
-                    <span className="flex items-center gap-1.5 mt-1 flex-wrap">
-                      {r.destinationCountry && <Stamp bg="bg-ink" title={`Destination: ${r.destinationCountry}`}>{r.destinationCountry}</Stamp>}
-                      {cost && (
-                        <Stamp bg="bg-blue" title={`Paid to ShipStation: ${cost}`}>
-                          {cost}
-                        </Stamp>
-                      )}
-                      {/* Confirmation stamp — only rendered once both cost
-                          paid and amount charged are known, so it's never a
-                          false "profitable" read against incomplete data.
-                          Green confirms this parcel didn't lose money; red
-                          is the same loss condition surfaced in
-                          lib/shipment-alerts.ts's exceptions system. */}
-                      {r.shipstationCostAmount !== null && r.customerShippingAmount !== null && (
-                        <Stamp
-                          bg={isLoss ? "bg-red" : "bg-green"}
-                          title={
-                            isLoss
-                              ? `Losing money: paid ${cost}, charged ${charged}.`
-                              : `Paid ${cost}, charged ${charged} — no loss on this parcel.`
-                          }
-                        >
-                          {isLoss ? "!" : "OK"}
-                        </Stamp>
-                      )}
-                    </span>
-                  )}
+                <td className="px-3 py-2 data align-top whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1.5">
+                    {url ? (
+                      <a href={url} target="_blank" rel="noreferrer" className="text-blue hover:underline">
+                        {r.trackingNumber}
+                      </a>
+                    ) : (
+                      <span>{r.trackingNumber}</span>
+                    )}
+                    {r.destinationCountry && <Stamp bg="bg-ink" title={`Destination: ${r.destinationCountry}`}>{r.destinationCountry}</Stamp>}
+                    {cost && (
+                      <Stamp bg="bg-blue" title={`Paid to ShipStation: ${cost}`}>
+                        {cost}
+                      </Stamp>
+                    )}
+                    {/* Confirmation stamp — only rendered once both cost paid
+                        and amount charged are known, so it's never a false
+                        "profitable" read against incomplete data. Green
+                        confirms this parcel didn't lose money; red is the
+                        same loss condition surfaced in
+                        lib/shipment-alerts.ts's exceptions system. */}
+                    {r.shipstationCostAmount !== null && r.customerShippingAmount !== null && (
+                      <Stamp
+                        bg={isLoss ? "bg-red" : "bg-green"}
+                        title={
+                          isLoss
+                            ? `Losing money: paid ${cost}, charged ${charged}.`
+                            : `Paid ${cost}, charged ${charged} — no loss on this parcel.`
+                        }
+                      >
+                        {isLoss ? "!" : "OK"}
+                      </Stamp>
+                    )}
+                  </span>
                 </td>
-                <td className="px-3 py-2 data truncate align-top">
-                  {r.orderGid ? (
-                    <button
-                      type="button"
-                      onClick={() => setOpenOrderGid(r.orderGid)}
-                      className="text-blue hover:underline"
-                    >
-                      {r.orderName}
-                    </button>
-                  ) : r.shipstationOrderFallback || r.shipstationShipToName ? (
-                    // Fallback only — Shopify's own matching (lib/order-index.ts,
-                    // lib/epg-cron.ts) found nothing for this scan. Not a
-                    // Shopify GID, so plain text rather than an OrderPanel
-                    // button, and labeled so it's never mistaken for a real match.
-                    <span className="text-ink-faint truncate" title="No Shopify match — from ShipStation's label data">
-                      {r.shipstationOrderFallback ?? r.shipstationShipToName}
-                    </span>
-                  ) : (
-                    <span className="text-ink-faint">—</span>
-                  )}
-                  {/* What the customer was charged for shipping on this
-                      order — the figure the paid-cost stamp (above, under
-                      Tracking) is meant to be compared against. */}
-                  {charged && (
-                    <span className="block mt-1">
+                <td className="px-3 py-2 data align-top whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1.5">
+                    {r.orderGid ? (
+                      <button type="button" onClick={() => setOpenOrderGid(r.orderGid)} className="text-blue hover:underline">
+                        {r.orderName}
+                      </button>
+                    ) : r.shipstationOrderFallback || r.shipstationShipToName ? (
+                      // Fallback only — Shopify's own matching (lib/order-index.ts,
+                      // lib/epg-cron.ts) found nothing for this scan. Not a
+                      // Shopify GID, so plain text rather than an OrderPanel
+                      // button, and labeled so it's never mistaken for a real match.
+                      <span className="text-ink-faint" title="No Shopify match — from ShipStation's label data">
+                        {r.shipstationOrderFallback ?? r.shipstationShipToName}
+                      </span>
+                    ) : (
+                      <span className="text-ink-faint">—</span>
+                    )}
+                    {/* What the customer was charged for shipping on this
+                        order — the figure the paid-cost stamp (Tracking
+                        column) is meant to be compared against. */}
+                    {charged && (
                       <Stamp bg="bg-amber" title={`Charged to customer: ${charged}`}>
                         {charged}
                       </Stamp>
-                    </span>
-                  )}
+                    )}
+                  </span>
                 </td>
-                <td className="hidden md:table-cell px-3 py-2 truncate align-top" title={r.statusLabel ?? undefined}>
+                <td className="hidden md:table-cell px-3 py-2 align-top" title={r.statusLabel ?? undefined}>
                   {r.statusLabel ? (
                     <span
-                      className={`tag-label !text-[0.65rem] px-1.5 py-0.5 inline-block max-w-full truncate ${statusTone(r.statusLabel)}`}
+                      className={`tag-label !text-[0.65rem] px-1.5 py-0.5 inline-block max-w-[220px] truncate align-bottom ${statusTone(r.statusLabel)}`}
                     >
                       {r.statusLabel}
                     </span>
@@ -182,8 +166,13 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                     <span className="text-ink-faint">—</span>
                   )}
                 </td>
-                <td className="hidden md:table-cell md:sticky md:right-0 md:z-[1] text-center px-3 py-2 text-ink-faint data truncate bg-paper-panel border-l border-line align-top">
-                  {formatDbTimestamp(r.scannedAt)}
+                <td className="hidden md:table-cell md:sticky md:right-0 md:z-[1] text-center px-3 py-2 text-ink-faint bg-paper-panel border-l border-line align-top">
+                  {/* Icon instead of the full timestamp to save row width —
+                      hover/focus for the actual date and time via the
+                      native title tooltip. */}
+                  <span title={formatDbTimestamp(r.scannedAt)} className="inline-flex">
+                    <ClockIcon className="w-4 h-4" />
+                  </span>
                 </td>
               </tr>
             );

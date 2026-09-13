@@ -28,10 +28,16 @@ function apiBase(): string {
 
 export type ShipstationLabel = {
   trackingNumber: string;
-  weightLb: number;
-  lengthIn: number;
-  widthIn: number;
-  heightIn: number;
+  // Nullable independently of cost/carrierCode below — a label can be found
+  // with no package weight/dimensions on file (an older or manually-entered
+  // label), which shouldn't block cost from being reported. Caught live: a
+  // scan with a real cost paid was showing no cost at all because this used
+  // to return `null` outright whenever weight/dimensions were missing,
+  // discarding cost along with them.
+  weightLb: number | null;
+  lengthIn: number | null;
+  widthIn: number | null;
+  heightIn: number | null;
   /** What was actually paid for this label — null when the label response carries no cost (e.g. a void). */
   costAmount: number | null;
   costCurrency: string | null;
@@ -73,23 +79,24 @@ function toInches(value: number, unit: DimensionUnit): number {
 
 function parseLabel(trackingNumber: string, data: LabelsResponse): ShipstationLabel | null {
   const label = data.labels?.[0];
-  const pkg = label?.packages?.[0];
+  if (!label) return null;
+
+  const pkg = label.packages?.[0];
   const weight = pkg?.weight;
   const dimensions = pkg?.dimensions;
-  if (!weight?.value || !weight.unit || !dimensions?.length || !dimensions.width || !dimensions.height || !dimensions.unit) {
-    return null;
-  }
+  const hasWeightAndDimensions =
+    weight?.value && weight.unit && dimensions?.length && dimensions.width && dimensions.height && dimensions.unit;
 
-  const cost = label?.shipment_cost;
+  const cost = label.shipment_cost;
   return {
     trackingNumber,
-    weightLb: toLb(weight.value, weight.unit),
-    lengthIn: toInches(dimensions.length, dimensions.unit),
-    widthIn: toInches(dimensions.width, dimensions.unit),
-    heightIn: toInches(dimensions.height, dimensions.unit),
+    weightLb: hasWeightAndDimensions ? toLb(weight.value!, weight.unit!) : null,
+    lengthIn: hasWeightAndDimensions ? toInches(dimensions!.length!, dimensions!.unit!) : null,
+    widthIn: hasWeightAndDimensions ? toInches(dimensions!.width!, dimensions!.unit!) : null,
+    heightIn: hasWeightAndDimensions ? toInches(dimensions!.height!, dimensions!.unit!) : null,
     costAmount: cost?.amount ?? null,
     costCurrency: cost?.currency ?? null,
-    carrierCode: label?.carrier_code ?? null,
+    carrierCode: label.carrier_code ?? null,
   };
 }
 
