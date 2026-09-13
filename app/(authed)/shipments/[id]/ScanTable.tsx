@@ -6,7 +6,7 @@ import { formatDbTimestamp } from "@/lib/date";
 import OrderPanel from "../../OrderPanel";
 import { ClockIcon } from "./icons";
 
-type Row = {
+export type Row = {
   id: string;
   trackingNumber: string;
   carrier: string;
