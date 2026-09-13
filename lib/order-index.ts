@@ -2,7 +2,7 @@
 // reason: it's also used by standalone scripts run via bare tsx.
 import { db } from "./db";
 import { shopifyOrderIndex, scan } from "./db/schema";
-import { eq, inArray, and, isNotNull, isNull } from "drizzle-orm";
+import { eq, inArray, and, or, isNotNull, isNull } from "drizzle-orm";
 import { nowSqlTimestamp } from "./date";
 import { normalizeTrackingNumber } from "./carrier";
 import { getOrderSummary, type OrderSummary } from "./shopify";
@@ -100,7 +100,7 @@ export async function lookupOrderIndex(trackingNumber: string): Promise<{
 const MAX_ORDERS_PER_BACKFILL_RUN = 40;
 
 export type BackfillCountriesResult = {
-  /** Distinct already-matched orders still missing a country, before this run. */
+  /** Distinct already-matched orders still missing a country or a charged-shipping amount, before this run. */
   candidates: number;
   processed: number;
   updated: number;
@@ -127,7 +127,18 @@ export async function backfillDestinationCountries(): Promise<BackfillCountriesR
   const rows = await db
     .select({ orderGid: scan.orderGid, trackingNumber: scan.trackingNumber })
     .from(scan)
-    .where(and(isNotNull(scan.orderGid), isNull(scan.destinationCountry)));
+    .where(
+      and(
+        isNotNull(scan.orderGid),
+        // Either field missing counts as a candidate — a scan already
+        // backfilled for country before customerShippingAmount existed
+        // would otherwise never be revisited by this button again, since
+        // its destinationCountry is already set. Caught live: an admin ran
+        // this once for country, then charged-shipping never appeared for
+        // scans matched before that field was added.
+        or(isNull(scan.destinationCountry), isNull(scan.customerShippingAmount)),
+      ),
+    );
 
   const trackingByOrder = new Map<string, string[]>();
   for (const r of rows) {

@@ -7,11 +7,12 @@ import { actionErrorMessage } from "@/lib/error-message";
 
 /**
  * One-off maintenance action, not a settings form — there's nothing to
- * configure, just a button that fills in `destinationCountry` for scans
- * matched to an order before that column existed (see
- * lib/order-index.ts's backfillDestinationCountries). Safe to click
- * repeatedly: each run only ever fills in a currently-null value, never
- * overwrites one that's already set.
+ * configure, just a button that fills in `destinationCountry` and
+ * `customerShippingAmount` for scans matched to an order before those
+ * columns existed (see lib/order-index.ts's backfillDestinationCountries —
+ * one function, both fields, since they're written by the same call). Safe
+ * to click repeatedly: each run only ever fills in a currently-null value,
+ * never overwrites one that's already set.
  */
 export default function BackfillCountriesClient() {
   const [result, setResult] = useState<BackfillCountriesResult | null>(null);
@@ -34,11 +35,11 @@ export default function BackfillCountriesClient() {
   return (
     <div className="flex flex-col gap-3">
       <div className="route-line pb-2">
-        <h2 className="font-stencil text-xl tracking-wide">Destination Country Backfill</h2>
+        <h2 className="font-stencil text-xl tracking-wide">Order Data Backfill</h2>
         <p className="tag-label !normal-case !tracking-normal text-ink-faint mt-1">
-          Fills in the destination-country badge (shipment detail pages) for parcels that were
-          matched to an order before that badge existed. New matches already get it automatically —
-          this is only for the backlog.
+          Fills in the destination-country badge and the charged-shipping amount (shipment detail
+          pages) for parcels that were matched to an order before those existed. New matches already
+          get them automatically — this is only for the backlog.
         </p>
       </div>
 
