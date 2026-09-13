@@ -235,15 +235,25 @@ export async function lookupShipstationTracking(
       signal: AbortSignal.timeout(15_000),
     });
 
+    // TEMP: diagnosing the "genuinely unverified" endpoint/auth guess above
+    // against a real ShipStation account — see get_runtime_logs once this is
+    // deployed and the cron has run. Revert once diagnosed (matches this
+    // repo's own precedent, commit 229ad38).
+    const rawBody = await res.text();
+    console.log(
+      `[shipstation-tracking][DIAG] url=${url.toString()} status=${res.status} body=${rawBody.slice(0, 500)}`,
+    );
+
     if (!res.ok) return null;
 
-    const data = (await res.json()) as TrackingResponse;
+    const data = JSON.parse(rawBody) as TrackingResponse;
     return {
       trackingNumber,
       estimatedDeliveryAt: data.estimated_delivery_date ?? null,
       actualDeliveryAt: data.actual_delivery_date ?? null,
     };
-  } catch {
+  } catch (err) {
+    console.log(`[shipstation-tracking][DIAG] threw: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
