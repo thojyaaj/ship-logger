@@ -127,6 +127,13 @@
       "when": 1789317848459,
       "tag": "0017_glamorous_human_fly",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789321169722,
+      "tag": "0018_narrow_tyrannus",
+      "breakpoints": true
     }
   ]
 }

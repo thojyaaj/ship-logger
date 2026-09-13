@@ -1,10 +1,13 @@
 import "server-only";
 import { db } from "./db";
-import { scan, shipmentSession } from "./db/schema";
+import { scan, shipmentSession, problemDismissal } from "./db/schema";
 import { and, eq, gt, inArray, isNull, ne } from "drizzle-orm";
-import { toSqlTimestamp, parseCarrierTimestamp } from "./date";
+import { toSqlTimestamp, parseCarrierTimestamp, nowSqlTimestamp } from "./date";
 import { carrierLabel, trackingUrl, EXCEPTION_STATUS_RE, type Carrier } from "./carrier";
 import { sendAlertEmail } from "./email";
+import { newId } from "./id";
+
+export type ProblemCategory = "exception" | "stale" | "loss";
 
 const LOOKBACK_DAYS = 90;
 const STALE_DAYS = 7;
@@ -100,6 +103,20 @@ export async function getProblemShipments(): Promise<ProblemShipments> {
       ),
     );
 
+  // Admin-dismissed (scan, category) pairs — see problemDismissal's comment
+  // in lib/db/schema.ts for why this is keyed per-category rather than
+  // per-scan. Fetched once for every scan in play rather than per-row.
+  const scanIds = rows.map((r) => r.id);
+  const dismissedRows =
+    scanIds.length > 0
+      ? await db
+          .select({ scanId: problemDismissal.scanId, category: problemDismissal.category })
+          .from(problemDismissal)
+          .where(inArray(problemDismissal.scanId, scanIds))
+      : [];
+  const dismissed = new Set(dismissedRows.map((d) => `${d.scanId}:${d.category}`));
+  const isDismissed = (scanId: string, category: ProblemCategory) => dismissed.has(`${scanId}:${category}`);
+
   const exceptions: ProblemScan[] = [];
   const stale: ProblemScan[] = [];
   const losses: ShippingLossScan[] = [];
@@ -110,7 +127,8 @@ export async function getProblemShipments(): Promise<ProblemShipments> {
     if (
       r.shipstationCostAmount !== null &&
       r.customerShippingAmount !== null &&
-      r.shipstationCostAmount > r.customerShippingAmount
+      r.shipstationCostAmount > r.customerShippingAmount &&
+      !isDismissed(r.id, "loss")
     ) {
       losses.push({
         id: r.id,
@@ -144,14 +162,15 @@ export async function getProblemShipments(): Promise<ProblemShipments> {
     };
 
     if (isException(r.statusLabel)) {
-      exceptions.push(entry);
+      if (!isDismissed(r.id, "exception")) exceptions.push(entry);
       continue; // an exception scan isn't also double-counted as stale
     }
 
     if (
       STALE_CARRIERS.includes(r.carrier as Carrier) &&
       !isTerminal(r.statusLabel) &&
-      entry.daysSinceUpdate >= STALE_DAYS
+      entry.daysSinceUpdate >= STALE_DAYS &&
+      !isDismissed(r.id, "stale")
     ) {
       stale.push(entry);
     }
@@ -170,6 +189,33 @@ export type ProblemSummary = { exceptionCount: number; staleCount: number; lossC
 export async function getProblemSummary(): Promise<ProblemSummary> {
   const { exceptions, stale, losses } = await getProblemShipments();
   return { exceptionCount: exceptions.length, staleCount: stale.length, lossCount: losses.length };
+}
+
+/**
+ * Marks one (scan, category) problem as handled — excluded from
+ * getProblemShipments, and therefore the banner/digest/exceptions page,
+ * from then on. Idempotent: dismissing an already-dismissed pair is a
+ * no-op rather than an error, so a double-click or a stale UI retry can't
+ * fail.
+ */
+export async function dismissProblem(scanId: string, category: ProblemCategory, dismissedBy: string): Promise<void> {
+  await db
+    .insert(problemDismissal)
+    .values({ id: newId(), scanId, category, dismissedBy, dismissedAt: nowSqlTimestamp() })
+    .onConflictDoNothing({ target: [problemDismissal.scanId, problemDismissal.category] });
+}
+
+/** Bulk version for the "Dismiss selected" action on /admin/exceptions — one insert for the whole selection instead of one round-trip per row. */
+export async function dismissProblems(
+  items: { scanId: string; category: ProblemCategory }[],
+  dismissedBy: string,
+): Promise<void> {
+  if (items.length === 0) return;
+  const now = nowSqlTimestamp();
+  await db
+    .insert(problemDismissal)
+    .values(items.map((item) => ({ id: newId(), scanId: item.scanId, category: item.category, dismissedBy, dismissedAt: now })))
+    .onConflictDoNothing({ target: [problemDismissal.scanId, problemDismissal.category] });
 }
 
 function rowsHtml(items: ProblemScan[]): string {
