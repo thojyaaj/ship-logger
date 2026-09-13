@@ -89,9 +89,18 @@ export async function estimateBestRate(input: RateEstimateInput): Promise<BestRa
       signal: AbortSignal.timeout(15_000),
     });
 
+    // TEMP: diagnosing the "genuinely unverified" request/response shape
+    // above against a real ShipStation account — see get_runtime_logs once
+    // this is deployed and the cron has run. Revert once diagnosed (matches
+    // this repo's own precedent, commit 229ad38).
+    const rawBody = await res.text();
+    console.log(
+      `[shipstation-rates][DIAG] status=${res.status} request=${JSON.stringify(body)} response=${rawBody.slice(0, 800)}`,
+    );
+
     if (!res.ok) return null;
 
-    const data = (await res.json()) as RatesEstimateResponse;
+    const data = JSON.parse(rawBody) as RatesEstimateResponse;
     const withAmount = extractRates(data).filter(
       (r): r is RateQuote & { shipping_amount: { amount: number; currency?: string } } =>
         typeof r.shipping_amount?.amount === "number",
@@ -104,7 +113,8 @@ export async function estimateBestRate(input: RateEstimateInput): Promise<BestRa
       currency: best.shipping_amount.currency ?? "usd",
       carrierCode: best.carrier_code ?? null,
     };
-  } catch {
+  } catch (err) {
+    console.log(`[shipstation-rates][DIAG] threw: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
