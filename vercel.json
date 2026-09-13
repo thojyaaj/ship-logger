@@ -35,6 +35,10 @@
       "schedule": "25 9 * * *"
     },
     {
+      "path": "/api/cron/shipstation-rate-shop",
+      "schedule": "26 9 * * *"
+    },
+    {
       "path": "/api/cron/purge-trash",
       "schedule": "30 9 * * *"
     },

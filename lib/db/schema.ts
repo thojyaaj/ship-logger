@@ -149,6 +149,14 @@ export const scan = pgTable(
     shipstationEstimatedDeliveryAt: text("shipstation_estimated_delivery_at"),
     shipstationActualDeliveryAt: text("shipstation_actual_delivery_at"),
     shipstationDeliveryCheckedAt: text("shipstation_delivery_checked_at"),
+    // Rate-shop savings (lib/shipstation-rate-shop-cron.ts) — the cheapest
+    // quote ShipStation's rate-estimate endpoint returned for this parcel's
+    // real weight/dims/destination, to compare against what was actually
+    // paid (shipstationCostAmount above). Same unverified-endpoint caveat as
+    // the delivery-estimate columns — see lib/shipstation-rates.ts.
+    shipstationBestRateAmount: real("shipstation_best_rate_amount"),
+    shipstationBestRateCarrier: text("shipstation_best_rate_carrier"),
+    shipstationBestRateCheckedAt: text("shipstation_best_rate_checked_at"),
   },
   (t) => [uniqueIndex("scan_tracking_number_idx").on(t.trackingNumber)],
 );
