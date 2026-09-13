@@ -13,8 +13,20 @@ type Row = {
   orderGid: string | null;
   orderName: string | null;
   destinationCountry: string | null;
+  shipstationCostAmount: number | null;
+  shipstationCostCurrency: string | null;
   statusLabel: string | null;
 };
+
+/** What the label actually cost, from ShipStation — null renders nothing (same "omit, don't blank" convention as the other ShipStation-sourced fields here). */
+function formatCost(amount: number | null, currency: string | null): string | null {
+  if (amount === null) return null;
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: currency ?? "USD" }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)}${currency ? ` ${currency}` : ""}`;
+  }
+}
 
 /** §9c click-through, from history — same OrderPanel as the live scan screen. */
 export default function ScanTable({ rows }: { rows: Row[] }) {
@@ -50,6 +62,7 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
         <tbody>
           {rows.map((r) => {
             const url = trackingUrl(r.carrier as "epg" | "ups" | "dhl", r.trackingNumber);
+            const cost = formatCost(r.shipstationCostAmount, r.shipstationCostCurrency);
             return (
               <tr key={r.id} className="border-t border-line bg-paper-panel">
                 <td className="px-3 py-2 data truncate">
@@ -89,6 +102,7 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                   ) : (
                     <span className="text-ink-faint">—</span>
                   )}
+                  {cost && <span className="block text-[0.65rem] text-ink-faint">{cost}</span>}
                 </td>
                 <td className="hidden md:table-cell px-3 py-2 truncate" title={r.statusLabel ?? undefined}>
                   {r.statusLabel ? (

@@ -44,6 +44,8 @@ export type ScanRow = {
   orderGid: string | null;
   orderName: string | null;
   destinationCountry: string | null;
+  shipstationCostAmount: number | null;
+  shipstationCostCurrency: string | null;
   epgExternalRef: string | null;
   epgFinalMile: string | null;
   statusLabel: string | null;
@@ -107,6 +109,8 @@ async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
     orderGid: s.orderGid,
     orderName: s.orderName,
     destinationCountry: s.destinationCountry,
+    shipstationCostAmount: s.shipstationCostAmount,
+    shipstationCostCurrency: s.shipstationCostCurrency,
     epgExternalRef: s.epgExternalRef,
     epgFinalMile: s.epgFinalMile,
     statusLabel: s.statusLabel,

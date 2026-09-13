@@ -30,13 +30,14 @@ export type ShipstationLabelCronResult = {
 };
 
 /**
- * Backfills real per-parcel weight/dimensions from ShipStation for scanned
- * DHL parcels (see lib/shipstation.ts) — only DHL for now, since the pickup
- * weight calculation in lib/dhl-pickup.ts is the only consumer. A scan
- * missing all four `shipstation*` columns is the "not yet backfilled"
- * signal; a lookup that fails or comes back empty just gets
- * `shipstationCheckedAt` stamped so it cycles to the back of the queue
- * instead of blocking the batch every run.
+ * Backfills real per-parcel weight/dimensions/cost from ShipStation for
+ * every scanned parcel (see lib/shipstation.ts) — every EPG/UPS/DHL label
+ * ships through ShipStation, so this covers all three, not just DHL (DHL
+ * pickup's weight calculation was the only consumer when this started, but
+ * cost analytics needs full coverage). A scan missing
+ * `shipstationWeightLb` is the "not yet backfilled" signal; a lookup that
+ * fails or comes back empty just gets `shipstationCheckedAt` stamped so it
+ * cycles to the back of the queue instead of blocking the batch every run.
  */
 export async function runShipstationLabelCron(): Promise<ShipstationLabelCronResult> {
   const cutoff = toSqlTimestamp(new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000));
@@ -44,7 +45,7 @@ export async function runShipstationLabelCron(): Promise<ShipstationLabelCronRes
   const allRecent = await db
     .select()
     .from(scan)
-    .where(and(eq(scan.carrier, "dhl"), isNull(scan.shipstationWeightLb), gt(scan.scannedAt, cutoff)));
+    .where(and(isNull(scan.shipstationWeightLb), gt(scan.scannedAt, cutoff)));
 
   // Oldest-checked-first (nulls — never checked — sort first) so a backlog
   // beyond MAX_LOOKUPS_PER_RUN drains breadth-first across runs instead of
@@ -75,6 +76,8 @@ export async function runShipstationLabelCron(): Promise<ShipstationLabelCronRes
         shipstationLengthIn: label.lengthIn,
         shipstationWidthIn: label.widthIn,
         shipstationHeightIn: label.heightIn,
+        shipstationCostAmount: label.costAmount,
+        shipstationCostCurrency: label.costCurrency,
         shipstationCheckedAt: now,
       })
       .where(eq(scan.id, s.id));

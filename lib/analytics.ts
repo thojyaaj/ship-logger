@@ -152,6 +152,65 @@ export async function getCarrierMix(days: number): Promise<CarrierMixPoint[]> {
   });
 }
 
+export type CostByCarrierPoint = { carrier: Carrier; totalCost: number; avgCost: number | null; count: number };
+export type CostStats = {
+  totalCost: number;
+  avgCostPerPackage: number | null;
+  /** First non-null currency seen — this app ships from one warehouse, so mixed currencies aren't expected in practice. */
+  currency: string | null;
+  byCarrier: CostByCarrierPoint[];
+};
+
+/**
+ * Real shipping cost over the window, from ShipStation label data
+ * (lib/shipstation-cron.ts backfills `scan.shipstationCostAmount` for every
+ * carrier). Only counts scans a label cost has actually been backfilled
+ * for — a shipment with zero backfilled parcels yet just reads as $0/null,
+ * not a false "free shipping" claim, since `count` and `avgCostPerPackage`
+ * make that gap visible on the page rather than silently averaging over it.
+ */
+export async function getCostStats(days: number): Promise<CostStats> {
+  const rows = await db
+    .select({
+      carrier: scan.carrier,
+      totalCost: sql<number>`coalesce(sum(${scan.shipstationCostAmount}), 0)`,
+      count: sql<number>`count(${scan.shipstationCostAmount})`,
+      currency: sql<string | null>`max(${scan.shipstationCostCurrency})`,
+    })
+    .from(scan)
+    .innerJoin(shipmentSession, eq(scan.sessionId, shipmentSession.id))
+    .where(submittedInWindow(days))
+    .groupBy(scan.carrier);
+
+  let totalCost = 0;
+  let totalCount = 0;
+  let currency: string | null = null;
+  const byCarrier: CostByCarrierPoint[] = [];
+  for (const carrier of CARRIER_ORDER) {
+    const row = rows.find((r) => r.carrier === carrier);
+    const carrierTotal = Number(row?.totalCost ?? 0);
+    const carrierCount = Number(row?.count ?? 0);
+    if (row?.currency && !currency) currency = row.currency;
+    totalCost += carrierTotal;
+    totalCount += carrierCount;
+    if (carrierCount > 0) {
+      byCarrier.push({
+        carrier,
+        totalCost: Math.round(carrierTotal * 100) / 100,
+        avgCost: Math.round((carrierTotal / carrierCount) * 100) / 100,
+        count: carrierCount,
+      });
+    }
+  }
+
+  return {
+    totalCost: Math.round(totalCost * 100) / 100,
+    avgCostPerPackage: totalCount > 0 ? Math.round((totalCost / totalCount) * 100) / 100 : null,
+    currency,
+    byCarrier,
+  };
+}
+
 export type PackerStat = {
   userId: string;
   name: string;

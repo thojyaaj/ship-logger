@@ -116,17 +116,20 @@ export const scan = pgTable(
     statusLabel: text("status_label"),
     statusAt: text("status_at"),
     statusCheckedAt: text("status_checked_at"),
-    // Real per-parcel weight/dimensions as captured by ShipStation at label
-    // creation (every EPG/UPS/DHL label ships through it) — currently only
-    // backfilled for DHL scans, by the shipstation-labels cron, to replace
-    // the manual per-parcel estimate used when booking a DHL pickup (see
-    // lib/dhl-pickup.ts). All four columns are written together or not at
-    // all, so `shipstationWeightLb IS NULL` is a reliable "not yet
-    // backfilled" signal.
+    // Real per-parcel weight/dimensions/cost as captured by ShipStation at
+    // label creation, backfilled for every carrier by the shipstation-labels
+    // cron (every EPG/UPS/DHL label ships through it) — weight/dims feed the
+    // DHL pickup calculation (lib/dhl-pickup.ts), cost feeds the cost
+    // analytics in lib/analytics.ts. Written together or not at all, so
+    // `shipstationWeightLb IS NULL` is a reliable "not yet backfilled" signal.
     shipstationWeightLb: real("shipstation_weight_lb"),
     shipstationLengthIn: real("shipstation_length_in"),
     shipstationWidthIn: real("shipstation_width_in"),
     shipstationHeightIn: real("shipstation_height_in"),
+    // Nullable independent of the four above — a label can come back with no
+    // cost (e.g. a void), which shouldn't be treated as "not yet backfilled".
+    shipstationCostAmount: real("shipstation_cost_amount"),
+    shipstationCostCurrency: text("shipstation_cost_currency"),
     shipstationCheckedAt: text("shipstation_checked_at"),
   },
   (t) => [uniqueIndex("scan_tracking_number_idx").on(t.trackingNumber)],
