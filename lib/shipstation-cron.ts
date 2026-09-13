@@ -86,9 +86,7 @@ export async function runShipstationLabelCron(): Promise<ShipstationLabelCronRes
   for (let i = 0; i < batch.length; i++) {
     if (i > 0) await sleep(RATE_LIMIT_MS);
     const s = batch[i];
-    // diag:true for DHL only — see lookupShipstationLabel's own comment;
-    // this is the one carrier whose cost coverage is stuck at zero.
-    const label = await lookupShipstationLabel(s.trackingNumber, { diag: s.carrier === "dhl" });
+    const label = await lookupShipstationLabel(s.trackingNumber);
 
     if (!label) {
       await db.update(scan).set({ shipstationCheckedAt: now }).where(eq(scan.id, s.id));
