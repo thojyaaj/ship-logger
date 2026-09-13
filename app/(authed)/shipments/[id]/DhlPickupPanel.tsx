@@ -218,7 +218,13 @@ export default function DhlPickupPanel({
                 {preview.readyTimeLabel} – {preview.closeTimeLabel}
               </span>
               <span className="block text-ink-faint mt-2">
-                {preview.parcelCount} parcel(s), ~{preview.totalWeightLb} lb
+                {preview.parcelCount} parcel(s), {preview.measuredCount > 0 ? "" : "~"}
+                {preview.totalWeightLb} lb
+                {preview.measuredCount >= preview.parcelCount
+                  ? " (measured)"
+                  : preview.measuredCount > 0
+                    ? ` (${preview.measuredCount} of ${preview.parcelCount} measured)`
+                    : " (estimated)"}
               </span>
             </>
           }

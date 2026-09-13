@@ -111,6 +111,18 @@ export const scan = pgTable(
     statusLabel: text("status_label"),
     statusAt: text("status_at"),
     statusCheckedAt: text("status_checked_at"),
+    // Real per-parcel weight/dimensions as captured by ShipStation at label
+    // creation (every EPG/UPS/DHL label ships through it) — currently only
+    // backfilled for DHL scans, by the shipstation-labels cron, to replace
+    // the manual per-parcel estimate used when booking a DHL pickup (see
+    // lib/dhl-pickup.ts). All four columns are written together or not at
+    // all, so `shipstationWeightLb IS NULL` is a reliable "not yet
+    // backfilled" signal.
+    shipstationWeightLb: real("shipstation_weight_lb"),
+    shipstationLengthIn: real("shipstation_length_in"),
+    shipstationWidthIn: real("shipstation_width_in"),
+    shipstationHeightIn: real("shipstation_height_in"),
+    shipstationCheckedAt: text("shipstation_checked_at"),
   },
   (t) => [uniqueIndex("scan_tracking_number_idx").on(t.trackingNumber)],
 );
