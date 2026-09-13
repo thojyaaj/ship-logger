@@ -105,6 +105,11 @@ export const scan = pgTable(
     sequence: integer("sequence").notNull(),
     orderGid: text("order_gid"),
     orderName: text("order_name"),
+    // 2-letter (Shopify's countryCodeV2) — carried through the same
+    // order-matching paths as orderGid/orderName above (see lib/shiplog.ts's
+    // recordScan, lib/order-index.ts's upsertOrderIndex, and
+    // lib/epg-cron.ts's ERef resolution), never looked up separately.
+    destinationCountry: text("destination_country"),
     epgExternalRef: text("epg_external_ref"),
     epgFinalMile: text("epg_final_mile"),
     statusCode: text("status_code"),
@@ -150,6 +155,9 @@ export const shopifyOrderIndex = pgTable("shopify_order_index", {
   orderName: text("order_name").notNull(),
   customerName: text("customer_name"),
   destination: text("destination"),
+  // 2-letter (Shopify's countryCodeV2) — see scan.destinationCountry's
+  // comment; this is the local-index copy lookupOrderIndex hands back.
+  destinationCountry: text("destination_country"),
   updatedAt: text("updated_at").notNull().default(nowUtcText),
 });
 

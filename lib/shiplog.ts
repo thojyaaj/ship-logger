@@ -43,6 +43,7 @@ export type ScanRow = {
   sequence: number;
   orderGid: string | null;
   orderName: string | null;
+  destinationCountry: string | null;
   epgExternalRef: string | null;
   epgFinalMile: string | null;
   statusLabel: string | null;
@@ -105,6 +106,7 @@ async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
     sequence: s.sequence,
     orderGid: s.orderGid,
     orderName: s.orderName,
+    destinationCountry: s.destinationCountry,
     epgExternalRef: s.epgExternalRef,
     epgFinalMile: s.epgFinalMile,
     statusLabel: s.statusLabel,
@@ -446,6 +448,7 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
     sequence,
     orderGid: orderMatch?.orderGid,
     orderName: orderMatch?.orderName,
+    destinationCountry: orderMatch?.destinationCountry,
   });
 
   const dashboard = await loadDashboard(session.id);

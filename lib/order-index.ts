@@ -37,6 +37,7 @@ export async function upsertOrderIndex(
         orderName: order.name,
         customerName: order.customerName,
         destination: order.destination,
+        destinationCountry: order.destinationCountry,
         updatedAt: now,
       })
       .onConflictDoUpdate({
@@ -46,6 +47,7 @@ export async function upsertOrderIndex(
           orderName: order.name,
           customerName: order.customerName,
           destination: order.destination,
+          destinationCountry: order.destinationCountry,
           updatedAt: now,
         },
       });
@@ -53,16 +55,20 @@ export async function upsertOrderIndex(
 
   await db
     .update(scan)
-    .set({ orderGid: order.gid, orderName: order.name })
+    .set({ orderGid: order.gid, orderName: order.name, destinationCountry: order.destinationCountry })
     .where(inArray(scan.trackingNumber, normalized));
 }
 
 /** Local, no-network lookup used at scan time (§9c) and on shipment detail pages. */
 export async function lookupOrderIndex(
   trackingNumber: string,
-): Promise<{ orderGid: string; orderName: string } | null> {
+): Promise<{ orderGid: string; orderName: string; destinationCountry: string | null } | null> {
   const rows = await db
-    .select({ orderGid: shopifyOrderIndex.orderGid, orderName: shopifyOrderIndex.orderName })
+    .select({
+      orderGid: shopifyOrderIndex.orderGid,
+      orderName: shopifyOrderIndex.orderName,
+      destinationCountry: shopifyOrderIndex.destinationCountry,
+    })
     .from(shopifyOrderIndex)
     .where(eq(shopifyOrderIndex.trackingNumber, normalizeTrackingNumber(trackingNumber)))
     .limit(1);

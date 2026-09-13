@@ -98,7 +98,7 @@ export async function shopifyGraphql<T>(
   return json.data;
 }
 
-export type ResolvedOrder = { gid: string; name: string };
+export type ResolvedOrder = { gid: string; name: string; destinationCountry: string | null };
 
 /**
  * §9a — resolves an EPG parcel's order via its `ERef` (the Shopify order
@@ -116,11 +116,13 @@ export async function findOrderByName(name: string): Promise<ResolvedOrder | nul
   // closing that phrase early.
   const quoted = `"${name.replace(/["\\]/g, (ch) => `\\${ch}`)}"`;
   const data = await shopifyGraphql<{
-    orders: { edges: { node: { id: string; name: string } }[] };
+    orders: {
+      edges: { node: { id: string; name: string; shippingAddress: { countryCodeV2: string | null } | null } }[];
+    };
   }>(
     `query($query: String!) {
       orders(first: 1, query: $query) {
-        edges { node { id name } }
+        edges { node { id name shippingAddress { countryCodeV2 } } }
       }
     }`,
     { query: `name:${quoted}` },
@@ -139,7 +141,7 @@ export async function findOrderByName(name: string): Promise<ResolvedOrder | nul
   // Normalizing keeps the safety property (it's still the same order name)
   // without failing on cosmetics.
   return orderNameKey(node.name) === orderNameKey(name)
-    ? { gid: node.id, name: node.name }
+    ? { gid: node.id, name: node.name, destinationCountry: node.shippingAddress?.countryCodeV2 ?? null }
     : null;
 }
 
@@ -271,6 +273,7 @@ export type OrderSummary = {
   name: string;
   customerName: string | null;
   destination: string | null;
+  destinationCountry: string | null;
 };
 
 /**
@@ -289,7 +292,7 @@ export async function getOrderSummary(orderId: string | number): Promise<OrderSu
     id: string;
     name: string;
     customer: { displayName: string } | null;
-    shippingAddress: { formatted: string[] } | null;
+    shippingAddress: { formatted: string[]; countryCodeV2: string | null } | null;
   };
 
   let order: OrderFields | null;
@@ -300,7 +303,7 @@ export async function getOrderSummary(orderId: string | number): Promise<OrderSu
           id
           name
           customer { displayName }
-          shippingAddress { formatted }
+          shippingAddress { formatted countryCodeV2 }
         }
       }`,
       { id: gid },
@@ -319,7 +322,7 @@ export async function getOrderSummary(orderId: string | number): Promise<OrderSu
         order(id: $id) {
           id
           name
-          shippingAddress { formatted }
+          shippingAddress { formatted countryCodeV2 }
         }
       }`,
       { id: gid },
@@ -332,6 +335,7 @@ export async function getOrderSummary(orderId: string | number): Promise<OrderSu
     gid: order.id,
     name: order.name,
     customerName: order.customer?.displayName ?? null,
+    destinationCountry: order.shippingAddress?.countryCodeV2 ?? null,
     destination: order.shippingAddress?.formatted.join(", ") ?? null,
   };
 }

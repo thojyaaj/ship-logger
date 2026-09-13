@@ -85,6 +85,13 @@
       "when": 1789282643275,
       "tag": "0011_mighty_dust",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789284415707,
+      "tag": "0012_solid_photon",
+      "breakpoints": true
     }
   ]
 }
