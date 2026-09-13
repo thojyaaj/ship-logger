@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "./db";
-import { appUser, dhlPickupSettings, dhlPickupRequest, shipmentSession } from "./db/schema";
+import { appUser, dhlPickupSettings, dhlPickupRequest, shipmentSession, scan } from "./db/schema";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { newId } from "./id";
 import {
@@ -10,7 +10,7 @@ import {
   nextCalendarDate,
   localCalendarDate,
 } from "./date";
-import { requestDhlPickup, cancelDhlPickup } from "./dhl";
+import { requestDhlPickup, cancelDhlPickup, type PickupPackageDimensions } from "./dhl";
 import { getShipmentDetail, ShipmentNotFoundError } from "./shiplog";
 
 // One warehouse, one pickup address/account — a fixed-id singleton row
@@ -320,9 +320,62 @@ function formatPickupDateLabel(date: string): string {
   }).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
+type DhlWeightAndDimensions = {
+  totalWeightLb: number;
+  dimensions: PickupPackageDimensions;
+  measuredCount: number;
+};
+
+/**
+ * Blends real per-parcel weight/dimensions (backfilled from ShipStation by
+ * the shipstation-labels cron — see lib/shipstation-cron.ts) with the
+ * settings estimate for any DHL parcel not yet measured, so pickup accuracy
+ * improves as backfill coverage grows without ever blocking on it. DHL's
+ * pickup API takes one aggregate package block, not per-parcel dimensions
+ * (see lib/dhl.ts's requestDhlPickup), so dimensions are a weighted average
+ * across measured and estimated parcels rather than a per-parcel list.
+ */
+async function computeDhlWeightAndDimensions(
+  sessionId: string,
+  parcelCount: number,
+  settings: Pick<DhlPickupSettings, "avgWeightLbPerParcel" | "avgLengthIn" | "avgWidthIn" | "avgHeightIn">,
+): Promise<DhlWeightAndDimensions> {
+  const dhlScans = await db
+    .select({
+      weightLb: scan.shipstationWeightLb,
+      lengthIn: scan.shipstationLengthIn,
+      widthIn: scan.shipstationWidthIn,
+      heightIn: scan.shipstationHeightIn,
+    })
+    .from(scan)
+    .where(and(eq(scan.sessionId, sessionId), eq(scan.carrier, "dhl")));
+
+  const measured = dhlScans.filter(
+    (s): s is { weightLb: number; lengthIn: number; widthIn: number; heightIn: number } =>
+      s.weightLb !== null && s.lengthIn !== null && s.widthIn !== null && s.heightIn !== null,
+  );
+  const measuredCount = measured.length;
+  const estimatedCount = Math.max(0, parcelCount - measuredCount);
+
+  const measuredWeightSum = measured.reduce((sum, s) => sum + s.weightLb, 0);
+  const totalWeightLb = Math.max(1, Math.round(measuredWeightSum + estimatedCount * settings.avgWeightLbPerParcel));
+
+  const dimensions: PickupPackageDimensions =
+    measuredCount === 0
+      ? { length: settings.avgLengthIn, width: settings.avgWidthIn, height: settings.avgHeightIn }
+      : {
+          length: (measured.reduce((sum, s) => sum + s.lengthIn, 0) + estimatedCount * settings.avgLengthIn) / parcelCount,
+          width: (measured.reduce((sum, s) => sum + s.widthIn, 0) + estimatedCount * settings.avgWidthIn) / parcelCount,
+          height: (measured.reduce((sum, s) => sum + s.heightIn, 0) + estimatedCount * settings.avgHeightIn) / parcelCount,
+        };
+
+  return { totalWeightLb, dimensions, measuredCount };
+}
+
 export type PreviewPickup = {
   parcelCount: number;
   totalWeightLb: number;
+  measuredCount: number;
   pickupDateLabel: string;
   readyTimeLabel: string;
   closeTimeLabel: string;
@@ -359,13 +412,14 @@ export async function previewPickupForSession(sessionId: string): Promise<Previe
     return { status: "error", message: "This shipment has no DHL parcels." };
   }
 
-  const totalWeightLb = Math.max(1, Math.round(parcelCount * settings.avgWeightLbPerParcel));
+  const { totalWeightLb, measuredCount } = await computeDhlWeightAndDimensions(sessionId, parcelCount, settings);
   const pickupDate = resolvePickupDate(dashboard.session.shipDate, settings);
   return {
     status: "ok",
     preview: {
       parcelCount,
       totalWeightLb,
+      measuredCount,
       pickupDateLabel: formatPickupDateLabel(pickupDate),
       readyTimeLabel: formatHHMMTo12Hour(settings.readyTime),
       closeTimeLabel: formatHHMMTo12Hour(settings.closeTime),
@@ -379,6 +433,7 @@ export type SchedulePickupResult =
       dispatchConfirmationNumber: string;
       parcelCount: number;
       totalWeightLb: number;
+      measuredCount: number;
       requestedByName: string;
       pickupDateLabel: string;
       readyTimeLabel: string;
@@ -429,7 +484,7 @@ export async function schedulePickupForSession(
   if (parcelCount === 0) {
     return { status: "error", message: "This shipment has no DHL parcels." };
   }
-  const totalWeightLb = Math.max(1, Math.round(parcelCount * settings.avgWeightLbPerParcel));
+  const { totalWeightLb, dimensions, measuredCount } = await computeDhlWeightAndDimensions(sessionId, parcelCount, settings);
   const pickupDate = resolvePickupDate(session.shipDate, settings);
 
   const result = await requestDhlPickup({
@@ -449,11 +504,8 @@ export async function schedulePickupForSession(
     },
     parcelCount,
     totalWeightLb,
-    dimensions: {
-      length: settings.avgLengthIn,
-      width: settings.avgWidthIn,
-      height: settings.avgHeightIn,
-    },
+    measuredCount,
+    dimensions,
     specialInstructions: settings.specialInstructions ?? undefined,
   });
 
@@ -490,6 +542,7 @@ export async function schedulePickupForSession(
       dispatchConfirmationNumber: result.dispatchConfirmationNumber,
       parcelCount,
       totalWeightLb,
+      measuredCount,
       requestedByName,
       pickupDateLabel: formatPickupDateLabel(pickupDate),
       readyTimeLabel: formatHHMMTo12Hour(settings.readyTime),

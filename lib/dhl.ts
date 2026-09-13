@@ -56,8 +56,15 @@ export type PickupRequestInput = {
   address: PickupAddress;
   parcelCount: number;
   totalWeightLb: number;
-  /** Per-package estimate, inches — required by DHL's pickup API even though
-   * packages here aren't individually measured (see lib/dhl-pickup.ts). */
+  /** How many of `parcelCount` carried a real ShipStation-measured weight
+   * (see lib/dhl-pickup.ts's computeDhlWeightAndDimensions) — 0 means the
+   * whole total is the settings estimate; used only to word `remark`
+   * honestly below, not sent to DHL as a structured field. */
+  measuredCount: number;
+  /** Inches — a real per-parcel average where ShipStation data exists,
+   * falling back to the settings estimate for any unmeasured parcel (see
+   * lib/dhl-pickup.ts). Required by DHL's pickup API as one aggregate
+   * package block regardless. */
   dimensions: PickupPackageDimensions;
   specialInstructions?: string;
 };
@@ -69,6 +76,13 @@ export type PickupRequestResult =
 type PickupApiResponse = {
   dispatchConfirmationNumbers?: string[];
 };
+
+/** Wording for the pickup remark — honest about how much of the weight is real vs. estimated. */
+function weightSourceLabel(measuredCount: number, parcelCount: number): string {
+  if (measuredCount <= 0) return "unweighed estimate";
+  if (measuredCount >= parcelCount) return "ShipStation-measured";
+  return `${measuredCount} of ${parcelCount} ShipStation-measured, rest estimated`;
+}
 
 function authHeader(): string {
   const key = process.env.DHL_CLIENT_ID;
@@ -132,7 +146,7 @@ export async function requestDhlPickup(input: PickupRequestInput): Promise<Picku
       ...(input.specialInstructions
         ? { specialInstructions: [{ value: input.specialInstructions }] }
         : {}),
-      remark: `Ship Logger — ${input.parcelCount} DHL parcel(s), ~${input.totalWeightLb} lb total (unweighed estimate)`,
+      remark: `Ship Logger — ${input.parcelCount} DHL parcel(s), ${input.totalWeightLb} lb total (${weightSourceLabel(input.measuredCount, input.parcelCount)})`,
     };
 
     const res = await fetch(`${apiBase()}/pickups`, {
