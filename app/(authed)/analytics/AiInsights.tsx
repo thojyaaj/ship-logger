@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { generateInsightsAction } from "./actions";
 import { actionErrorMessage } from "@/lib/error-message";
+import SimpleMarkdown from "./SimpleMarkdown";
 
 /**
  * On-demand only — the button click is the only thing that triggers a real
@@ -52,7 +53,11 @@ export default function AiInsights({ windowDays, snapshot }: { windowDays: numbe
 
       {error && <p className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm">{error}</p>}
 
-      {result && <div className="text-sm whitespace-pre-wrap font-condensed border-t border-line pt-3">{result}</div>}
+      {result && (
+        <div className="text-sm font-condensed border-t border-line pt-3">
+          <SimpleMarkdown text={result} />
+        </div>
+      )}
     </div>
   );
 }
