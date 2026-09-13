@@ -594,3 +594,20 @@ export async function cancelPickupForSession(
     .where(eq(dhlPickupRequest.id, active.id));
   return { status: "ok", cancelledByName };
 }
+
+/**
+ * One-time maintenance: wipes every row from dhl_pickup_request. Every row
+ * today came from manually testing pickup scheduling/cancellation while
+ * building this feature, not real warehouse usage — Analytics' DHL
+ * cancel-rate stat was reading as mostly-cancelled test noise, not a real
+ * operational problem. An admin-gated button (not a script requiring direct
+ * database access) since this warehouse's admin doesn't hold DB credentials
+ * — see scripts/clear-dhl-pickup-test-data.ts for the equivalent one-off
+ * script, kept for anyone who does have direct DB access.
+ */
+export async function clearDhlPickupHistory(): Promise<{ deleted: number }> {
+  const existing = await db.select({ id: dhlPickupRequest.id }).from(dhlPickupRequest);
+  if (existing.length === 0) return { deleted: 0 };
+  await db.delete(dhlPickupRequest);
+  return { deleted: existing.length };
+}
