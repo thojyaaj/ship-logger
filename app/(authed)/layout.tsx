@@ -17,7 +17,7 @@ export default async function AuthedLayout({ children }: { children: React.React
   // Admin-only, and cheap (counts only — see getProblemSummary) since this
   // runs on every authed page load, not just the pages that show detail.
   const problems = user.isAdmin ? await getProblemSummary() : null;
-  const problemTotal = problems ? problems.exceptionCount + problems.staleCount : 0;
+  const problemTotal = problems ? problems.exceptionCount + problems.staleCount + problems.lossCount : 0;
 
   return (
     <ScanHeaderStateProvider>

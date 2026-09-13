@@ -44,6 +44,8 @@ export type ScanRow = {
   orderGid: string | null;
   orderName: string | null;
   destinationCountry: string | null;
+  customerShippingAmount: number | null;
+  customerShippingCurrency: string | null;
   shipstationCostAmount: number | null;
   shipstationCostCurrency: string | null;
   shipstationOrderFallback: string | null;
@@ -111,6 +113,8 @@ async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
     orderGid: s.orderGid,
     orderName: s.orderName,
     destinationCountry: s.destinationCountry,
+    customerShippingAmount: s.customerShippingAmount,
+    customerShippingCurrency: s.customerShippingCurrency,
     shipstationCostAmount: s.shipstationCostAmount,
     shipstationCostCurrency: s.shipstationCostCurrency,
     shipstationOrderFallback: s.shipstationOrderFallback,
@@ -457,6 +461,8 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
     orderGid: orderMatch?.orderGid,
     orderName: orderMatch?.orderName,
     destinationCountry: orderMatch?.destinationCountry,
+    customerShippingAmount: orderMatch?.customerShippingAmount,
+    customerShippingCurrency: orderMatch?.customerShippingCurrency,
   });
 
   const dashboard = await loadDashboard(session.id);

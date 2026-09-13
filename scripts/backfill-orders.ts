@@ -21,6 +21,7 @@ type OrdersPage = {
         id: string;
         name: string;
         shippingAddress: { formatted: string[]; countryCodeV2: string | null } | null;
+        totalShippingPriceSet: { shopMoney: { amount: string; currencyCode: string } } | null;
         fulfillments: { trackingInfo: { number: string | null }[] }[];
       };
     }[];
@@ -36,6 +37,7 @@ const QUERY = `
           id
           name
           shippingAddress { formatted countryCodeV2 }
+          totalShippingPriceSet { shopMoney { amount currencyCode } }
           fulfillments(first: 10) {
             trackingInfo { number }
           }
@@ -74,6 +76,8 @@ async function main() {
         customerName: null,
         destination: node.shippingAddress?.formatted.join(", ") ?? null,
         destinationCountry: node.shippingAddress?.countryCodeV2 ?? null,
+        customerShippingAmount: node.totalShippingPriceSet ? Number(node.totalShippingPriceSet.shopMoney.amount) : null,
+        customerShippingCurrency: node.totalShippingPriceSet?.shopMoney.currencyCode ?? null,
       });
       trackingNumbersIndexed += numbers.length;
     }
