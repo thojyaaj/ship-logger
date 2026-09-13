@@ -316,17 +316,33 @@ function LossTable({
 }) {
   return (
     <div className="overflow-x-auto border border-line">
-      <table className="w-full text-sm">
+      {/* table-fixed + colgroup, not auto layout — caps the table at 100%
+          of its container so it never forces a horizontal scroll no matter
+          how long an order name or tracking number gets (see ScanTable.tsx's
+          identical reasoning). Tracking wraps via break-all instead of
+          truncating (never hide part of a tracking number); Order truncates
+          since it's the one column with real unbounded-length content. */}
+      <table className="w-full text-sm table-fixed">
+        <colgroup>
+          <col className="w-[4%]" />
+          <col className="w-[22%]" />
+          <col className="w-[26%]" />
+          <col className="w-[12%]" />
+          <col className="w-[12%]" />
+          <col className="w-[12%]" />
+          <col className="w-[8%]" />
+          <col className="w-[4%]" />
+        </colgroup>
         <thead className="bg-paper-dim text-ink-faint">
           <tr>
-            <th className="w-px whitespace-nowrap px-3 py-2" />
-            <th className="w-px whitespace-nowrap text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
+            <th className="px-3 py-2" />
+            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
             <th className="text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
-            <th className="w-px whitespace-nowrap text-left px-3 py-2 tag-label !text-ink-faint">Paid</th>
-            <th className="w-px whitespace-nowrap text-left px-3 py-2 tag-label !text-ink-faint">Charged</th>
-            <th className="w-px whitespace-nowrap text-left px-3 py-2 tag-label !text-ink-faint">Loss</th>
-            <th className="w-px whitespace-nowrap text-left px-3 py-2 tag-label !text-ink-faint">Shipment</th>
-            <th className="w-px whitespace-nowrap px-3 py-2" />
+            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Paid</th>
+            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Charged</th>
+            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Loss</th>
+            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Shipment</th>
+            <th className="px-3 py-2" />
           </tr>
         </thead>
         <tbody>
@@ -338,7 +354,7 @@ function LossTable({
                 <td className="px-3 py-2">
                   <input type="checkbox" checked={selected.has(k)} onChange={() => onToggle(k)} aria-label={`Select ${i.trackingNumber}`} />
                 </td>
-                <td className="px-3 py-2 data whitespace-nowrap">
+                <td className="px-3 py-2 data break-all">
                   {i.trackingUrl ? (
                     <a href={i.trackingUrl} target="_blank" rel="noreferrer" className="text-blue hover:underline">
                       {i.trackingNumber}
@@ -348,10 +364,10 @@ function LossTable({
                   )}
                 </td>
                 <td className="px-3 py-2 data truncate">{i.orderName ?? <span className="text-ink-faint">—</span>}</td>
-                <td className="px-3 py-2 data whitespace-nowrap">{formatMoney(i.costAmount, i.costCurrency)}</td>
-                <td className="px-3 py-2 data whitespace-nowrap">{formatMoney(i.chargedAmount, i.chargedCurrency)}</td>
-                <td className="px-3 py-2 data whitespace-nowrap font-semibold !text-red-ink">-{formatMoney(i.lossAmount, i.costCurrency)}</td>
-                <td className="px-3 py-2 data whitespace-nowrap">
+                <td className="px-3 py-2 data">{formatMoney(i.costAmount, i.costCurrency)}</td>
+                <td className="px-3 py-2 data">{formatMoney(i.chargedAmount, i.chargedCurrency)}</td>
+                <td className="px-3 py-2 data font-semibold !text-red-ink">-{formatMoney(i.lossAmount, i.costCurrency)}</td>
+                <td className="px-3 py-2 data">
                   <Link href={`/shipments/${i.sessionId}`} className="text-blue hover:underline">
                     {i.sessionId.slice(0, 8).toUpperCase()}
                   </Link>
@@ -387,21 +403,30 @@ function CarrierTable({
 
   return (
     <div className="overflow-x-auto border border-line">
-      <table className="w-full text-sm">
+      {/* table-fixed + colgroup — same reasoning as LossTable above: caps
+          the table at 100% width so it never scrolls horizontally. Status
+          gets the largest share so its `truncate` (below) only clips once
+          it genuinely runs out of room, not from a starved column; Tracking
+          wraps in full via break-all rather than ever truncating. */}
+      <table className="w-full text-sm table-fixed">
+        <colgroup>
+          <col className="w-[4%]" />
+          <col className="w-[20%]" />
+          <col className="w-[18%]" />
+          <col className="w-[38%]" />
+          <col className="w-[10%]" />
+          <col className="w-[6%]" />
+          <col className="w-[4%]" />
+        </colgroup>
         <thead className="bg-paper-dim text-ink-faint">
           <tr>
-            <th className="w-px whitespace-nowrap px-3 py-2" />
-            <th className="w-px whitespace-nowrap text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
-            <th className="w-px whitespace-nowrap text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
-            {/* Status is the one column with real variable-length content —
-                left unconstrained so it absorbs the table's leftover width
-                (see ScanTable.tsx's identical reasoning). Shipment/Age
-                (moved after Status, Age last) are pinned to their content
-                width so Status gets as much room as possible. */}
+            <th className="px-3 py-2" />
+            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
+            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
             <th className="text-left px-3 py-2 tag-label !text-ink-faint">Status</th>
-            <th className="w-px whitespace-nowrap text-left px-3 py-2 tag-label !text-ink-faint">Shipment</th>
-            <th className="w-px whitespace-nowrap text-left px-3 py-2 tag-label !text-ink-faint">Age</th>
-            <th className="w-px whitespace-nowrap px-3 py-2" />
+            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Shipment</th>
+            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Age</th>
+            <th className="px-3 py-2" />
           </tr>
         </thead>
         <tbody>
@@ -413,7 +438,7 @@ function CarrierTable({
                 <td className="px-3 py-2">
                   <input type="checkbox" checked={selected.has(k)} onChange={() => onToggle(k)} aria-label={`Select ${i.trackingNumber}`} />
                 </td>
-                <td className="px-3 py-2 data whitespace-nowrap">
+                <td className="px-3 py-2 data break-all">
                   {i.trackingUrl ? (
                     <a href={i.trackingUrl} target="_blank" rel="noreferrer" className="text-blue hover:underline">
                       {i.trackingNumber}
@@ -422,7 +447,7 @@ function CarrierTable({
                     i.trackingNumber
                   )}
                 </td>
-                <td className="px-3 py-2 data whitespace-nowrap">{i.orderName ?? <span className="text-ink-faint">—</span>}</td>
+                <td className="px-3 py-2 data truncate">{i.orderName ?? <span className="text-ink-faint">—</span>}</td>
                 <td className="px-3 py-2">
                   {i.statusLabel ? (
                     <span

@@ -55,17 +55,17 @@ function Stamp({ bg, title, children }: { bg: string; title?: string; children: 
 /**
  * §9c click-through, from history — same OrderPanel as the live scan screen.
  *
- * Deliberately NOT `table-fixed` — every row is meant to read as one line
- * (tracking + its badges, order + its badge), and a fixed percentage layout
- * fights that by forcing wraps/truncation to hit a column width chosen in
- * advance. Auto layout sizes each column to its content instead, and the
- * outer `overflow-x-auto` wrapper below picks up the slack on narrow
- * viewports. Tracking/Order/Scanned-At are pinned to their content's own
- * width (`w-px whitespace-nowrap` — a standard auto-layout trick: a 1px
- * width request just means "shrink to content" since the cell can never
- * actually get that small) rather than being stretched by `w-full` on the
- * table, so only Status — the one column with genuinely variable-length
- * content — absorbs the table's leftover width.
+ * `table-fixed` with percentage columns, not auto layout — auto layout let
+ * Tracking/Order size to their full natural content width, but that meant
+ * the *table itself* could end up wider than its container on a page with
+ * enough badges/long content, forcing the outer wrapper to scroll
+ * horizontally. Fixed columns cap the table at 100% width no matter what;
+ * Status is the one column that actually truncates (`truncate`, which only
+ * reliably clips inside a real fixed width, not auto layout's
+ * content-hugging one) and the tracking number uses `break-all` instead —
+ * still shows every character, just wraps within its column rather than
+ * overflowing it, since truncating a tracking number was explicitly not
+ * wanted.
  */
 export default function ScanTable({ rows }: { rows: Row[] }) {
   const [openOrderGid, setOpenOrderGid] = useState<string | null>(null);
@@ -78,13 +78,19 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
 
   return (
     <div className="overflow-x-auto border border-line">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm table-fixed">
+        <colgroup>
+          <col className="w-[60%] md:w-[28%]" />
+          <col className="w-[40%] md:w-[14%]" />
+          <col className="hidden md:table-column md:w-[50%]" />
+          <col className="hidden md:table-column md:w-[8%]" />
+        </colgroup>
         <thead className="bg-paper-dim text-ink-faint">
           <tr>
-            <th className="w-px whitespace-nowrap text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
-            <th className="w-px whitespace-nowrap text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
+            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Tracking</th>
+            <th className="text-left px-3 py-2 tag-label !text-ink-faint">Order</th>
             <th className="hidden md:table-cell text-left px-3 py-2 tag-label !text-ink-faint">Status</th>
-            <th className="hidden md:table-cell md:sticky md:right-0 md:z-[1] w-px whitespace-nowrap text-center px-3 py-2 tag-label !text-ink-faint bg-paper-dim border-l border-line">
+            <th className="hidden md:table-cell md:sticky md:right-0 md:z-[1] text-center px-3 py-2 tag-label !text-ink-faint bg-paper-dim border-l border-line">
               <span className="sr-only">Scanned At</span>
               <ClockIcon className="w-3.5 h-3.5 inline-block" />
             </th>
@@ -103,14 +109,14 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
               r.shipstationCostAmount > r.customerShippingAmount;
             return (
               <tr key={r.id} className="border-t border-line bg-paper-panel">
-                <td className="w-px whitespace-nowrap px-3 py-2 data align-top">
-                  <span className="inline-flex items-center gap-1.5">
+                <td className="px-3 py-2 data align-top">
+                  <span className="flex flex-wrap items-center gap-1.5">
                     {url ? (
-                      <a href={url} target="_blank" rel="noreferrer" className="text-blue hover:underline">
+                      <a href={url} target="_blank" rel="noreferrer" className="text-blue hover:underline break-all">
                         {r.trackingNumber}
                       </a>
                     ) : (
-                      <span>{r.trackingNumber}</span>
+                      <span className="break-all">{r.trackingNumber}</span>
                     )}
                     {r.destinationCountry && <Stamp bg="bg-ink" title={`Destination: ${r.destinationCountry}`}>{r.destinationCountry}</Stamp>}
                     {cost && (
@@ -138,10 +144,10 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                     )}
                   </span>
                 </td>
-                <td className="w-px whitespace-nowrap px-3 py-2 data align-top">
-                  <span className="inline-flex items-center gap-1.5">
+                <td className="px-3 py-2 data align-top">
+                  <span className="flex flex-wrap items-center gap-1.5">
                     {r.orderGid ? (
-                      <button type="button" onClick={() => setOpenOrderGid(r.orderGid)} className="text-blue hover:underline">
+                      <button type="button" onClick={() => setOpenOrderGid(r.orderGid)} className="text-blue hover:underline break-words text-left">
                         {r.orderName}
                       </button>
                     ) : r.shipstationOrderFallback || r.shipstationShipToName ? (
@@ -149,7 +155,7 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                       // lib/epg-cron.ts) found nothing for this scan. Not a
                       // Shopify GID, so plain text rather than an OrderPanel
                       // button, and labeled so it's never mistaken for a real match.
-                      <span className="text-ink-faint" title="No Shopify match — from ShipStation's label data">
+                      <span className="text-ink-faint break-words" title="No Shopify match — from ShipStation's label data">
                         {r.shipstationOrderFallback ?? r.shipstationShipToName}
                       </span>
                     ) : (
@@ -192,7 +198,7 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                     <span className="text-ink-faint">—</span>
                   )}
                 </td>
-                <td className="hidden md:table-cell md:sticky md:right-0 md:z-[1] w-px whitespace-nowrap text-center px-3 py-2 text-ink-faint bg-paper-panel border-l border-line align-top">
+                <td className="hidden md:table-cell md:sticky md:right-0 md:z-[1] text-center px-3 py-2 text-ink-faint bg-paper-panel border-l border-line align-top">
                   {/* Icon instead of the full timestamp to save row width —
                       click (not hover, so it works the same on touch) to
                       reveal the actual date and time. */}
