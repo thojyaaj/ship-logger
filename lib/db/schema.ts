@@ -317,3 +317,15 @@ export const problemDismissal = pgTable(
   },
   (t) => [uniqueIndex("problem_dismissal_scan_category_idx").on(t.scanId, t.category)],
 );
+
+// Single settings row controlling how a shipment detail page shows its EPG
+// boxes — tabs (Box 01 / Box 02 / ...) or the original stacked list. Same
+// fixed-id-singleton pattern as dhlPickupSettings; this isn't DHL-specific,
+// just the one existing convention here for "one admin-editable setting, no
+// per-user variation".
+export const displaySettings = pgTable("display_settings", {
+  id: text("id").primaryKey(),
+  boxesAsTabs: boolean("boxes_as_tabs").notNull().default(true),
+  updatedAt: text("updated_at").notNull().default(nowUtcText),
+  updatedBy: text("updated_by").references(() => appUser.id),
+});

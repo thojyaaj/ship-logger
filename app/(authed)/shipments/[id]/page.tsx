@@ -6,8 +6,10 @@ import { trackingUrl, statusTone } from "@/lib/carrier";
 import ReopenButton from "./ReopenButton";
 import DeleteShipmentButton from "./DeleteShipmentButton";
 import ScanTable from "./ScanTable";
+import BoxSections, { type BoxData } from "./BoxSections";
 import DhlPickupPanel from "./DhlPickupPanel";
 import { getLatestPickupRequest, getDhlPickupSettings } from "@/lib/dhl-pickup";
+import { getDisplaySettings } from "@/lib/display-settings";
 import { DownloadIcon } from "./icons";
 
 export default async function ShipmentDetailPage({
@@ -37,6 +39,7 @@ export default async function ShipmentDetailPage({
   // schedule attempt itself already surfaces a clear "not configured" error
   // in that case, so there's nothing extra for the enabled flag to guard.
   const dhlSchedulingEnabled = showDhlPickup ? ((await getDhlPickupSettings())?.enabled ?? true) : true;
+  const { boxesAsTabs } = await getDisplaySettings();
 
   const boxedScans = new Map<string, typeof scans>();
   const unboxedScans: typeof scans = [];
@@ -48,6 +51,21 @@ export default async function ShipmentDetailPage({
       unboxedScans.push(s);
     }
   }
+  const boxData: BoxData[] = boxes.map((b) => ({
+    id: b.id,
+    boxNumber: b.boxNumber,
+    scanCount: b.scanCount,
+    upsTracking: b.upsTracking,
+    rows: boxedScans.get(b.id) ?? [],
+  }));
+  // Split out of one combined "UPS / DHL Parcels" section into two, so each
+  // carrier's parcels are easy to scan independently instead of interleaved.
+  // otherScans (carrier "unknown" — an unrecognized tracking number scanned
+  // anyway) keeps its own catch-all rather than silently disappearing now
+  // that the combined section is gone.
+  const upsScans = unboxedScans.filter((s) => s.carrier === "ups");
+  const dhlScans = unboxedScans.filter((s) => s.carrier === "dhl");
+  const otherScans = unboxedScans.filter((s) => s.carrier !== "ups" && s.carrier !== "dhl");
 
   return (
     <div className="flex-1 flex flex-col gap-4 md:gap-6 p-4 pb-20 md:p-6 max-w-5xl mx-auto w-full">
@@ -224,23 +242,26 @@ export default async function ShipmentDetailPage({
         </div>
       )}
 
-      {boxes.map((b) => (
-        <div key={b.id} className="flex flex-col gap-1">
-          <h2 className="tag-label !text-sm !text-ink flex items-baseline gap-2">
-            BOX {String(b.boxNumber).padStart(2, "0")}
-            <span className="!normal-case !tracking-normal font-condensed text-ink-faint text-xs">
-              ({b.scanCount} parcels)
-            </span>
-            {b.upsTracking && <span className="data text-ink-faint text-xs">{b.upsTracking}</span>}
-          </h2>
-          <ScanTable rows={boxedScans.get(b.id) ?? []} />
-        </div>
-      ))}
+      <BoxSections boxes={boxData} boxesAsTabs={boxesAsTabs} />
 
-      {unboxedScans.length > 0 && (
+      {upsScans.length > 0 && (
         <div className="flex flex-col gap-1">
-          <h2 className="tag-label !text-sm !text-ink">UPS / DHL Parcels</h2>
-          <ScanTable rows={unboxedScans} />
+          <h2 className="tag-label !text-sm !text-ink">UPS Parcels</h2>
+          <ScanTable rows={upsScans} />
+        </div>
+      )}
+
+      {dhlScans.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <h2 className="tag-label !text-sm !text-ink">DHL Parcels</h2>
+          <ScanTable rows={dhlScans} />
+        </div>
+      )}
+
+      {otherScans.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <h2 className="tag-label !text-sm !text-ink">Other Parcels</h2>
+          <ScanTable rows={otherScans} />
         </div>
       )}
     </div>
