@@ -6,6 +6,7 @@ import UsersClient from "./UsersClient";
 import DhlPickupSettingsClient from "../dhl-pickup/DhlPickupSettingsClient";
 import BackfillCountriesClient from "../BackfillCountriesClient";
 import DisplaySettingsClient from "../DisplaySettingsClient";
+import ClearPickupHistoryClient from "../dhl-pickup/ClearPickupHistoryClient";
 
 // Matches the ShipStation/DHL cron routes' reasoning: BackfillCountriesClient's
 // action can make up to 40 sequential Shopify calls (see
@@ -32,6 +33,7 @@ export default async function AdminPage() {
       <DhlPickupSettingsClient initialSettings={dhlSettings} />
       <DisplaySettingsClient initialBoxesAsTabs={displaySettings.boxesAsTabs} />
       <BackfillCountriesClient />
+      <ClearPickupHistoryClient />
     </div>
   );
 }
