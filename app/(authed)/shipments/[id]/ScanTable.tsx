@@ -41,10 +41,20 @@ function formatCost(amount: number | null, currency: string | null): string | nu
  * only the background color changes, so the row reads as one consistent
  * badge system instead of a mix of plain text and one-off pill shapes.
  */
-function Stamp({ bg, title, children }: { bg: string; title?: string; children: React.ReactNode }) {
+function Stamp({
+  bg,
+  title,
+  className,
+  children,
+}: {
+  bg: string;
+  title?: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
   return (
     <span
-      className={`shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wide text-paper ${bg}`}
+      className={`shrink-0 items-center justify-center px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wide text-paper ${bg} ${className ?? "inline-flex"}`}
       title={title}
     >
       {children}
@@ -119,8 +129,11 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                       <span className="break-all">{r.trackingNumber}</span>
                     )}
                     {r.destinationCountry && <Stamp bg="bg-ink" title={`Destination: ${r.destinationCountry}`}>{r.destinationCountry}</Stamp>}
+                    {/* Cost paid is desktop-only — a dollar figure isn't
+                        something packers need mid-scan on a phone, and it
+                        crowds the row on a narrow screen. */}
                     {cost && (
-                      <Stamp bg="bg-blue" title={`Paid to ShipStation: ${cost}`}>
+                      <Stamp bg="bg-blue" title={`Paid to ShipStation: ${cost}`} className="hidden md:inline-flex">
                         {cost}
                       </Stamp>
                     )}
@@ -163,9 +176,10 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                     )}
                     {/* What the customer was charged for shipping on this
                         order — the figure the paid-cost stamp (Tracking
-                        column) is meant to be compared against. */}
+                        column) is meant to be compared against. Desktop-only,
+                        same reasoning as that stamp. */}
                     {charged && (
-                      <Stamp bg="bg-amber" title={`Charged to customer: ${charged}`}>
+                      <Stamp bg="bg-amber" title={`Charged to customer: ${charged}`} className="hidden md:inline-flex">
                         {charged}
                       </Stamp>
                     )}
