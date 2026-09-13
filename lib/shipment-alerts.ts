@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "./db";
-import { scan, shipmentSession, problemDismissal } from "./db/schema";
-import { and, eq, gt, inArray, isNull, ne } from "drizzle-orm";
+import { scan, shipmentSession, problemDismissal, appUser } from "./db/schema";
+import { and, eq, gt, inArray, isNull, ne, desc } from "drizzle-orm";
 import { toSqlTimestamp, parseCarrierTimestamp, nowSqlTimestamp } from "./date";
 import { carrierLabel, trackingUrl, EXCEPTION_STATUS_RE, type Carrier } from "./carrier";
 import { sendAlertEmail } from "./email";
@@ -205,17 +205,70 @@ export async function dismissProblem(scanId: string, category: ProblemCategory, 
     .onConflictDoNothing({ target: [problemDismissal.scanId, problemDismissal.category] });
 }
 
-/** Bulk version for the "Dismiss selected" action on /admin/exceptions — one insert for the whole selection instead of one round-trip per row. */
-export async function dismissProblems(
-  items: { scanId: string; category: ProblemCategory }[],
-  dismissedBy: string,
-): Promise<void> {
-  if (items.length === 0) return;
-  const now = nowSqlTimestamp();
-  await db
-    .insert(problemDismissal)
-    .values(items.map((item) => ({ id: newId(), scanId: item.scanId, category: item.category, dismissedBy, dismissedAt: now })))
-    .onConflictDoNothing({ target: [problemDismissal.scanId, problemDismissal.category] });
+/** Undoes a dismissal — the scan reappears in getProblemShipments' matching category on the next load, same as if it had never been dismissed. */
+export async function undismissProblem(scanId: string, category: ProblemCategory): Promise<void> {
+  await db.delete(problemDismissal).where(and(eq(problemDismissal.scanId, scanId), eq(problemDismissal.category, category)));
+}
+
+export type DismissedProblem = {
+  id: string;
+  scanId: string;
+  category: ProblemCategory;
+  trackingNumber: string;
+  carrier: Carrier;
+  sessionId: string;
+  orderName: string | null;
+  dismissedAt: string;
+  dismissedByName: string;
+  trackingUrl: string | null;
+  statusLabel: string | null;
+  costAmount: number | null;
+  costCurrency: string | null;
+  chargedAmount: number | null;
+  chargedCurrency: string | null;
+};
+
+/** Every dismissal ever made, most recent first — the whole point being an admin can find and undo one, not just the currently-open list. */
+export async function getDismissedProblems(): Promise<DismissedProblem[]> {
+  const rows = await db
+    .select({
+      id: problemDismissal.id,
+      scanId: problemDismissal.scanId,
+      category: problemDismissal.category,
+      dismissedAt: problemDismissal.dismissedAt,
+      dismissedByName: appUser.name,
+      trackingNumber: scan.trackingNumber,
+      carrier: scan.carrier,
+      sessionId: scan.sessionId,
+      orderName: scan.orderName,
+      statusLabel: scan.statusLabel,
+      shipstationCostAmount: scan.shipstationCostAmount,
+      shipstationCostCurrency: scan.shipstationCostCurrency,
+      customerShippingAmount: scan.customerShippingAmount,
+      customerShippingCurrency: scan.customerShippingCurrency,
+    })
+    .from(problemDismissal)
+    .innerJoin(scan, eq(problemDismissal.scanId, scan.id))
+    .innerJoin(appUser, eq(problemDismissal.dismissedBy, appUser.id))
+    .orderBy(desc(problemDismissal.dismissedAt));
+
+  return rows.map((r) => ({
+    id: r.id,
+    scanId: r.scanId,
+    category: r.category as ProblemCategory,
+    trackingNumber: r.trackingNumber,
+    carrier: r.carrier as Carrier,
+    sessionId: r.sessionId,
+    orderName: r.orderName,
+    dismissedAt: r.dismissedAt,
+    dismissedByName: r.dismissedByName,
+    trackingUrl: trackingUrl(r.carrier as Carrier, r.trackingNumber),
+    statusLabel: r.statusLabel,
+    costAmount: r.shipstationCostAmount,
+    costCurrency: r.shipstationCostCurrency,
+    chargedAmount: r.customerShippingAmount,
+    chargedCurrency: r.customerShippingCurrency,
+  }));
 }
 
 function rowsHtml(items: ProblemScan[]): string {
