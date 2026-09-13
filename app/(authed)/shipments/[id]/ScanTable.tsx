@@ -15,6 +15,8 @@ type Row = {
   destinationCountry: string | null;
   shipstationCostAmount: number | null;
   shipstationCostCurrency: string | null;
+  customerShippingAmount: number | null;
+  customerShippingCurrency: string | null;
   shipstationOrderFallback: string | null;
   shipstationShipToName: string | null;
   statusLabel: string | null;
@@ -38,9 +40,13 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
     <div className="overflow-x-auto border border-line">
       <table className="w-full text-sm table-fixed">
         <colgroup>
-          <col className="w-[60%] md:w-[20%]" />
+          <col className="w-[60%] md:w-[28%]" />
           <col className="w-[40%] md:w-[14%]" />
-          <col className="hidden md:table-column md:w-[41%]" />
+          {/* Narrowed from 41% so a full un-truncated UPS "1Z..." tracking
+              number (widened to 28% above) actually fits on desktop —
+              status labels are still legible at this width, they just wrap
+              or truncate a little sooner on the longest ones. */}
+          <col className="hidden md:table-column md:w-[33%]" />
           <col className="hidden md:table-column md:w-[25%]" />
         </colgroup>
         <thead className="bg-paper-dim text-ink-faint">
@@ -65,6 +71,13 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
           {rows.map((r) => {
             const url = trackingUrl(r.carrier as "epg" | "ups" | "dhl", r.trackingNumber);
             const cost = formatCost(r.shipstationCostAmount, r.shipstationCostCurrency);
+            const charged = formatCost(r.customerShippingAmount, r.customerShippingCurrency);
+            // Same-currency assumption as lib/shipment-alerts.ts's loss
+            // detection — this is a single-currency (USD) US warehouse.
+            const isLoss =
+              r.shipstationCostAmount !== null &&
+              r.customerShippingAmount !== null &&
+              r.shipstationCostAmount > r.customerShippingAmount;
             return (
               <tr key={r.id} className="border-t border-line bg-paper-panel">
                 <td className="px-3 py-2 data truncate">
@@ -91,6 +104,26 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                       <span className="truncate">{r.trackingNumber}</span>
                     )}
                   </span>
+                  {/* What we paid ShipStation for this label — moved here
+                      (was under Order) so it sits with the tracking number
+                      itself; the alert badge next to it is the whole point
+                      of tracking this at all. */}
+                  {cost && (
+                    <span className="flex items-center gap-1.5 text-[0.65rem] text-ink-faint">
+                      {cost}
+                      {isLoss && (
+                        <span
+                          className="inline-flex items-center justify-center px-1 py-0.5 text-[0.6rem] font-bold bg-red text-paper"
+                          title={`Paid ${cost} but only charged ${charged} for shipping — ${formatCost(
+                            Math.round((r.shipstationCostAmount! - r.customerShippingAmount!) * 100) / 100,
+                            r.shipstationCostCurrency,
+                          )} lost on this parcel.`}
+                        >
+                          !
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2 data truncate">
                   {r.orderGid ? (
@@ -112,7 +145,10 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                   ) : (
                     <span className="text-ink-faint">—</span>
                   )}
-                  {cost && <span className="block text-[0.65rem] text-ink-faint">{cost}</span>}
+                  {/* What the customer was charged for shipping on this
+                      order — the figure the paid-cost line (above, under
+                      Tracking) is meant to be compared against. */}
+                  {charged && <span className="block text-[0.65rem] text-ink-faint">{charged}</span>}
                 </td>
                 <td className="hidden md:table-cell px-3 py-2 truncate" title={r.statusLabel ?? undefined}>
                   {r.statusLabel ? (

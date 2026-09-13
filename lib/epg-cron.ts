@@ -99,7 +99,13 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
       if (indexed) {
         await db
           .update(scan)
-          .set({ orderGid: indexed.orderGid, orderName: indexed.orderName, destinationCountry: indexed.destinationCountry })
+          .set({
+            orderGid: indexed.orderGid,
+            orderName: indexed.orderName,
+            destinationCountry: indexed.destinationCountry,
+            customerShippingAmount: indexed.customerShippingAmount,
+            customerShippingCurrency: indexed.customerShippingCurrency,
+          })
           .where(eq(scan.id, s.id));
         s.orderGid = indexed.orderGid;
         s.orderName = indexed.orderName;
@@ -125,6 +131,8 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
                 orderGid: order.gid,
                 orderName: order.name,
                 destinationCountry: order.destinationCountry,
+                customerShippingAmount: order.customerShippingAmount,
+                customerShippingCurrency: order.customerShippingCurrency,
                 statusCheckedAt: now,
               })
               .where(eq(scan.id, s.id));
@@ -149,6 +157,8 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
     let orderGid: string | null = null;
     let orderName: string | null = null;
     let destinationCountry: string | null = null;
+    let customerShippingAmount: number | null = null;
+    let customerShippingCurrency: string | null = null;
     // Fall back to the ERef already stored from an earlier run. EPG's response
     // isn't guaranteed to repeat every field on every call, and dropping back
     // to null for one poll shouldn't cost us a lookup we could still make.
@@ -160,6 +170,8 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
           orderGid = order.gid;
           orderName = order.name;
           destinationCountry = order.destinationCountry;
+          customerShippingAmount = order.customerShippingAmount;
+          customerShippingCurrency = order.customerShippingCurrency;
           ordersResolved += 1;
         } else {
           // ERef present but no matching order — a genuine data problem
@@ -182,7 +194,7 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
         statusLabel: record.latestEvent?.event ?? null,
         statusAt: record.latestEvent?.eventAt ?? null,
         statusCheckedAt: now,
-        ...(orderGid ? { orderGid, orderName, destinationCountry } : {}),
+        ...(orderGid ? { orderGid, orderName, destinationCountry, customerShippingAmount, customerShippingCurrency } : {}),
       })
       .where(eq(scan.id, s.id));
     updated += 1;

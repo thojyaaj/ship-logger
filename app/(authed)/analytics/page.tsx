@@ -120,7 +120,7 @@ export default async function AnalyticsPage({
     getOnTimeDeliveryStats(days),
     getRateShopSavings(days),
   ]);
-  const problemTotal = problems.exceptionCount + problems.staleCount;
+  const problemTotal = problems.exceptionCount + problems.staleCount + problems.lossCount;
 
   const maxStatusCount = Math.max(1, ...statusBreakdown.map((s) => s.count));
   const maxWeekdayCount = Math.max(1, ...weekday.map((w) => w.count));

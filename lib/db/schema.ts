@@ -110,6 +110,12 @@ export const scan = pgTable(
     // recordScan, lib/order-index.ts's upsertOrderIndex, and
     // lib/epg-cron.ts's ERef resolution), never looked up separately.
     destinationCountry: text("destination_country"),
+    // What the customer was originally charged for shipping on the matched
+    // order — carried through the same three order-matching paths as
+    // destinationCountry above. Compared against shipstationCostAmount
+    // below to flag a shipping loss (see lib/shipment-alerts.ts).
+    customerShippingAmount: real("customer_shipping_amount"),
+    customerShippingCurrency: text("customer_shipping_currency"),
     epgExternalRef: text("epg_external_ref"),
     epgFinalMile: text("epg_final_mile"),
     statusCode: text("status_code"),
@@ -187,6 +193,9 @@ export const shopifyOrderIndex = pgTable("shopify_order_index", {
   // 2-letter (Shopify's countryCodeV2) — see scan.destinationCountry's
   // comment; this is the local-index copy lookupOrderIndex hands back.
   destinationCountry: text("destination_country"),
+  // See scan.customerShippingAmount's comment.
+  customerShippingAmount: real("customer_shipping_amount"),
+  customerShippingCurrency: text("customer_shipping_currency"),
   updatedAt: text("updated_at").notNull().default(nowUtcText),
 });
 

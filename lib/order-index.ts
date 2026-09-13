@@ -38,6 +38,8 @@ export async function upsertOrderIndex(
         customerName: order.customerName,
         destination: order.destination,
         destinationCountry: order.destinationCountry,
+        customerShippingAmount: order.customerShippingAmount,
+        customerShippingCurrency: order.customerShippingCurrency,
         updatedAt: now,
       })
       .onConflictDoUpdate({
@@ -48,6 +50,8 @@ export async function upsertOrderIndex(
           customerName: order.customerName,
           destination: order.destination,
           destinationCountry: order.destinationCountry,
+          customerShippingAmount: order.customerShippingAmount,
+          customerShippingCurrency: order.customerShippingCurrency,
           updatedAt: now,
         },
       });
@@ -55,19 +59,31 @@ export async function upsertOrderIndex(
 
   await db
     .update(scan)
-    .set({ orderGid: order.gid, orderName: order.name, destinationCountry: order.destinationCountry })
+    .set({
+      orderGid: order.gid,
+      orderName: order.name,
+      destinationCountry: order.destinationCountry,
+      customerShippingAmount: order.customerShippingAmount,
+      customerShippingCurrency: order.customerShippingCurrency,
+    })
     .where(inArray(scan.trackingNumber, normalized));
 }
 
 /** Local, no-network lookup used at scan time (§9c) and on shipment detail pages. */
-export async function lookupOrderIndex(
-  trackingNumber: string,
-): Promise<{ orderGid: string; orderName: string; destinationCountry: string | null } | null> {
+export async function lookupOrderIndex(trackingNumber: string): Promise<{
+  orderGid: string;
+  orderName: string;
+  destinationCountry: string | null;
+  customerShippingAmount: number | null;
+  customerShippingCurrency: string | null;
+} | null> {
   const rows = await db
     .select({
       orderGid: shopifyOrderIndex.orderGid,
       orderName: shopifyOrderIndex.orderName,
       destinationCountry: shopifyOrderIndex.destinationCountry,
+      customerShippingAmount: shopifyOrderIndex.customerShippingAmount,
+      customerShippingCurrency: shopifyOrderIndex.customerShippingCurrency,
     })
     .from(shopifyOrderIndex)
     .where(eq(shopifyOrderIndex.trackingNumber, normalizeTrackingNumber(trackingNumber)))
@@ -92,13 +108,16 @@ export type BackfillCountriesResult = {
 };
 
 /**
- * Fills in `destinationCountry` for scans that already had an order matched
- * *before* that field existed — `upsertOrderIndex`'s scan update only runs
- * when a matching order is (re-)resolved, so a scan matched in the past and
- * never touched since stays permanently null otherwise. Reuses the exact
- * same write path as every other order match (getOrderSummary +
- * upsertOrderIndex) rather than a separate one-off lookup, so there is only
- * one place that ever decides what gets written to these columns.
+ * Fills in `destinationCountry` (and, as of the shipping-cost-vs-charged
+ * comparison, `customerShippingAmount`/`customerShippingCurrency` too — same
+ * upsertOrderIndex call, so any field it writes gets backfilled here for
+ * free) for scans that already had an order matched *before* those fields
+ * existed — `upsertOrderIndex`'s scan update only runs when a matching order
+ * is (re-)resolved, so a scan matched in the past and never touched since
+ * stays permanently null otherwise. Reuses the exact same write path as
+ * every other order match (getOrderSummary + upsertOrderIndex) rather than a
+ * separate one-off lookup, so there is only one place that ever decides what
+ * gets written to these columns.
  *
  * Grouped by order, not by scan — a single order (an EPG box's several
  * parcels, say) can back multiple `scan` rows, and this only needs to ask

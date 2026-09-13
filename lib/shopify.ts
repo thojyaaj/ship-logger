@@ -98,7 +98,13 @@ export async function shopifyGraphql<T>(
   return json.data;
 }
 
-export type ResolvedOrder = { gid: string; name: string; destinationCountry: string | null };
+export type ResolvedOrder = {
+  gid: string;
+  name: string;
+  destinationCountry: string | null;
+  customerShippingAmount: number | null;
+  customerShippingCurrency: string | null;
+};
 
 /**
  * §9a — resolves an EPG parcel's order via its `ERef` (the Shopify order
@@ -117,12 +123,26 @@ export async function findOrderByName(name: string): Promise<ResolvedOrder | nul
   const quoted = `"${name.replace(/["\\]/g, (ch) => `\\${ch}`)}"`;
   const data = await shopifyGraphql<{
     orders: {
-      edges: { node: { id: string; name: string; shippingAddress: { countryCodeV2: string | null } | null } }[];
+      edges: {
+        node: {
+          id: string;
+          name: string;
+          shippingAddress: { countryCodeV2: string | null } | null;
+          totalShippingPriceSet: { shopMoney: { amount: string; currencyCode: string } } | null;
+        };
+      }[];
     };
   }>(
     `query($query: String!) {
       orders(first: 1, query: $query) {
-        edges { node { id name shippingAddress { countryCodeV2 } } }
+        edges {
+          node {
+            id
+            name
+            shippingAddress { countryCodeV2 }
+            totalShippingPriceSet { shopMoney { amount currencyCode } }
+          }
+        }
       }
     }`,
     { query: `name:${quoted}` },
@@ -141,7 +161,13 @@ export async function findOrderByName(name: string): Promise<ResolvedOrder | nul
   // Normalizing keeps the safety property (it's still the same order name)
   // without failing on cosmetics.
   return orderNameKey(node.name) === orderNameKey(name)
-    ? { gid: node.id, name: node.name, destinationCountry: node.shippingAddress?.countryCodeV2 ?? null }
+    ? {
+        gid: node.id,
+        name: node.name,
+        destinationCountry: node.shippingAddress?.countryCodeV2 ?? null,
+        customerShippingAmount: node.totalShippingPriceSet ? Number(node.totalShippingPriceSet.shopMoney.amount) : null,
+        customerShippingCurrency: node.totalShippingPriceSet?.shopMoney.currencyCode ?? null,
+      }
     : null;
 }
 
@@ -274,6 +300,9 @@ export type OrderSummary = {
   customerName: string | null;
   destination: string | null;
   destinationCountry: string | null;
+  /** What the customer was originally charged for shipping on this order — not refund-adjusted, since this is compared against what we paid to ship it. */
+  customerShippingAmount: number | null;
+  customerShippingCurrency: string | null;
 };
 
 /**
@@ -293,6 +322,7 @@ export async function getOrderSummary(orderId: string | number): Promise<OrderSu
     name: string;
     customer: { displayName: string } | null;
     shippingAddress: { formatted: string[]; countryCodeV2: string | null } | null;
+    totalShippingPriceSet: { shopMoney: { amount: string; currencyCode: string } } | null;
   };
 
   let order: OrderFields | null;
@@ -304,6 +334,7 @@ export async function getOrderSummary(orderId: string | number): Promise<OrderSu
           name
           customer { displayName }
           shippingAddress { formatted countryCodeV2 }
+          totalShippingPriceSet { shopMoney { amount currencyCode } }
         }
       }`,
       { id: gid },
@@ -323,6 +354,7 @@ export async function getOrderSummary(orderId: string | number): Promise<OrderSu
           id
           name
           shippingAddress { formatted countryCodeV2 }
+          totalShippingPriceSet { shopMoney { amount currencyCode } }
         }
       }`,
       { id: gid },
@@ -337,5 +369,7 @@ export async function getOrderSummary(orderId: string | number): Promise<OrderSu
     customerName: order.customer?.displayName ?? null,
     destinationCountry: order.shippingAddress?.countryCodeV2 ?? null,
     destination: order.shippingAddress?.formatted.join(", ") ?? null,
+    customerShippingAmount: order.totalShippingPriceSet ? Number(order.totalShippingPriceSet.shopMoney.amount) : null,
+    customerShippingCurrency: order.totalShippingPriceSet?.shopMoney.currencyCode ?? null,
   };
 }
