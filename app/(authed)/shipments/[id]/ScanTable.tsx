@@ -60,12 +60,13 @@ function Stamp({ bg, title, children }: { bg: string; title?: string; children: 
  * the *table itself* could end up wider than its container on a page with
  * enough badges/long content, forcing the outer wrapper to scroll
  * horizontally. Fixed columns cap the table at 100% width no matter what;
- * Status is the one column that actually truncates (`truncate`, which only
- * reliably clips inside a real fixed width, not auto layout's
- * content-hugging one) and the tracking number uses `break-all` instead —
- * still shows every character, just wraps within its column rather than
- * overflowing it, since truncating a tracking number was explicitly not
- * wanted.
+ * Status and Order truncate (`truncate`, which only reliably clips inside a
+ * real fixed width, not auto layout's content-hugging one) so each row stays
+ * one line instead of the stamps wrapping onto a second line beneath them.
+ * The tracking number is the one thing that doesn't truncate — it uses
+ * `break-all` instead, still showing every character (just wrapping within
+ * its column if it must), since truncating a tracking number was explicitly
+ * not wanted.
  */
 export default function ScanTable({ rows }: { rows: Row[] }) {
   const [openOrderGid, setOpenOrderGid] = useState<string | null>(null);
@@ -80,9 +81,9 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
     <div className="overflow-x-auto border border-line">
       <table className="w-full text-sm table-fixed">
         <colgroup>
-          <col className="w-[60%] md:w-[28%]" />
-          <col className="w-[40%] md:w-[14%]" />
-          <col className="hidden md:table-column md:w-[50%]" />
+          <col className="w-[60%] md:w-[42%]" />
+          <col className="w-[40%] md:w-[20%]" />
+          <col className="hidden md:table-column md:w-[30%]" />
           <col className="hidden md:table-column md:w-[8%]" />
         </colgroup>
         <thead className="bg-paper-dim text-ink-faint">
@@ -110,13 +111,13 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
             return (
               <tr key={r.id} className="border-t border-line bg-paper-panel">
                 <td className="px-3 py-2 data align-top">
-                  <span className="flex flex-wrap items-center gap-1.5">
+                  <span className="flex flex-nowrap items-center gap-1.5">
                     {url ? (
-                      <a href={url} target="_blank" rel="noreferrer" className="text-blue hover:underline break-all">
+                      <a href={url} target="_blank" rel="noreferrer" className="text-blue hover:underline break-all min-w-0">
                         {r.trackingNumber}
                       </a>
                     ) : (
-                      <span className="break-all">{r.trackingNumber}</span>
+                      <span className="break-all min-w-0">{r.trackingNumber}</span>
                     )}
                     {r.destinationCountry && <Stamp bg="bg-ink" title={`Destination: ${r.destinationCountry}`}>{r.destinationCountry}</Stamp>}
                     {cost && (
@@ -145,9 +146,13 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                   </span>
                 </td>
                 <td className="px-3 py-2 data align-top">
-                  <span className="flex flex-wrap items-center gap-1.5">
+                  <span className="flex flex-nowrap items-center gap-1.5">
                     {r.orderGid ? (
-                      <button type="button" onClick={() => setOpenOrderGid(r.orderGid)} className="text-blue hover:underline break-words text-left">
+                      <button
+                        type="button"
+                        onClick={() => setOpenOrderGid(r.orderGid)}
+                        className="text-blue hover:underline truncate min-w-0 text-left"
+                      >
                         {r.orderName}
                       </button>
                     ) : r.shipstationOrderFallback || r.shipstationShipToName ? (
@@ -155,7 +160,10 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                       // lib/epg-cron.ts) found nothing for this scan. Not a
                       // Shopify GID, so plain text rather than an OrderPanel
                       // button, and labeled so it's never mistaken for a real match.
-                      <span className="text-ink-faint break-words" title="No Shopify match — from ShipStation's label data">
+                      <span
+                        className="text-ink-faint truncate min-w-0"
+                        title="No Shopify match — from ShipStation's label data"
+                      >
                         {r.shipstationOrderFallback ?? r.shipstationShipToName}
                       </span>
                     ) : (
