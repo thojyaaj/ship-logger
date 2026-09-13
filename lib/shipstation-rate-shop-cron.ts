@@ -41,6 +41,8 @@ export type ShipstationRateShopCronResult = {
  */
 export async function runShipstationRateShopCron(): Promise<ShipstationRateShopCronResult> {
   const settings = await getDhlPickupSettings();
+  // TEMP: see lib/shipstation.ts's DIAG comment. Revert once diagnosed.
+  console.log(`[cron/shipstation-rate-shop][DIAG] settingsConfigured=${settings !== null}`);
   if (!settings) {
     return { candidates: 0, checked: 0, updated: 0, stillPending: 0, skippedNoOrigin: true };
   }
@@ -62,6 +64,8 @@ export async function runShipstationRateShopCron(): Promise<ShipstationRateShopC
     (a.shipstationBestRateCheckedAt ?? "").localeCompare(b.shipstationBestRateCheckedAt ?? ""),
   );
   const batch = pending.slice(0, MAX_LOOKUPS_PER_RUN);
+
+  console.log(`[cron/shipstation-rate-shop][DIAG] allRecent=${allRecent.length} batch=${batch.length}`);
 
   if (batch.length === 0) {
     return { candidates: allRecent.length, checked: 0, updated: 0, stillPending: pending.length, skippedNoOrigin: false };
