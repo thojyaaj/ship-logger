@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { trackingUrl, statusTone } from "@/lib/carrier";
 import { formatDbTimestamp } from "@/lib/date";
 import OrderPanel from "../../OrderPanel";
 import { ClockIcon } from "./icons";
+import { useClickPopover } from "../../useClickPopover";
 
 export type Row = {
   id: string;
@@ -68,21 +69,12 @@ function Stamp({ bg, title, children }: { bg: string; title?: string; children: 
  */
 export default function ScanTable({ rows }: { rows: Row[] }) {
   const [openOrderGid, setOpenOrderGid] = useState<string | null>(null);
-  // Click (not hover) to reveal the exact scan timestamp — only one open at
-  // a time, closed by clicking its own icon again or anywhere else.
-  const [openScannedAtId, setOpenScannedAtId] = useState<string | null>(null);
-  const scannedAtRef = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!openScannedAtId) return;
-    function handlePointerDown(e: MouseEvent) {
-      if (scannedAtRef.current && !scannedAtRef.current.contains(e.target as Node)) {
-        setOpenScannedAtId(null);
-      }
-    }
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [openScannedAtId]);
+  // Click (not hover, so it works the same on touch) to reveal the exact
+  // scan timestamp, or the full status text when it's actually truncated —
+  // one popover open at a time per kind, closed by clicking its own
+  // trigger again or anywhere else (see useClickPopover).
+  const scannedAt = useClickPopover<string>();
+  const status = useClickPopover<string>();
 
   return (
     <div className="overflow-x-auto border border-line">
@@ -173,12 +165,28 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                     )}
                   </span>
                 </td>
-                <td className="hidden md:table-cell px-3 py-2 align-top" title={r.statusLabel ?? undefined}>
+                <td className="hidden md:table-cell px-3 py-2 align-top">
                   {r.statusLabel ? (
-                    <span
-                      className={`tag-label !text-[0.65rem] px-1.5 py-0.5 inline-block max-w-full truncate align-bottom ${statusTone(r.statusLabel)}`}
-                    >
-                      {r.statusLabel}
+                    <span className="relative inline-block max-w-full" ref={status.openId === r.id ? (status.ref as React.RefObject<HTMLSpanElement>) : undefined}>
+                      <button
+                        type="button"
+                        onClick={() => status.setOpenId((id) => (id === r.id ? null : r.id))}
+                        className={`tag-label !text-[0.65rem] px-1.5 py-0.5 inline-block max-w-full truncate align-bottom ${statusTone(r.statusLabel)}`}
+                      >
+                        {r.statusLabel}
+                      </button>
+                      {/* Click, not hover, to reveal — matches Scanned At
+                          below. Only worth showing when the badge is
+                          actually truncating; comparing to the container's
+                          real width isn't feasible in a server-rendered
+                          list, so this just always offers the full text on
+                          click, which is a no-op click for anyone whose
+                          status already fit. */}
+                      {status.openId === r.id && (
+                        <span className="absolute left-0 top-full mt-1 z-20 max-w-xs whitespace-normal bg-ink text-paper text-xs px-2 py-1 shadow">
+                          {r.statusLabel}
+                        </span>
+                      )}
                     </span>
                   ) : (
                     <span className="text-ink-faint">—</span>
@@ -188,15 +196,15 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                   {/* Icon instead of the full timestamp to save row width —
                       click (not hover, so it works the same on touch) to
                       reveal the actual date and time. */}
-                  <span className="relative inline-flex" ref={openScannedAtId === r.id ? scannedAtRef : undefined}>
+                  <span className="relative inline-flex" ref={scannedAt.openId === r.id ? (scannedAt.ref as React.RefObject<HTMLSpanElement>) : undefined}>
                     <button
                       type="button"
-                      onClick={() => setOpenScannedAtId((id) => (id === r.id ? null : r.id))}
+                      onClick={() => scannedAt.setOpenId((id) => (id === r.id ? null : r.id))}
                       className="inline-flex text-ink-faint hover:text-ink"
                     >
                       <ClockIcon className="w-4 h-4" />
                     </button>
-                    {openScannedAtId === r.id && (
+                    {scannedAt.openId === r.id && (
                       <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 z-20 whitespace-nowrap bg-ink text-paper text-xs px-2 py-1 shadow">
                         {formatDbTimestamp(r.scannedAt)}
                       </span>
