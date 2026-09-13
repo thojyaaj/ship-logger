@@ -38,6 +38,13 @@ export type ShipstationLabelCronResult = {
  * `shipstationWeightLb` is the "not yet backfilled" signal; a lookup that
  * fails or comes back empty just gets `shipstationCheckedAt` stamped so it
  * cycles to the back of the queue instead of blocking the batch every run.
+ *
+ * A found label with no weight/dimensions on file (an older or
+ * manually-entered label) still writes whatever it *does* have — cost in
+ * particular — rather than being discarded outright (see
+ * lib/shipstation.ts's parseLabel). That scan stays a weight candidate
+ * forever, since `shipstationWeightLb` never gets set, but it's a cheap,
+ * idempotent re-check, not a bug: cost was the thing missing in practice.
  */
 export async function runShipstationLabelCron(): Promise<ShipstationLabelCronResult> {
   const cutoff = toSqlTimestamp(new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000));
