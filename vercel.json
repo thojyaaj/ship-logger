@@ -27,6 +27,10 @@
       "schedule": "23 9 * * *"
     },
     {
+      "path": "/api/cron/shipstation-delivery",
+      "schedule": "24 9 * * *"
+    },
+    {
       "path": "/api/cron/ups-parcel-status",
       "schedule": "25 9 * * *"
     },

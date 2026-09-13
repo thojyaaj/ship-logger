@@ -14,6 +14,7 @@ import {
   getPeriodComparison,
   getEpgFinalMileTime,
   getCostStats,
+  getOnTimeDeliveryStats,
 } from "@/lib/analytics";
 import { carrierLabel, type Carrier } from "@/lib/carrier";
 import { getProblemSummary } from "@/lib/shipment-alerts";
@@ -98,6 +99,7 @@ export default async function AnalyticsPage({
     problems,
     epgFinalMile,
     costStats,
+    onTimeDelivery,
   ] = await Promise.all([
     getDailyVolume(days),
     getOverviewStats(days),
@@ -113,12 +115,16 @@ export default async function AnalyticsPage({
     getProblemSummary(),
     getEpgFinalMileTime(days),
     getCostStats(days),
+    getOnTimeDeliveryStats(days),
   ]);
   const problemTotal = problems.exceptionCount + problems.staleCount;
 
   const maxStatusCount = Math.max(1, ...statusBreakdown.map((s) => s.count));
   const maxWeekdayCount = Math.max(1, ...weekday.map((w) => w.count));
   const maxCarrierCost = Math.max(1, ...costStats.byCarrier.map((c) => c.totalCost));
+  const onTimeTotal = onTimeDelivery.reduce((sum, o) => sum + o.total, 0);
+  const onTimeOnTime = onTimeDelivery.reduce((sum, o) => sum + o.onTime, 0);
+  const onTimeOverallPct = onTimeTotal > 0 ? (onTimeOnTime / onTimeTotal) * 100 : null;
   // EPG-only — UPS/DHL parcels are never boxed (see totalEpgPackages).
   const avgParcelsPerBox = overview.totalBoxes > 0 ? overview.totalEpgPackages / overview.totalBoxes : null;
 
@@ -203,6 +209,12 @@ export default async function AnalyticsPage({
           value={formatMoney(costStats.avgCostPerPackage, costStats.currency)}
           sub="from ShipStation labels"
         />
+        <StatTile
+          label="On-time delivery"
+          value={onTimeOverallPct !== null ? `${onTimeOverallPct.toFixed(0)}%` : "—"}
+          sub={onTimeTotal > 0 ? `${onTimeOnTime}/${onTimeTotal} parcels · unverified data source` : "no delivery-estimate data yet"}
+          accent={onTimeTotal === 0 ? "!text-ink-faint" : undefined}
+        />
       </div>
 
       <VolumeChart points={dailyVolume} />
@@ -246,6 +258,19 @@ export default async function AnalyticsPage({
           barClassName: carrierBarClass(c.carrier),
         }))}
         emptyMessage="No cost data backfilled yet."
+      />
+
+      <BarList
+        title="On-time delivery by carrier"
+        rows={onTimeDelivery.map((o) => ({
+          key: o.carrier,
+          label: carrierLabel(o.carrier),
+          value: o.total,
+          displayValue: o.pct !== null ? `${o.onTime}/${o.total} · ${o.pct.toFixed(0)}%` : "—",
+          pct: o.pct ?? 0,
+          barClassName: o.pct === null ? "bg-ink-faint" : o.pct >= 90 ? "bg-green" : o.pct >= 70 ? "bg-amber" : "bg-red",
+        }))}
+        emptyMessage="No delivery-estimate data backfilled yet (unverified data source — see lib/shipstation.ts)."
       />
 
       <BarList

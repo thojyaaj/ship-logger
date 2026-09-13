@@ -78,6 +78,7 @@ export async function runShipstationLabelCron(): Promise<ShipstationLabelCronRes
         shipstationHeightIn: label.heightIn,
         shipstationCostAmount: label.costAmount,
         shipstationCostCurrency: label.costCurrency,
+        shipstationCarrierCode: label.carrierCode,
         shipstationCheckedAt: now,
       })
       .where(eq(scan.id, s.id));
