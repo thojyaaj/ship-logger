@@ -131,6 +131,13 @@ export const scan = pgTable(
     shipstationCostAmount: real("shipstation_cost_amount"),
     shipstationCostCurrency: text("shipstation_cost_currency"),
     shipstationCheckedAt: text("shipstation_checked_at"),
+    // Order-match fallback (lib/shipstation-order-fallback-cron.ts) — only
+    // ever populated when Shopify's own matching (orderGid above) has
+    // nothing, never overwrites a real Shopify match. Not a Shopify GID, so
+    // never wired into OrderPanel the way orderGid/orderName are.
+    shipstationOrderFallback: text("shipstation_order_fallback"),
+    shipstationShipToName: text("shipstation_ship_to_name"),
+    shipstationOrderFallbackCheckedAt: text("shipstation_order_fallback_checked_at"),
   },
   (t) => [uniqueIndex("scan_tracking_number_idx").on(t.trackingNumber)],
 );
