@@ -100,19 +100,8 @@ function parseLabel(trackingNumber: string, data: LabelsResponse): ShipstationLa
   };
 }
 
-/**
- * Looks up the completed label for one tracking number. Never throws — any
- * failure reads as `null`.
- *
- * `diag`: log the raw request/response — used to diagnose analytics showing
- * zero cost coverage for an entire carrier (DHL) while others backfill
- * fine, i.e. whether ShipStation's `/v2/labels?tracking_number=` genuinely
- * has no record for these numbers (wrong number format, label bought
- * outside ShipStation, etc.) vs. some other failure. See get_runtime_logs
- * once this is deployed and the cron has run. Revert once diagnosed
- * (matches this repo's own precedent, commit 229ad38).
- */
-export async function lookupShipstationLabel(trackingNumber: string, opts: { diag?: boolean } = {}): Promise<ShipstationLabel | null> {
+/** Looks up the completed label for one tracking number. Never throws — any failure reads as `null`. */
+export async function lookupShipstationLabel(trackingNumber: string): Promise<ShipstationLabel | null> {
   const apiKey = process.env.SHIPSTATION_API_KEY;
   if (!apiKey) return null;
 
@@ -127,19 +116,11 @@ export async function lookupShipstationLabel(trackingNumber: string, opts: { dia
       signal: AbortSignal.timeout(15_000),
     });
 
-    if (opts.diag) {
-      const rawBody = await res.text();
-      console.log(`[shipstation-labels][DIAG] tracking=${trackingNumber} url=${url.toString()} status=${res.status} body=${rawBody.slice(0, 800)}`);
-      if (!res.ok) return null;
-      return parseLabel(trackingNumber, JSON.parse(rawBody) as LabelsResponse);
-    }
-
     if (!res.ok) return null;
 
     const data = (await res.json()) as LabelsResponse;
     return parseLabel(trackingNumber, data);
-  } catch (err) {
-    if (opts.diag) console.log(`[shipstation-labels][DIAG] tracking=${trackingNumber} threw: ${err instanceof Error ? err.message : String(err)}`);
+  } catch {
     return null;
   }
 }
