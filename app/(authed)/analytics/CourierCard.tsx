@@ -44,6 +44,21 @@ function Stat({ label, value, sub, accent }: { label: string; value: string; sub
   );
 }
 
+/**
+ * A tinted, left-accented sub-panel — groups related stats (money vs.
+ * service-quality vs. carrier-specific) into their own visual block instead
+ * of one undifferentiated grid, so the eye has somewhere to land before
+ * reading numbers.
+ */
+function StatGroup({ label, accent, bg, children }: { label: string; accent: string; bg: string; children: React.ReactNode }) {
+  return (
+    <div className={`border-l-2 ${accent} ${bg} px-3 py-2.5 flex flex-col gap-2`}>
+      <div className="tag-label !text-[0.55rem] !tracking-[0.18em]">{label}</div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">{children}</div>
+    </div>
+  );
+}
+
 /** One courier's whole story at a glance — volume, cost vs. charged, margin, on-time %, exceptions, order matching, plus whichever carrier-specific stat applies (EPG final-mile, DHL pickups). */
 export default function CourierCard({ data }: { data: CourierCardData }) {
   return (
@@ -54,7 +69,8 @@ export default function CourierCard({ data }: { data: CourierCardData }) {
           {data.volume} parcel{data.volume === 1 ? "" : "s"} · {data.volumePct.toFixed(0)}%
         </span>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+
+      <StatGroup label="Money" accent="border-blue" bg="bg-blue-dim/30">
         <Stat
           label="Cost paid"
           value={formatMoney(data.totalCost, data.currency)}
@@ -66,6 +82,9 @@ export default function CourierCard({ data }: { data: CourierCardData }) {
           value={formatMoney(data.margin, data.currency)}
           accent={data.margin !== null ? (data.margin < 0 ? "!text-red-ink" : "!text-green-ink") : undefined}
         />
+      </StatGroup>
+
+      <StatGroup label="Service" accent="border-amber" bg="bg-amber-dim/30">
         <Stat
           label="On-time"
           value={data.onTimePct !== null ? `${data.onTimePct.toFixed(0)}%` : "—"}
@@ -78,21 +97,28 @@ export default function CourierCard({ data }: { data: CourierCardData }) {
           accent={data.exceptionCount > 0 ? "!text-red-ink" : undefined}
           sub={data.topExceptionReason ?? undefined}
         />
-        {data.epgFinalMileDays !== undefined && (
-          <Stat
-            label="Final-mile"
-            value={data.epgFinalMileDays !== null ? `${data.epgFinalMileDays.toFixed(1)}d` : "—"}
-            sub={data.epgFinalMileSample ? `hub → door · ${data.epgFinalMileSample} parcels` : "hub → door"}
-          />
-        )}
-        {data.dhlPickup && (
-          <Stat
-            label="Picked up"
-            value={String(data.dhlPickup.totalParcels)}
-            sub={data.dhlPickup.avgWeightLb !== null ? `${data.dhlPickup.avgWeightLb} lb avg` : undefined}
-          />
-        )}
-      </div>
+      </StatGroup>
+
+      {(data.epgFinalMileDays !== undefined || data.dhlPickup) && (
+        <StatGroup label={data.epgFinalMileDays !== undefined ? "Final-mile" : "Pickup"} accent="border-line-strong" bg="bg-paper-dim">
+          {data.epgFinalMileDays !== undefined && (
+            <Stat
+              label="Final-mile"
+              value={data.epgFinalMileDays !== null ? `${data.epgFinalMileDays.toFixed(1)}d` : "—"}
+              sub={data.epgFinalMileSample ? `hub → door · ${data.epgFinalMileSample} parcels` : "hub → door"}
+            />
+          )}
+          {data.dhlPickup && (
+            <>
+              <Stat label="Picked up" value={String(data.dhlPickup.totalParcels)} />
+              <Stat
+                label="Avg weight"
+                value={data.dhlPickup.avgWeightLb !== null ? `${data.dhlPickup.avgWeightLb} lb` : "—"}
+              />
+            </>
+          )}
+        </StatGroup>
+      )}
     </div>
   );
 }

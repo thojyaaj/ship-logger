@@ -19,7 +19,7 @@ import {
   getShippingMargin,
   getExceptionBreakdown,
 } from "@/lib/analytics";
-import { carrierLabel, type Carrier } from "@/lib/carrier";
+import { carrierLabel, exceptionCategoryLabel, type Carrier } from "@/lib/carrier";
 import { getProblemSummary } from "@/lib/shipment-alerts";
 import VolumeChart from "../shipments/VolumeChart";
 import HourlyChart from "./HourlyChart";
@@ -70,6 +70,15 @@ function statusBarClass(label: string): string {
   if (/delivered/i.test(label)) return "bg-green";
   if (/exception|return/i.test(label)) return "bg-red";
   return "bg-blue";
+}
+
+/** Small amber pill flagging "not zero, just not backfilled/tracked yet" — used anywhere a blank/zero reading could otherwise be misread as "confirmed zero." */
+function InsufficientData({ reason }: { reason: string }) {
+  return (
+    <span className="tag-label !text-[0.6rem] !normal-case !tracking-normal bg-amber-dim !text-amber-ink px-1.5 py-0.5 inline-block mt-0.5">
+      Insufficient data — {reason}
+    </span>
+  );
 }
 
 /** Colored "+12% vs prev" / "flat" sub-line for a period-over-period delta — null (no previous-window baseline) renders nothing extra. */
@@ -139,6 +148,15 @@ export default async function AnalyticsPage({
   const maxWeekdayCount = Math.max(1, ...weekday.map((w) => w.count));
   const maxCarrierCost = Math.max(1, ...costStats.byCarrier.map((c) => c.totalCost));
   const maxExceptionReasonCount = Math.max(1, ...exceptionBreakdown.topReasonsOverall.map((r) => r.count));
+  const maxExceptionCategoryCount = Math.max(1, ...exceptionBreakdown.byCategory.map((c) => c.count));
+  // A carrier that actually shipped parcels this window but has zero cost
+  // rows backfilled — worth a visible flag rather than just reading as a
+  // quiet "$0" on the courier card below (see lib/shipstation-cron.ts).
+  const costBackfillGaps = COURIER_ORDER.filter((carrier) => {
+    const volume = carrierMix.find((c) => c.carrier === carrier)?.count ?? 0;
+    const costCount = costStats.byCarrier.find((c) => c.carrier === carrier)?.count ?? 0;
+    return volume > 0 && costCount === 0;
+  });
   const onTimeTotal = onTimeDelivery.reduce((sum, o) => sum + o.total, 0);
   const onTimeOnTime = onTimeDelivery.reduce((sum, o) => sum + o.onTime, 0);
   const onTimeOverallPct = onTimeTotal > 0 ? (onTimeOnTime / onTimeTotal) * 100 : null;
@@ -226,6 +244,15 @@ export default async function AnalyticsPage({
         </div>
       </div>
 
+      {costBackfillGaps.length > 0 && (
+        <div className="border-l-4 border-amber bg-amber-dim px-3 py-2 text-amber-ink text-sm font-condensed">
+          <strong className="font-semibold">No cost data backfilled</strong> for {costBackfillGaps.map((c) => carrierLabel(c)).join(", ")} —{" "}
+          {costBackfillGaps.length === 1 ? "this carrier has" : "these carriers have"} shipped parcels in this window but every one is still
+          missing a ShipStation label cost. Check the <code className="data">shipstation-labels</code> cron&rsquo;s logs (see
+          lib/shipstation-cron.ts).
+        </div>
+      )}
+
       <AiInsights windowDays={days} snapshot={aiSnapshot} />
 
       {/* Overview KPIs — the six numbers worth knowing at a glance before
@@ -264,7 +291,14 @@ export default async function AnalyticsPage({
         <StatTile
           label="DHL pickups"
           value={String(dhlStats.requested + dhlStats.cancelled)}
-          sub={dhlStats.failed > 0 ? `${dhlStats.failed} failed` : "0 failed"}
+          sub={
+            dhlStats.cancelRatePct !== null
+              ? `${dhlStats.cancelRatePct.toFixed(0)}% cancelled (${dhlStats.cancelled}/${dhlStats.requested + dhlStats.cancelled})`
+              : dhlStats.failed > 0
+                ? `${dhlStats.failed} failed`
+                : "0 failed"
+          }
+          accent={dhlStats.cancelRatePct !== null && dhlStats.cancelRatePct >= 50 ? "!text-red-ink" : undefined}
         />
         <StatTile
           label="Reopened"
@@ -294,16 +328,24 @@ export default async function AnalyticsPage({
         <StatTile
           label="On-time delivery"
           value={onTimeOverallPct !== null ? `${onTimeOverallPct.toFixed(0)}%` : "—"}
-          sub={onTimeTotal > 0 ? `${onTimeOnTime}/${onTimeTotal} parcels · unverified data source` : "no delivery-estimate data yet"}
+          sub={
+            onTimeTotal > 0 ? (
+              `${onTimeOnTime}/${onTimeTotal} parcels · unverified data source`
+            ) : (
+              <InsufficientData reason="no delivery-estimate data backfilled yet" />
+            )
+          }
           accent={onTimeTotal === 0 ? "!text-ink-faint" : undefined}
         />
         <StatTile
           label="Potential rate-shop savings"
           value={rateShopSavings.count > 0 ? formatMoney(rateShopSavings.totalSavings, null) : "—"}
           sub={
-            rateShopSavings.count > 0
-              ? `${rateShopSavings.count} parcels compared · unverified data source`
-              : "no rate-estimate data yet"
+            rateShopSavings.count > 0 ? (
+              `${rateShopSavings.count} parcels compared · unverified data source`
+            ) : (
+              <InsufficientData reason="no rate-estimate data backfilled yet" />
+            )
           }
           accent={
             rateShopSavings.count === 0 ? "!text-ink-faint" : rateShopSavings.totalSavings > 0 ? "!text-amber-ink" : undefined
@@ -374,6 +416,19 @@ export default async function AnalyticsPage({
           barClassName: o.pct === null ? "bg-ink-faint" : o.pct >= 90 ? "bg-green" : o.pct >= 70 ? "bg-amber" : "bg-red",
         }))}
         emptyMessage="No delivery-estimate data backfilled yet (unverified data source — see lib/shipstation.ts)."
+      />
+
+      <BarList
+        title="Exceptions by root cause"
+        rows={exceptionBreakdown.byCategory.map((c) => ({
+          key: c.category,
+          label: exceptionCategoryLabel(c.category),
+          value: c.count,
+          displayValue: String(c.count),
+          pct: (c.count / maxExceptionCategoryCount) * 100,
+          barClassName: "bg-red",
+        }))}
+        emptyMessage="No exceptions in this window."
       />
 
       <BarList

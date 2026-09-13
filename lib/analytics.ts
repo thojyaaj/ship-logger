@@ -3,7 +3,7 @@ import { db } from "./db";
 import { appUser, shipmentSession, box, scan, shipmentReset, dhlPickupRequest } from "./db/schema";
 import { and, eq, sql, ne, isNull, isNotNull, inArray } from "drizzle-orm";
 import { localCalendarDate, toSqlTimestamp, parseDbTimestamp, parseCarrierTimestamp, warehouseLocalTime } from "./date";
-import { EXCEPTION_STATUS_RE, type Carrier } from "./carrier";
+import { EXCEPTION_STATUS_RE, categorizeException, type Carrier, type ExceptionCategory } from "./carrier";
 
 /** Shared money-rounding — every $ figure in this file is rounded to cents once, at the point it's returned, not on every intermediate add. */
 function round2(n: number): number {
@@ -389,10 +389,13 @@ export async function getShippingMargin(days: number): Promise<ShippingMargin> {
 }
 
 export type ExceptionBreakdownPoint = { carrier: Carrier; count: number; topReason: string | null };
+export type ExceptionCategoryPoint = { category: ExceptionCategory; count: number };
 export type ExceptionBreakdown = {
   totalCount: number;
   byCarrier: ExceptionBreakdownPoint[];
   topReasonsOverall: { label: string; count: number }[];
+  /** Same exceptions, rolled up by root cause instead of by exact wording — see categorizeException's comment for why that's a different, more useful cut of the same data. */
+  byCategory: ExceptionCategoryPoint[];
 };
 
 /**
@@ -413,6 +416,7 @@ export async function getExceptionBreakdown(days: number): Promise<ExceptionBrea
   const byCarrierCount = new Map<Carrier, number>();
   const byCarrierReasons = new Map<Carrier, Map<string, { label: string; count: number }>>();
   const overallReasons = new Map<string, { label: string; count: number }>();
+  const byCategoryCount = new Map<ExceptionCategory, number>();
 
   for (const r of exceptionRows) {
     const carrier = r.carrier as Carrier;
@@ -429,6 +433,9 @@ export async function getExceptionBreakdown(days: number): Promise<ExceptionBrea
     const existingOverall = overallReasons.get(key);
     if (existingOverall) existingOverall.count += 1;
     else overallReasons.set(key, { label: raw, count: 1 });
+
+    const category = categorizeException(raw);
+    byCategoryCount.set(category, (byCategoryCount.get(category) ?? 0) + 1);
   }
 
   const byCarrier: ExceptionBreakdownPoint[] = CARRIER_ORDER.filter((c) => byCarrierCount.has(c)).map((carrier) => {
@@ -437,10 +444,15 @@ export async function getExceptionBreakdown(days: number): Promise<ExceptionBrea
     return { carrier, count, topReason: reasons[0]?.label ?? null };
   });
 
+  const byCategory: ExceptionCategoryPoint[] = [...byCategoryCount.entries()]
+    .map(([category, count]) => ({ category, count }))
+    .sort((a, b) => b.count - a.count);
+
   return {
     totalCount: exceptionRows.length,
     byCarrier,
     topReasonsOverall: [...overallReasons.values()].sort((a, b) => b.count - a.count).slice(0, 5),
+    byCategory,
   };
 }
 
@@ -597,6 +609,8 @@ export type DhlPickupStats = {
   totalParcels: number;
   totalWeightLb: number;
   avgWeightLb: number | null;
+  /** cancelled / (requested + cancelled) — how much of DHL pickup activity ends up cancelled instead of actually picked up; null with no booked pickups to judge yet. A high rate signals a scheduling/readiness process problem, not a carrier problem. */
+  cancelRatePct: number | null;
 };
 
 /**
@@ -612,7 +626,15 @@ export async function getDhlPickupStats(days: number): Promise<DhlPickupStats> {
     .from(dhlPickupRequest)
     .where(sql`${dhlPickupRequest.requestedAt} >= ${timestampCutoff(days)}`);
 
-  const stats: DhlPickupStats = { requested: 0, cancelled: 0, failed: 0, totalParcels: 0, totalWeightLb: 0, avgWeightLb: null };
+  const stats: DhlPickupStats = {
+    requested: 0,
+    cancelled: 0,
+    failed: 0,
+    totalParcels: 0,
+    totalWeightLb: 0,
+    avgWeightLb: null,
+    cancelRatePct: null,
+  };
   let bookedCount = 0;
   for (const r of rows) {
     if (r.status === "requested") stats.requested += 1;
@@ -627,6 +649,8 @@ export async function getDhlPickupStats(days: number): Promise<DhlPickupStats> {
   }
   stats.totalWeightLb = Math.round(stats.totalWeightLb * 10) / 10;
   stats.avgWeightLb = bookedCount > 0 ? Math.round((stats.totalWeightLb / bookedCount) * 10) / 10 : null;
+  const bookedActivity = stats.requested + stats.cancelled;
+  stats.cancelRatePct = bookedActivity > 0 ? round2((stats.cancelled / bookedActivity) * 100) : null;
   return stats;
 }
 

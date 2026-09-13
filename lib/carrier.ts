@@ -141,3 +141,40 @@ export function statusTone(label: string | null): string {
   if (EXCEPTION_STATUS_RE.test(label)) return "bg-red-dim !text-red-ink";
   return "bg-blue-dim !text-blue-ink";
 }
+
+export type ExceptionCategory = "customs" | "delivery_attempt" | "payment" | "other";
+
+/**
+ * Root-cause rollup for exception status text — three different carriers
+ * word the same underlying problem differently ("Information sent to
+ * Customs" / "awaiting Customs authorization" / "Clearance Event" are all
+ * the same customs hold), so a plain per-wording count (getExceptionBreakdown's
+ * topReasonsOverall) makes one systemic issue look like several unrelated
+ * ones. Checked in this order since a label can plausibly match more than
+ * one (e.g. "customs hold — payment required"); customs and delivery-attempt
+ * are checked before the broader "payment" bucket so those don't get
+ * mis-sorted into it.
+ */
+const CUSTOMS_RE = /customs|duty|duties|clearance|held at/i;
+const DELIVERY_ATTEMPT_RE = /delivery attempt|attempted delivery|unable to deliver|unable to receive|refused|undeliverable|return to sender|return to shipper|reschedul/i;
+const PAYMENT_RE = /payment|action required/i;
+
+export function categorizeException(label: string): ExceptionCategory {
+  if (CUSTOMS_RE.test(label)) return "customs";
+  if (DELIVERY_ATTEMPT_RE.test(label)) return "delivery_attempt";
+  if (PAYMENT_RE.test(label)) return "payment";
+  return "other";
+}
+
+export function exceptionCategoryLabel(category: ExceptionCategory): string {
+  switch (category) {
+    case "customs":
+      return "Customs / duties";
+    case "delivery_attempt":
+      return "Delivery attempt failed";
+    case "payment":
+      return "Payment required";
+    case "other":
+      return "Other";
+  }
+}
