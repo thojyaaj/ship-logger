@@ -32,6 +32,24 @@ function formatCost(amount: number | null, currency: string | null): string | nu
   }
 }
 
+/**
+ * One shared "stamp" look — solid-fill, bold, small-caps-tracked — for every
+ * small inline indicator in this table (destination country, cost paid,
+ * amount charged, the profit/loss confirmation). Same shape throughout,
+ * only the background color changes, so the row reads as one consistent
+ * badge system instead of a mix of plain text and one-off pill shapes.
+ */
+function Stamp({ bg, title, children }: { bg: string; title?: string; children: React.ReactNode }) {
+  return (
+    <span
+      className={`shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wide text-paper ${bg}`}
+      title={title}
+    >
+      {children}
+    </span>
+  );
+}
+
 /** §9c click-through, from history — same OrderPanel as the live scan screen. */
 export default function ScanTable({ rows }: { rows: Row[] }) {
   const [openOrderGid, setOpenOrderGid] = useState<string | null>(null);
@@ -80,7 +98,7 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
               r.shipstationCostAmount > r.customerShippingAmount;
             return (
               <tr key={r.id} className="border-t border-line bg-paper-panel">
-                <td className="px-3 py-2 data">
+                <td className="px-3 py-2 data align-top">
                   {/* Tracking number gets its own line, full width — no
                       badge crowding it, which is what made the previous
                       layout hard to read. Country/cost/profit-check are a
@@ -95,42 +113,34 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                   )}
                   {(r.destinationCountry || cost) && (
                     <span className="flex items-center gap-1.5 mt-1 flex-wrap">
-                      {/* Destination country — a solid-fill "stamp" rather
-                          than the dim/pastel status badges elsewhere, so it
-                          reads as its own thing rather than another status. */}
-                      {r.destinationCountry && (
-                        <span
-                          className="shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wide bg-ink text-paper"
-                          title={`Destination: ${r.destinationCountry}`}
-                        >
-                          {r.destinationCountry}
-                        </span>
+                      {r.destinationCountry && <Stamp bg="bg-ink" title={`Destination: ${r.destinationCountry}`}>{r.destinationCountry}</Stamp>}
+                      {cost && (
+                        <Stamp bg="bg-blue" title={`Paid to ShipStation: ${cost}`}>
+                          {cost}
+                        </Stamp>
                       )}
-                      {cost && <span className="text-[0.65rem] text-ink-faint">{cost}</span>}
-                      {/* Confirmation bubble — only rendered once both cost
+                      {/* Confirmation stamp — only rendered once both cost
                           paid and amount charged are known, so it's never a
                           false "profitable" read against incomplete data.
-                          Green check confirms this parcel didn't lose money;
-                          red "!" is the same loss condition surfaced in
+                          Green confirms this parcel didn't lose money; red
+                          is the same loss condition surfaced in
                           lib/shipment-alerts.ts's exceptions system. */}
                       {r.shipstationCostAmount !== null && r.customerShippingAmount !== null && (
-                        <span
-                          className={`shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full text-[0.6rem] font-bold ${
-                            isLoss ? "bg-red text-paper" : "bg-green text-paper"
-                          }`}
+                        <Stamp
+                          bg={isLoss ? "bg-red" : "bg-green"}
                           title={
                             isLoss
                               ? `Losing money: paid ${cost}, charged ${charged}.`
                               : `Paid ${cost}, charged ${charged} — no loss on this parcel.`
                           }
                         >
-                          {isLoss ? "!" : "✓"}
-                        </span>
+                          {isLoss ? "!" : "OK"}
+                        </Stamp>
                       )}
                     </span>
                   )}
                 </td>
-                <td className="px-3 py-2 data truncate">
+                <td className="px-3 py-2 data truncate align-top">
                   {r.orderGid ? (
                     <button
                       type="button"
@@ -151,11 +161,17 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                     <span className="text-ink-faint">—</span>
                   )}
                   {/* What the customer was charged for shipping on this
-                      order — the figure the paid-cost line (above, under
+                      order — the figure the paid-cost stamp (above, under
                       Tracking) is meant to be compared against. */}
-                  {charged && <span className="block text-[0.65rem] text-ink-faint">{charged}</span>}
+                  {charged && (
+                    <span className="block mt-1">
+                      <Stamp bg="bg-amber" title={`Charged to customer: ${charged}`}>
+                        {charged}
+                      </Stamp>
+                    </span>
+                  )}
                 </td>
-                <td className="hidden md:table-cell px-3 py-2 truncate" title={r.statusLabel ?? undefined}>
+                <td className="hidden md:table-cell px-3 py-2 truncate align-top" title={r.statusLabel ?? undefined}>
                   {r.statusLabel ? (
                     <span
                       className={`tag-label !text-[0.65rem] px-1.5 py-0.5 inline-block max-w-full truncate ${statusTone(r.statusLabel)}`}
@@ -166,7 +182,7 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                     <span className="text-ink-faint">—</span>
                   )}
                 </td>
-                <td className="hidden md:table-cell md:sticky md:right-0 md:z-[1] text-center px-3 py-2 text-ink-faint data truncate bg-paper-panel border-l border-line">
+                <td className="hidden md:table-cell md:sticky md:right-0 md:z-[1] text-center px-3 py-2 text-ink-faint data truncate bg-paper-panel border-l border-line align-top">
                   {formatDbTimestamp(r.scannedAt)}
                 </td>
               </tr>
