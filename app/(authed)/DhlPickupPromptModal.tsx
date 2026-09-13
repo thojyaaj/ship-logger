@@ -82,7 +82,7 @@ export default function DhlPickupPromptModal({
 
         <p className="text-sm text-ink-soft">
           This shipment has{" "}
-          <span className="font-semibold text-amber-ink">
+          <span className="font-semibold text-dhl-ink">
             {dhlCount} DHL parcel{dhlCount === 1 ? "" : "s"}
           </span>
           . Schedule a pickup now?

@@ -47,24 +47,29 @@ type Banner =
 // silently render as tag-label's default ink-faint gray instead of the
 // intended carrier color, which is why every other accent color in this app
 // already uses the `!` prefix.
+//
+// Each carrier gets its own dedicated brand token (epg/ups/dhl in
+// globals.css) rather than reusing the app's orange/blue/amber accent —
+// those are OTC Shoppe Express's own brand colors now, unrelated to any
+// carrier.
 export const CARRIER_COLOR: Record<Carrier, string> = {
-  epg: "bg-orange-dim !text-orange-ink",
-  ups: "bg-blue-dim !text-blue-ink",
-  dhl: "bg-amber-dim !text-amber-ink",
+  epg: "bg-epg-dim !text-epg-ink",
+  ups: "bg-ups-dim !text-ups-ink",
+  dhl: "bg-dhl-dim !text-dhl-ink",
   unknown: "bg-paper-dim !text-ink-soft",
 };
 
 const CARRIER_ACCENT: Record<Carrier, string> = {
-  epg: "!text-orange",
-  ups: "!text-blue",
-  dhl: "!text-amber",
+  epg: "!text-epg",
+  ups: "!text-ups",
+  dhl: "!text-dhl-ink",
   unknown: "!text-ink-faint",
 };
 
 const CARRIER_TINT: Record<Carrier, string> = {
-  epg: "bg-orange-dim",
-  ups: "bg-blue-dim",
-  dhl: "bg-amber-dim",
+  epg: "bg-epg-dim",
+  ups: "bg-ups-dim",
+  dhl: "bg-dhl-dim",
   unknown: "bg-paper-dim",
 };
 
@@ -871,7 +876,7 @@ export default function ScanClient({
                   onClick={() => activateBox(b.id)}
                   className={`data px-4 py-2 font-semibold text-base border ${
                     dashboard.session.activeBoxId === b.id
-                      ? "border-orange bg-orange text-paper"
+                      ? "border-epg bg-epg text-paper"
                       : "border-line-strong bg-paper-panel text-ink hover:border-ink"
                   }`}
                 >
@@ -884,7 +889,7 @@ export default function ScanClient({
                     title="Remove empty box"
                     className={`px-2 border border-l-0 text-sm ${
                       dashboard.session.activeBoxId === b.id
-                        ? "border-orange bg-orange text-paper"
+                        ? "border-epg bg-epg text-paper"
                         : "border-line-strong bg-paper-panel text-ink-soft"
                     }`}
                   >

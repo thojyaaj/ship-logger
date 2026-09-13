@@ -83,9 +83,9 @@ export default function SubmitDialog({
         </div>
 
         <div className="data text-sm text-ink-soft flex gap-3 flex-wrap">
-          <span className="text-orange font-semibold">{dashboard.totals.epg} EPG</span>
-          <span className="text-blue font-semibold">{dashboard.totals.ups} UPS</span>
-          <span className="text-amber font-semibold">{dashboard.totals.dhl} DHL</span>
+          <span className="text-epg font-semibold">{dashboard.totals.epg} EPG</span>
+          <span className="text-ups font-semibold">{dashboard.totals.ups} UPS</span>
+          <span className="text-dhl-ink font-semibold">{dashboard.totals.dhl} DHL</span>
           <span>
             · {dashboard.boxes.length} box{dashboard.boxes.length === 1 ? "" : "es"}
           </span>

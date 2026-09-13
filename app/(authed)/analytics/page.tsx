@@ -56,11 +56,11 @@ function formatMoney(amount: number | null, currency: string | null): string {
 function carrierBarClass(carrier: Carrier): string {
   switch (carrier) {
     case "epg":
-      return "bg-orange";
+      return "bg-epg";
     case "ups":
-      return "bg-blue";
+      return "bg-ups";
     case "dhl":
-      return "bg-amber";
+      return "bg-dhl";
     default:
       return "bg-ink-faint";
   }

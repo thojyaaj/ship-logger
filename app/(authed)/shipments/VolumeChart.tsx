@@ -8,9 +8,9 @@ const BAR_FILL_RATIO = 0.7; // leaves a visible gap between bars
 
 const SEGMENT_ORDER: Carrier[] = ["epg", "ups", "dhl", "unknown"];
 const SEGMENT_FILL: Record<Carrier, string> = {
-  epg: "fill-orange",
-  ups: "fill-blue",
-  dhl: "fill-amber",
+  epg: "fill-epg",
+  ups: "fill-ups",
+  dhl: "fill-dhl",
   unknown: "fill-ink-faint",
 };
 
@@ -47,9 +47,9 @@ export default function VolumeChart({ points }: { points: DailyVolumePoint[] }) 
           Packages Shipped — {points[0].shipDate} to {points[points.length - 1].shipDate}
         </span>
         <div className="flex items-center gap-3">
-          <Legend swatchClass="bg-orange" label="EPG" />
-          <Legend swatchClass="bg-blue" label="UPS" />
-          <Legend swatchClass="bg-amber" label="DHL" />
+          <Legend swatchClass="bg-epg" label="EPG" />
+          <Legend swatchClass="bg-ups" label="UPS" />
+          <Legend swatchClass="bg-dhl" label="DHL" />
           <span className="tag-label !text-ink">{totalShipped} total</span>
         </div>
       </div>

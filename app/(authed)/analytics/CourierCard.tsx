@@ -1,5 +1,21 @@
 import { carrierLabel, type Carrier } from "@/lib/carrier";
 
+// Own brand token per carrier, not the app's orange/blue/amber accent —
+// see globals.css. DHL uses its darker `-ink` variant since its brand
+// yellow is too light to read as heading text on the card's paper bg.
+function carrierAccentClass(carrier: Carrier): string {
+  switch (carrier) {
+    case "epg":
+      return "!text-epg";
+    case "ups":
+      return "!text-ups";
+    case "dhl":
+      return "!text-dhl-ink";
+    default:
+      return "";
+  }
+}
+
 export type CourierCardData = {
   carrier: Carrier;
   volume: number;
@@ -70,7 +86,9 @@ export default function CourierCard({ data }: { data: CourierCardData }) {
   return (
     <div className="corners bg-paper-panel p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="font-stencil text-lg tracking-wide">{carrierLabel(data.carrier)}</h3>
+        <h3 className={`font-stencil text-lg tracking-wide ${carrierAccentClass(data.carrier)}`}>
+          {carrierLabel(data.carrier)}
+        </h3>
         <span className="tag-label !text-ink-faint">
           {data.volume} parcel{data.volume === 1 ? "" : "s"} · {data.volumePct.toFixed(0)}%
         </span>

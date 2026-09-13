@@ -4,9 +4,23 @@
   Ship Log — "Freight Manifest" system.
   A technical logistics aesthetic: manifest paper, ruled grids, tabular
   mono data, sharp corners, corner-registration marks like a technical
-  drawing. Carrier colors are assigned by role, not brand: EPG = orange
-  (this app's primary accent, since EPG is the one with real complexity),
-  UPS = blue, DHL = amber, unrecognized = neutral.
+  drawing.
+
+  App accent (orange/blue/amber) is OTC Shoppe Express's own brand
+  palette — a navy/teal family pulled from its logo, tuned per role rather
+  than lifted as flat swatches: `orange` (primary) needs to read clearly
+  both as a button fill on light paper *and* as accent text sitting on the
+  near-black `ink` header/login screen, so it's the brightest of the three;
+  `blue` (secondary) is almost always link text directly on paper, so it's
+  the darkest, highest-contrast tone; `amber` (tertiary/warning) sits
+  behind white button text as often as it sits in a pale dim badge, so it
+  lands in between. The variable names are legacy from the previous
+  role-based scheme and no longer describe the hue.
+
+  Carriers get their own dedicated, brand-accurate tokens instead of
+  reusing the app accent: EPG = its real brand teal, UPS = its primary
+  brand brown, DHL = its secondary brand yellow (its primary red would
+  clash with this app's red-for-errors/losses convention).
 */
 
 :root {
@@ -19,17 +33,17 @@
   --line: #d6cfba;
   --line-strong: #a89f85;
 
-  --orange: #ff5a1f;
-  --orange-ink: #7a2400;
-  --orange-dim: #ffe3d3;
+  --orange: #2b7a93;
+  --orange-ink: #163f4c;
+  --orange-dim: #d9ecf1;
 
-  --blue: #1b4b8f;
-  --blue-ink: #0d2d5c;
-  --blue-dim: #dbe6f4;
+  --blue: #1c4b5b;
+  --blue-ink: #0f2d38;
+  --blue-dim: #dde9ec;
 
-  --amber: #a9720a;
-  --amber-ink: #5c3d05;
-  --amber-dim: #f3e6c8;
+  --amber: #4c7f8c;
+  --amber-ink: #2b4a53;
+  --amber-dim: #e2edf0;
 
   --green: #2f6b4f;
   --green-ink: #1a3d2c;
@@ -38,6 +52,18 @@
   --red: #b8291d;
   --red-ink: #5e140d;
   --red-dim: #f6dad6;
+
+  --epg: #26967a;
+  --epg-ink: #114f3f;
+  --epg-dim: #dbf0ea;
+
+  --ups: #351c15;
+  --ups-ink: #20110c;
+  --ups-dim: #e9ded7;
+
+  --dhl: #ffcc00;
+  --dhl-ink: #7a5f00;
+  --dhl-dim: #fff3cc;
 
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --font-condensed: "IBM Plex Sans Condensed", sans-serif;
@@ -69,6 +95,16 @@
   --color-red: var(--red);
   --color-red-ink: var(--red-ink);
   --color-red-dim: var(--red-dim);
+
+  --color-epg: var(--epg);
+  --color-epg-ink: var(--epg-ink);
+  --color-epg-dim: var(--epg-dim);
+  --color-ups: var(--ups);
+  --color-ups-ink: var(--ups-ink);
+  --color-ups-dim: var(--ups-dim);
+  --color-dhl: var(--dhl);
+  --color-dhl-ink: var(--dhl-ink);
+  --color-dhl-dim: var(--dhl-dim);
 
   --font-mono: var(--font-mono);
   --font-condensed: var(--font-condensed);
