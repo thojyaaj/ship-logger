@@ -1,4 +1,10 @@
 import "server-only";
+import { db } from "./db";
+import { aiInsight, appUser } from "./db/schema";
+import { desc, eq, inArray } from "drizzle-orm";
+import { newId } from "./id";
+
+const MAX_SAVED_INSIGHTS = 10;
 
 /**
  * On-demand business-insights generator for the Analytics page — sends the
@@ -92,4 +98,44 @@ export async function generateBusinessInsights(windowDays: number, snapshot: unk
   } catch (err) {
     return { status: "error", message: err instanceof Error ? err.message : "Anthropic API request failed." };
   }
+}
+
+/**
+ * Persists one successful generation so an admin can review it later without
+ * re-spending tokens, then trims down to the MAX_SAVED_INSIGHTS most recent —
+ * oldest rows deleted, not just hidden, since there's no reason to keep an
+ * unbounded table of what's fundamentally disposable AI output.
+ */
+export async function saveInsight(windowDays: number, text: string, generatedBy: string): Promise<void> {
+  await db.insert(aiInsight).values({ id: newId(), windowDays, text, generatedBy });
+
+  const rows = await db.select({ id: aiInsight.id }).from(aiInsight).orderBy(desc(aiInsight.generatedAt));
+  const excess = rows.slice(MAX_SAVED_INSIGHTS).map((r) => r.id);
+  if (excess.length > 0) {
+    await db.delete(aiInsight).where(inArray(aiInsight.id, excess));
+  }
+}
+
+export type SavedInsight = {
+  id: string;
+  windowDays: number;
+  text: string;
+  generatedAt: string;
+  generatedByName: string | null;
+};
+
+export async function getInsightHistory(): Promise<SavedInsight[]> {
+  const rows = await db
+    .select({
+      id: aiInsight.id,
+      windowDays: aiInsight.windowDays,
+      text: aiInsight.text,
+      generatedAt: aiInsight.generatedAt,
+      generatedByName: appUser.name,
+    })
+    .from(aiInsight)
+    .leftJoin(appUser, eq(aiInsight.generatedBy, appUser.id))
+    .orderBy(desc(aiInsight.generatedAt))
+    .limit(MAX_SAVED_INSIGHTS);
+  return rows;
 }

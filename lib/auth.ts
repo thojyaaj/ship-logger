@@ -81,7 +81,21 @@ export type SessionUser = {
   id: string;
   name: string;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
 };
+
+/**
+ * Superadmin is derived from the user's name, not a stored role column —
+ * this app has exactly one person (the account holder) who should see
+ * global/destructive admin tooling (order-data backfill, DHL pickup
+ * history wipe), so a full role system for a single person would be
+ * over-engineering. Substring + case-insensitive so small variations in
+ * how the name is entered ("Thao", "THAO", "Thao Yang") still match.
+ */
+const SUPERADMIN_NAME_FRAGMENT = "thao";
+function isSuperAdminName(name: string): boolean {
+  return name.trim().toLowerCase().includes(SUPERADMIN_NAME_FRAGMENT);
+}
 
 export async function getCurrentUser(): Promise<SessionUser | null> {
   const store = await cookies();
@@ -104,7 +118,7 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   const expected = signSession(parsed.userId, parsed.expiresAtStr, credentialTag(user.pinHash));
   if (!signatureMatches(parsed.sig, expected)) return null;
 
-  return { id: user.id, name: user.name, isAdmin: user.isAdmin };
+  return { id: user.id, name: user.name, isAdmin: user.isAdmin, isSuperAdmin: isSuperAdminName(user.name) };
 }
 
 export async function requireUser(): Promise<SessionUser> {
@@ -116,6 +130,12 @@ export async function requireUser(): Promise<SessionUser> {
 export async function requireAdmin(): Promise<SessionUser> {
   const user = await requireUser();
   if (!user.isAdmin) throw new Error("Admin access required.");
+  return user;
+}
+
+export async function requireSuperAdmin(): Promise<SessionUser> {
+  const user = await requireAdmin();
+  if (!user.isSuperAdmin) throw new Error("Superadmin access required.");
   return user;
 }
 
@@ -171,7 +191,7 @@ export async function findUserByPin(pin: string): Promise<SessionUser | null> {
   const users = await db.select().from(appUser).where(eq(appUser.active, true));
   for (const user of users) {
     if (bcrypt.compareSync(pin, user.pinHash)) {
-      return { id: user.id, name: user.name, isAdmin: user.isAdmin };
+      return { id: user.id, name: user.name, isAdmin: user.isAdmin, isSuperAdmin: isSuperAdminName(user.name) };
     }
   }
   return null;

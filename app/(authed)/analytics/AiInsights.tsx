@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { generateInsightsAction } from "./actions";
 import { actionErrorMessage } from "@/lib/error-message";
 import SimpleMarkdown from "./SimpleMarkdown";
@@ -36,7 +37,12 @@ export default function AiInsights({ windowDays, snapshot }: { windowDays: numbe
     <div className="corners bg-paper-panel p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="font-stencil text-lg tracking-wide">AI Business Insights</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-stencil text-lg tracking-wide">AI Business Insights</h2>
+            <Link href="/analytics/insights-history" className="tag-label !text-ink-faint hover:!text-ink underline">
+              History
+            </Link>
+          </div>
           <p className="tag-label !normal-case !tracking-normal text-ink-faint mt-1">
             Sends this page&apos;s current numbers to Claude for prioritized recommendations — costs real tokens, runs only when you click.
           </p>

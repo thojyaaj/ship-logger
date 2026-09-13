@@ -329,3 +329,16 @@ export const displaySettings = pgTable("display_settings", {
   updatedAt: text("updated_at").notNull().default(nowUtcText),
   updatedBy: text("updated_by").references(() => appUser.id),
 });
+
+// One saved row per "Generate Insights" click on the Analytics page — so an
+// admin can review a past AI-generated business insight later without
+// re-spending tokens to regenerate it. Capped to the 10 most recent (see
+// lib/ai-insights.ts's saveInsight), oldest trimmed off rather than growing
+// unbounded.
+export const aiInsight = pgTable("ai_insight", {
+  id: text("id").primaryKey(),
+  windowDays: integer("window_days").notNull(),
+  text: text("text").notNull(),
+  generatedAt: text("generated_at").notNull().default(nowUtcText),
+  generatedBy: text("generated_by").references(() => appUser.id),
+});
