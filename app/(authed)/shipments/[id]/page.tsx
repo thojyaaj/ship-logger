@@ -158,9 +158,9 @@ export default async function ShipmentDetailPage({
           rather than blending in as a fourth plain Field. Centered on
           mobile, left-aligned (the original layout) on desktop. */}
       <div className="grid grid-cols-4 gap-px bg-line text-sm text-center md:text-left">
-        <Field label="EPG" value={String(totals.epg)} accent="!text-orange" tint="bg-orange-dim" valueClassName="text-lg" />
-        <Field label="UPS" value={String(totals.ups)} accent="!text-blue" tint="bg-blue-dim" valueClassName="text-lg" />
-        <Field label="DHL" value={String(totals.dhl)} accent="!text-amber" tint="bg-amber-dim" valueClassName="text-lg" />
+        <Field label="EPG" value={String(totals.epg)} accent="!text-epg" tint="bg-epg-dim" valueClassName="text-lg" />
+        <Field label="UPS" value={String(totals.ups)} accent="!text-ups" tint="bg-ups-dim" valueClassName="text-lg" />
+        <Field label="DHL" value={String(totals.dhl)} accent="!text-dhl-ink" tint="bg-dhl-dim" valueClassName="text-lg" />
         <div className="bg-ink text-paper p-3">
           <div className="tag-label !text-orange">Total</div>
           <div className="data font-semibold text-lg mt-0.5">{totals.total}</div>

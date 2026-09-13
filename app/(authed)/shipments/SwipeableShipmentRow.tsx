@@ -291,9 +291,9 @@ export default function SwipeableShipmentRow({
               every row's stats starting at the same x regardless of what
               the status column next to it is doing. */}
           <div className="flex-1 flex flex-wrap gap-x-4 gap-y-1 text-sm data w-full sm:w-auto">
-            <span className="text-orange">EPG {s.totals.epg}</span>
-            <span className="text-blue">UPS {s.totals.ups}</span>
-            <span className="text-amber">DHL {s.totals.dhl}</span>
+            <span className="text-epg">EPG {s.totals.epg}</span>
+            <span className="text-ups">UPS {s.totals.ups}</span>
+            <span className="text-dhl-ink">DHL {s.totals.dhl}</span>
             {s.boxCount > 0 && <span className="text-ink-soft">{s.boxCount} box(es)</span>}
           </div>
           <div className="flex items-center gap-2 sm:flex-col sm:items-end sm:gap-1 sm:shrink-0 sm:text-right">

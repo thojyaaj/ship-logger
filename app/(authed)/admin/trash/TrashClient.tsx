@@ -67,9 +67,9 @@ function TrashRow({ shipment: s, onRestored }: { shipment: TrashedShipmentItem; 
           <div className="tag-label !text-[0.6rem] !text-ink-faint">deleted {formatDbTimestamp(s.deletedAt)}</div>
         </div>
         <div className="flex-1 flex flex-wrap gap-x-4 gap-y-1 text-sm data">
-          <span className="text-orange">EPG {s.totals.epg}</span>
-          <span className="text-blue">UPS {s.totals.ups}</span>
-          <span className="text-amber">DHL {s.totals.dhl}</span>
+          <span className="text-epg">EPG {s.totals.epg}</span>
+          <span className="text-ups">UPS {s.totals.ups}</span>
+          <span className="text-dhl-ink">DHL {s.totals.dhl}</span>
           {s.boxCount > 0 && <span className="text-ink-soft">{s.boxCount} box(es)</span>}
         </div>
         <span className={`tag-label !text-[0.6rem] shrink-0 ${daysLeft <= 3 ? "!text-red" : "!text-ink-faint"}`}>
