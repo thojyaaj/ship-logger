@@ -15,6 +15,7 @@ import {
   getEpgFinalMileTime,
   getCostStats,
   getOnTimeDeliveryStats,
+  getRateShopSavings,
 } from "@/lib/analytics";
 import { carrierLabel, type Carrier } from "@/lib/carrier";
 import { getProblemSummary } from "@/lib/shipment-alerts";
@@ -100,6 +101,7 @@ export default async function AnalyticsPage({
     epgFinalMile,
     costStats,
     onTimeDelivery,
+    rateShopSavings,
   ] = await Promise.all([
     getDailyVolume(days),
     getOverviewStats(days),
@@ -116,6 +118,7 @@ export default async function AnalyticsPage({
     getEpgFinalMileTime(days),
     getCostStats(days),
     getOnTimeDeliveryStats(days),
+    getRateShopSavings(days),
   ]);
   const problemTotal = problems.exceptionCount + problems.staleCount;
 
@@ -214,6 +217,18 @@ export default async function AnalyticsPage({
           value={onTimeOverallPct !== null ? `${onTimeOverallPct.toFixed(0)}%` : "—"}
           sub={onTimeTotal > 0 ? `${onTimeOnTime}/${onTimeTotal} parcels · unverified data source` : "no delivery-estimate data yet"}
           accent={onTimeTotal === 0 ? "!text-ink-faint" : undefined}
+        />
+        <StatTile
+          label="Potential rate-shop savings"
+          value={rateShopSavings.count > 0 ? formatMoney(rateShopSavings.totalSavings, null) : "—"}
+          sub={
+            rateShopSavings.count > 0
+              ? `${rateShopSavings.count} parcels compared · unverified data source`
+              : "no rate-estimate data yet"
+          }
+          accent={
+            rateShopSavings.count === 0 ? "!text-ink-faint" : rateShopSavings.totalSavings > 0 ? "!text-amber-ink" : undefined
+          }
         />
       </div>
 

@@ -256,6 +256,72 @@ export async function getOnTimeDeliveryStats(days: number): Promise<OnTimeDelive
   });
 }
 
+export type RateShopSavingsPoint = { carrier: Carrier; actualCost: number; bestRateCost: number; savings: number; count: number };
+export type RateShopSavings = {
+  totalActualCost: number;
+  totalBestRateCost: number;
+  totalSavings: number;
+  count: number;
+  byCarrier: RateShopSavingsPoint[];
+};
+
+/**
+ * What was actually paid vs. the cheapest quote ShipStation's rate-estimate
+ * endpoint found for the same parcel (lib/shipstation-rate-shop-cron.ts) —
+ * see lib/shipstation-rates.ts's own comment for why this data source is
+ * flagged unverified. A negative `savings` is a legitimate result (the
+ * carrier actually used was already the cheapest option), not an error.
+ * Only counts parcels where both figures are known.
+ */
+export async function getRateShopSavings(days: number): Promise<RateShopSavings> {
+  const rows = await db
+    .select({
+      carrier: scan.carrier,
+      actual: scan.shipstationCostAmount,
+      best: scan.shipstationBestRateAmount,
+    })
+    .from(scan)
+    .innerJoin(shipmentSession, eq(scan.sessionId, shipmentSession.id))
+    .where(
+      and(submittedInWindow(days), isNotNull(scan.shipstationCostAmount), isNotNull(scan.shipstationBestRateAmount)),
+    );
+
+  let totalActual = 0;
+  let totalBest = 0;
+  const byCarrierMap = new Map<Carrier, { actual: number; best: number; count: number }>();
+  for (const r of rows) {
+    const actual = r.actual!;
+    const best = r.best!;
+    totalActual += actual;
+    totalBest += best;
+    const carrier = r.carrier as Carrier;
+    const entry = byCarrierMap.get(carrier) ?? { actual: 0, best: 0, count: 0 };
+    entry.actual += actual;
+    entry.best += best;
+    entry.count += 1;
+    byCarrierMap.set(carrier, entry);
+  }
+
+  const byCarrier = CARRIER_ORDER.filter((c) => byCarrierMap.has(c)).map((carrier) => {
+    const e = byCarrierMap.get(carrier)!;
+    return {
+      carrier,
+      actualCost: Math.round(e.actual * 100) / 100,
+      bestRateCost: Math.round(e.best * 100) / 100,
+      savings: Math.round((e.actual - e.best) * 100) / 100,
+      count: e.count,
+    };
+  });
+
+  return {
+    totalActualCost: Math.round(totalActual * 100) / 100,
+    totalBestRateCost: Math.round(totalBest * 100) / 100,
+    totalSavings: Math.round((totalActual - totalBest) * 100) / 100,
+    count: rows.length,
+    byCarrier,
+  };
+}
+
 export type PackerStat = {
   userId: string;
   name: string;
