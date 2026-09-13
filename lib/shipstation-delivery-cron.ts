@@ -49,6 +49,10 @@ export async function runShipstationDeliveryCron(): Promise<ShipstationDeliveryC
   );
   const batch = pending.slice(0, MAX_LOOKUPS_PER_RUN);
 
+  // TEMP: see lib/shipstation.ts's DIAG comment — confirming whether this
+  // cron even reaches a ShipStation call. Revert once diagnosed.
+  console.log(`[cron/shipstation-delivery][DIAG] allRecent=${allRecent.length} batch=${batch.length}`);
+
   if (batch.length === 0) {
     return { candidates: allRecent.length, checked: 0, updated: 0, stillPending: pending.length };
   }
