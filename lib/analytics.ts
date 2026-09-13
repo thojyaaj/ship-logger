@@ -3,7 +3,12 @@ import { db } from "./db";
 import { appUser, shipmentSession, box, scan, shipmentReset, dhlPickupRequest } from "./db/schema";
 import { and, eq, sql, ne, isNull, isNotNull, inArray } from "drizzle-orm";
 import { localCalendarDate, toSqlTimestamp, parseDbTimestamp, parseCarrierTimestamp, warehouseLocalTime } from "./date";
-import type { Carrier } from "./carrier";
+import { EXCEPTION_STATUS_RE, type Carrier } from "./carrier";
+
+/** Shared money-rounding — every $ figure in this file is rounded to cents once, at the point it's returned, not on every intermediate add. */
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 /**
  * Every query on this page windows on a trailing N-day range, computed the
@@ -319,6 +324,123 @@ export async function getRateShopSavings(days: number): Promise<RateShopSavings>
     totalSavings: Math.round((totalActual - totalBest) * 100) / 100,
     count: rows.length,
     byCarrier,
+  };
+}
+
+export type ShippingMarginPoint = { carrier: Carrier; totalCost: number; totalCharged: number; margin: number; count: number };
+export type ShippingMargin = {
+  totalCost: number;
+  totalCharged: number;
+  /** charged − cost, summed across every parcel with both figures known. Negative means the warehouse is losing money on shipping overall, not just on individual flagged parcels. */
+  netMargin: number;
+  marginPct: number | null;
+  count: number;
+  byCarrier: ShippingMarginPoint[];
+};
+
+/**
+ * The single "are we gaining or losing money on shipping" number — total
+ * cost paid (ShipStation) vs. total charged to the customer (Shopify),
+ * summed across every parcel where both are known. Distinct from
+ * lib/shipment-alerts.ts's shipping-loss exceptions, which only flag
+ * individual parcels that lost money; this is the net across all of them,
+ * so a handful of losses can still net positive (or a lot of thin margins
+ * can still net negative) — the number a business decision actually needs.
+ */
+export async function getShippingMargin(days: number): Promise<ShippingMargin> {
+  const rows = await db
+    .select({
+      carrier: scan.carrier,
+      totalCost: sql<number>`coalesce(sum(${scan.shipstationCostAmount}), 0)`,
+      totalCharged: sql<number>`coalesce(sum(${scan.customerShippingAmount}), 0)`,
+      count: sql<number>`count(*)`,
+    })
+    .from(scan)
+    .innerJoin(shipmentSession, eq(scan.sessionId, shipmentSession.id))
+    .where(
+      and(submittedInWindow(days), isNotNull(scan.shipstationCostAmount), isNotNull(scan.customerShippingAmount)),
+    )
+    .groupBy(scan.carrier);
+
+  let totalCost = 0;
+  let totalCharged = 0;
+  let count = 0;
+  const byCarrier: ShippingMarginPoint[] = [];
+  for (const carrier of CARRIER_ORDER) {
+    const row = rows.find((r) => r.carrier === carrier);
+    if (!row) continue;
+    const cost = Number(row.totalCost);
+    const charged = Number(row.totalCharged);
+    const c = Number(row.count);
+    totalCost += cost;
+    totalCharged += charged;
+    count += c;
+    byCarrier.push({ carrier, totalCost: round2(cost), totalCharged: round2(charged), margin: round2(charged - cost), count: c });
+  }
+
+  return {
+    totalCost: round2(totalCost),
+    totalCharged: round2(totalCharged),
+    netMargin: round2(totalCharged - totalCost),
+    marginPct: totalCharged > 0 ? ((totalCharged - totalCost) / totalCharged) * 100 : null,
+    count,
+    byCarrier,
+  };
+}
+
+export type ExceptionBreakdownPoint = { carrier: Carrier; count: number; topReason: string | null };
+export type ExceptionBreakdown = {
+  totalCount: number;
+  byCarrier: ExceptionBreakdownPoint[];
+  topReasonsOverall: { label: string; count: number }[];
+};
+
+/**
+ * Which carrier throws the most exceptions, and what they actually say —
+ * "most exceptions" is only useful alongside *why*, not just a count.
+ * Reuses the same EXCEPTION_STATUS_RE and case/whitespace-normalization
+ * approach as getStatusBreakdown, scoped to just the flagged subset.
+ */
+export async function getExceptionBreakdown(days: number): Promise<ExceptionBreakdown> {
+  const rows = await db
+    .select({ carrier: scan.carrier, statusLabel: scan.statusLabel })
+    .from(scan)
+    .innerJoin(shipmentSession, eq(scan.sessionId, shipmentSession.id))
+    .where(and(submittedInWindow(days), isNotNull(scan.statusLabel)));
+
+  const exceptionRows = rows.filter((r) => EXCEPTION_STATUS_RE.test(r.statusLabel!));
+
+  const byCarrierCount = new Map<Carrier, number>();
+  const byCarrierReasons = new Map<Carrier, Map<string, { label: string; count: number }>>();
+  const overallReasons = new Map<string, { label: string; count: number }>();
+
+  for (const r of exceptionRows) {
+    const carrier = r.carrier as Carrier;
+    const raw = r.statusLabel!.trim();
+    const key = raw.toLowerCase();
+
+    byCarrierCount.set(carrier, (byCarrierCount.get(carrier) ?? 0) + 1);
+    if (!byCarrierReasons.has(carrier)) byCarrierReasons.set(carrier, new Map());
+    const carrierMap = byCarrierReasons.get(carrier)!;
+    const existing = carrierMap.get(key);
+    if (existing) existing.count += 1;
+    else carrierMap.set(key, { label: raw, count: 1 });
+
+    const existingOverall = overallReasons.get(key);
+    if (existingOverall) existingOverall.count += 1;
+    else overallReasons.set(key, { label: raw, count: 1 });
+  }
+
+  const byCarrier: ExceptionBreakdownPoint[] = CARRIER_ORDER.filter((c) => byCarrierCount.has(c)).map((carrier) => {
+    const count = byCarrierCount.get(carrier)!;
+    const reasons = [...(byCarrierReasons.get(carrier)?.values() ?? [])].sort((a, b) => b.count - a.count);
+    return { carrier, count, topReason: reasons[0]?.label ?? null };
+  });
+
+  return {
+    totalCount: exceptionRows.length,
+    byCarrier,
+    topReasonsOverall: [...overallReasons.values()].sort((a, b) => b.count - a.count).slice(0, 5),
   };
 }
 

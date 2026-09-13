@@ -16,6 +16,8 @@ import {
   getCostStats,
   getOnTimeDeliveryStats,
   getRateShopSavings,
+  getShippingMargin,
+  getExceptionBreakdown,
 } from "@/lib/analytics";
 import { carrierLabel, type Carrier } from "@/lib/carrier";
 import { getProblemSummary } from "@/lib/shipment-alerts";
@@ -24,8 +26,15 @@ import HourlyChart from "./HourlyChart";
 import BarList from "./BarList";
 import PackerTable from "./PackerTable";
 import StatTile from "./StatTile";
+import CourierCard, { type CourierCardData } from "./CourierCard";
+import AiInsights from "./AiInsights";
+
+// AiInsights's server action makes one (slow, thoughtful) Anthropic call —
+// longer than the default 10s Vercel Function duration allows.
+export const maxDuration = 60;
 
 const RANGE_OPTIONS = [7, 30, 90] as const;
+const COURIER_ORDER: Carrier[] = ["epg", "ups", "dhl"];
 
 function formatHours(hours: number | null): string {
   if (hours === null) return "—";
@@ -102,6 +111,8 @@ export default async function AnalyticsPage({
     costStats,
     onTimeDelivery,
     rateShopSavings,
+    shippingMargin,
+    exceptionBreakdown,
   ] = await Promise.all([
     getDailyVolume(days),
     getOverviewStats(days),
@@ -119,17 +130,69 @@ export default async function AnalyticsPage({
     getCostStats(days),
     getOnTimeDeliveryStats(days),
     getRateShopSavings(days),
+    getShippingMargin(days),
+    getExceptionBreakdown(days),
   ]);
   const problemTotal = problems.exceptionCount + problems.staleCount + problems.lossCount;
 
   const maxStatusCount = Math.max(1, ...statusBreakdown.map((s) => s.count));
   const maxWeekdayCount = Math.max(1, ...weekday.map((w) => w.count));
   const maxCarrierCost = Math.max(1, ...costStats.byCarrier.map((c) => c.totalCost));
+  const maxExceptionReasonCount = Math.max(1, ...exceptionBreakdown.topReasonsOverall.map((r) => r.count));
   const onTimeTotal = onTimeDelivery.reduce((sum, o) => sum + o.total, 0);
   const onTimeOnTime = onTimeDelivery.reduce((sum, o) => sum + o.onTime, 0);
   const onTimeOverallPct = onTimeTotal > 0 ? (onTimeOnTime / onTimeTotal) * 100 : null;
   // EPG-only — UPS/DHL parcels are never boxed (see totalEpgPackages).
   const avgParcelsPerBox = overview.totalBoxes > 0 ? overview.totalEpgPackages / overview.totalBoxes : null;
+
+  const courierCards: CourierCardData[] = COURIER_ORDER.map((carrier) => {
+    const mix = carrierMix.find((c) => c.carrier === carrier);
+    const cost = costStats.byCarrier.find((c) => c.carrier === carrier);
+    const margin = shippingMargin.byCarrier.find((c) => c.carrier === carrier);
+    const onTime = onTimeDelivery.find((c) => c.carrier === carrier);
+    const match = orderMatch.find((c) => c.carrier === carrier);
+    const exceptions = exceptionBreakdown.byCarrier.find((c) => c.carrier === carrier);
+
+    return {
+      carrier,
+      volume: mix?.count ?? 0,
+      volumePct: mix?.pct ?? 0,
+      totalCost: cost?.totalCost ?? null,
+      avgCost: cost?.avgCost ?? null,
+      totalCharged: margin?.totalCharged ?? null,
+      margin: margin?.margin ?? null,
+      currency: costStats.currency,
+      onTimePct: onTime?.pct ?? null,
+      onTimeSample: onTime?.total ?? 0,
+      exceptionCount: exceptions?.count ?? 0,
+      topExceptionReason: exceptions?.topReason ?? null,
+      orderMatchPct: match ? match.pct : null,
+      ...(carrier === "epg" ? { epgFinalMileDays: epgFinalMile.avgDays, epgFinalMileSample: epgFinalMile.sampleSize } : {}),
+      ...(carrier === "dhl" ? { dhlPickup: { totalParcels: dhlStats.totalParcels, avgWeightLb: dhlStats.avgWeightLb } } : {}),
+    };
+  });
+
+  // Handed to AiInsights as-is — the same numbers already on this page, not
+  // a fresh query, and small enough to pass through a server action as a
+  // plain argument.
+  const aiSnapshot = {
+    windowDays: days,
+    overview,
+    comparison,
+    carrierMix,
+    orderMatch,
+    costStats,
+    shippingMargin,
+    onTimeDelivery,
+    rateShopSavings,
+    exceptionBreakdown,
+    statusBreakdown,
+    weekdayVolume: weekday,
+    dhlPickupStats: dhlStats,
+    operationalHealth: health,
+    epgFinalMile,
+    perCourier: courierCards,
+  };
 
   return (
     <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
@@ -163,9 +226,25 @@ export default async function AnalyticsPage({
         </div>
       </div>
 
+      <AiInsights windowDays={days} snapshot={aiSnapshot} />
+
       {/* Overview KPIs — the six numbers worth knowing at a glance before
-          drilling into any chart below. */}
+          drilling into any chart below. Net shipping margin leads — it's
+          the single "are we gaining or losing money" number every other
+          cost/charge tile on this page breaks down further. */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        <StatTile
+          label="Net shipping margin"
+          value={shippingMargin.count > 0 ? formatMoney(shippingMargin.netMargin, costStats.currency) : "—"}
+          sub={
+            shippingMargin.count > 0
+              ? `${shippingMargin.marginPct !== null ? `${shippingMargin.marginPct.toFixed(1)}% of charged` : ""} · ${shippingMargin.count} parcels`
+              : "no cost+charged data yet"
+          }
+          accent={
+            shippingMargin.count === 0 ? "!text-ink-faint" : shippingMargin.netMargin < 0 ? "!text-red-ink" : "!text-green-ink"
+          }
+        />
         <StatTile
           label="Shipments"
           value={String(overview.shipmentsSubmitted)}
@@ -232,6 +311,15 @@ export default async function AnalyticsPage({
         />
       </div>
 
+      {/* Per-courier breakdown — the one section that answers "how is each
+          carrier actually doing" without cross-referencing four different
+          bar lists by eye. */}
+      <div className="grid md:grid-cols-3 gap-3">
+        {courierCards.map((c) => (
+          <CourierCard key={c.carrier} data={c} />
+        ))}
+      </div>
+
       <VolumeChart points={dailyVolume} />
 
       <HourlyChart points={hourly} />
@@ -286,6 +374,19 @@ export default async function AnalyticsPage({
           barClassName: o.pct === null ? "bg-ink-faint" : o.pct >= 90 ? "bg-green" : o.pct >= 70 ? "bg-amber" : "bg-red",
         }))}
         emptyMessage="No delivery-estimate data backfilled yet (unverified data source — see lib/shipstation.ts)."
+      />
+
+      <BarList
+        title="Most common exceptions"
+        rows={exceptionBreakdown.topReasonsOverall.map((r) => ({
+          key: r.label,
+          label: r.label,
+          value: r.count,
+          displayValue: String(r.count),
+          pct: (r.count / maxExceptionReasonCount) * 100,
+          barClassName: "bg-red",
+        }))}
+        emptyMessage="No exceptions in this window."
       />
 
       <BarList
