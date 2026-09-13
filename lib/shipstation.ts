@@ -113,3 +113,74 @@ export async function lookupShipstationLabel(trackingNumber: string): Promise<Sh
     return null;
   }
 }
+
+export type ShipstationShipment = {
+  trackingNumber: string;
+  /** The order-source's own order id/number (e.g. Shopify's), confirmed field on GET /v2/shipments. Used only as a fallback when Shopify's own order-matching (lib/order-index.ts) comes up empty — never as a replacement for it. */
+  externalOrderId: string | null;
+  shipToName: string | null;
+  shipToPostalCode: string | null;
+  shipToCountryCode: string | null;
+  shipToCityLocality: string | null;
+  shipToStateProvince: string | null;
+};
+
+type ShipmentsResponse = {
+  shipments?: {
+    tracking_number?: string;
+    external_order_id?: string | null;
+    ship_to?: {
+      name?: string | null;
+      postal_code?: string | null;
+      country_code?: string | null;
+      city_locality?: string | null;
+      state_province?: string | null;
+    } | null;
+  }[];
+};
+
+function parseShipment(trackingNumber: string, data: ShipmentsResponse): ShipstationShipment | null {
+  const shipment = data.shipments?.[0];
+  if (!shipment) return null;
+  const shipTo = shipment.ship_to;
+  return {
+    trackingNumber,
+    externalOrderId: shipment.external_order_id ?? null,
+    shipToName: shipTo?.name ?? null,
+    shipToPostalCode: shipTo?.postal_code ?? null,
+    shipToCountryCode: shipTo?.country_code ?? null,
+    shipToCityLocality: shipTo?.city_locality ?? null,
+    shipToStateProvince: shipTo?.state_province ?? null,
+  };
+}
+
+/**
+ * Looks up the shipment (order + ship-to) behind one tracking number. Used
+ * two ways: as an order-match fallback (lib/shipstation-order-fallback-cron.ts)
+ * when Shopify's own matching has nothing, and as the destination address
+ * feeding rate-shop estimates (lib/shipstation-rates.ts) — same call, two
+ * independent callers, neither one persists more of the response than it
+ * needs. Never throws — any failure reads as `null`.
+ */
+export async function lookupShipstationShipment(trackingNumber: string): Promise<ShipstationShipment | null> {
+  const apiKey = process.env.SHIPSTATION_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const url = new URL(`${apiBase()}/shipments`);
+    url.searchParams.set("tracking_number", trackingNumber);
+    url.searchParams.set("page_size", "1");
+
+    const res = await fetch(url, {
+      headers: { "API-Key": apiKey },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) return null;
+
+    const data = (await res.json()) as ShipmentsResponse;
+    return parseShipment(trackingNumber, data);
+  } catch {
+    return null;
+  }
+}

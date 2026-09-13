@@ -46,6 +46,8 @@ export type ScanRow = {
   destinationCountry: string | null;
   shipstationCostAmount: number | null;
   shipstationCostCurrency: string | null;
+  shipstationOrderFallback: string | null;
+  shipstationShipToName: string | null;
   epgExternalRef: string | null;
   epgFinalMile: string | null;
   statusLabel: string | null;
@@ -111,6 +113,8 @@ async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
     destinationCountry: s.destinationCountry,
     shipstationCostAmount: s.shipstationCostAmount,
     shipstationCostCurrency: s.shipstationCostCurrency,
+    shipstationOrderFallback: s.shipstationOrderFallback,
+    shipstationShipToName: s.shipstationShipToName,
     epgExternalRef: s.epgExternalRef,
     epgFinalMile: s.epgFinalMile,
     statusLabel: s.statusLabel,

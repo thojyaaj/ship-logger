@@ -15,6 +15,8 @@ type Row = {
   destinationCountry: string | null;
   shipstationCostAmount: number | null;
   shipstationCostCurrency: string | null;
+  shipstationOrderFallback: string | null;
+  shipstationShipToName: string | null;
   statusLabel: string | null;
 };
 
@@ -99,6 +101,14 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                     >
                       {r.orderName}
                     </button>
+                  ) : r.shipstationOrderFallback || r.shipstationShipToName ? (
+                    // Fallback only — Shopify's own matching (lib/order-index.ts,
+                    // lib/epg-cron.ts) found nothing for this scan. Not a
+                    // Shopify GID, so plain text rather than an OrderPanel
+                    // button, and labeled so it's never mistaken for a real match.
+                    <span className="text-ink-faint truncate" title="No Shopify match — from ShipStation's label data">
+                      {r.shipstationOrderFallback ?? r.shipstationShipToName}
+                    </span>
                   ) : (
                     <span className="text-ink-faint">—</span>
                   )}
