@@ -21,12 +21,18 @@ export type CourierCardData = {
   dhlPickup?: { totalParcels: number; avgWeightLb: number | null };
 };
 
-function formatMoney(amount: number | null, currency: string | null): string {
+function formatMoney(amount: number | null, currency: string | null, opts?: { decimals?: number }): string {
   if (amount === null) return "—";
+  const decimals = opts?.decimals ?? 2;
   try {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: currency ?? "USD" }).format(amount);
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currency ?? "USD",
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(amount);
   } catch {
-    return `${amount.toFixed(2)}${currency ? ` ${currency}` : ""}`;
+    return `${amount.toFixed(decimals)}${currency ? ` ${currency}` : ""}`;
   }
 }
 
@@ -70,16 +76,20 @@ export default function CourierCard({ data }: { data: CourierCardData }) {
         </span>
       </div>
 
+      {/* Totals round to whole dollars — the exact cents live in the
+          per-package sub-line below "Cost paid" instead, since a fixed-width
+          grid column truncates a comma-thousands total ("$2,155.…") the
+          moment cents push it past a few hundred dollars. */}
       <StatGroup label="Money" accent="border-blue" bg="bg-blue-dim/30">
         <Stat
           label="Cost paid"
-          value={formatMoney(data.totalCost, data.currency)}
+          value={formatMoney(data.totalCost, data.currency, { decimals: 0 })}
           sub={data.avgCost !== null ? `${formatMoney(data.avgCost, data.currency)}/pkg` : undefined}
         />
-        <Stat label="Charged" value={formatMoney(data.totalCharged, data.currency)} />
+        <Stat label="Charged" value={formatMoney(data.totalCharged, data.currency, { decimals: 0 })} />
         <Stat
           label="Margin"
-          value={formatMoney(data.margin, data.currency)}
+          value={formatMoney(data.margin, data.currency, { decimals: 0 })}
           accent={data.margin !== null ? (data.margin < 0 ? "!text-red-ink" : "!text-green-ink") : undefined}
         />
       </StatGroup>
