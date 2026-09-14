@@ -1,1 +1,1 @@
-CREATE UNIQUE INDEX "scan_session_sequence_idx" ON "scan" USING btree ("session_id","sequence");
+CREATE UNIQUE INDEX IF NOT EXISTS "scan_session_sequence_idx" ON "scan" USING btree ("session_id","sequence");
