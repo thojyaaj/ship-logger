@@ -22,7 +22,7 @@ export default async function ShipmentsPage({
   const hasFilter = Boolean(q || date);
 
   const filterDescriptions: string[] = [];
-  if (q) filterDescriptions.push(`contain a tracking number matching “${q}”`);
+  if (q) filterDescriptions.push(`contain a tracking or order number matching “${q}”`);
   if (date) filterDescriptions.push(`shipped on ${date}`);
 
   // The swipe hint should land on the first row a swipe would actually do

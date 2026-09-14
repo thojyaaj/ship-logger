@@ -3,7 +3,7 @@ import { db } from "./db";
 import { appUser } from "./db/schema";
 import { eq } from "drizzle-orm";
 import { newId } from "./id";
-import { hashPin, pinIsTaken } from "./auth";
+import { hashPin, pinIsTaken, isSuperAdminName, type SessionUser } from "./auth";
 
 export type UserListItem = {
   id: string;
@@ -81,7 +81,30 @@ export async function addUser(name: string, pin: string): Promise<UserMutationRe
   throw new Error("unreachable");
 }
 
-export async function resetPin(userId: string, pin: string): Promise<UserMutationResult> {
+/**
+ * Superadmin status is derived from the target's name (see isSuperAdminName
+ * in lib/auth.ts), not a stored role, so a plain admin could otherwise reset
+ * the superadmin's PIN, demote/deactivate them, or promote a newly-created
+ * same-named account to admin — a full takeover or lockout of the one
+ * account meant to be more trusted than the rest. Every mutation below that
+ * can change a user's PIN, admin flag, or active flag runs through this
+ * first: only an acting superadmin may target a superadmin-named account.
+ */
+async function assertCanManageTarget(
+  actingAdmin: SessionUser,
+  targetUserId: string,
+): Promise<UserMutationResult | null> {
+  if (actingAdmin.isSuperAdmin) return null;
+  const target = (await db.select().from(appUser).where(eq(appUser.id, targetUserId)).limit(1))[0];
+  if (target && isSuperAdminName(target.name)) {
+    return { status: "error", message: "Only the superadmin can manage this account." };
+  }
+  return null;
+}
+
+export async function resetPin(actingAdmin: SessionUser, userId: string, pin: string): Promise<UserMutationResult> {
+  const blocked = await assertCanManageTarget(actingAdmin, userId);
+  if (blocked) return blocked;
   if (!/^\d{4}$/.test(pin)) return { status: "error", message: "PIN must be exactly 4 digits." };
   if (await pinIsTaken(pin, userId)) {
     return { status: "error", message: "That PIN is already in use by another active user." };
@@ -90,11 +113,25 @@ export async function resetPin(userId: string, pin: string): Promise<UserMutatio
   return { status: "ok" };
 }
 
-export async function setAdmin(userId: string, isAdmin: boolean): Promise<void> {
+export async function setAdmin(
+  actingAdmin: SessionUser,
+  userId: string,
+  isAdmin: boolean,
+): Promise<UserMutationResult> {
+  const blocked = await assertCanManageTarget(actingAdmin, userId);
+  if (blocked) return blocked;
   await db.update(appUser).set({ isAdmin }).where(eq(appUser.id, userId));
+  return { status: "ok" };
 }
 
-export async function setActive(userId: string, active: boolean): Promise<void> {
+export async function setActive(
+  actingAdmin: SessionUser,
+  userId: string,
+  active: boolean,
+): Promise<UserMutationResult> {
+  const blocked = await assertCanManageTarget(actingAdmin, userId);
+  if (blocked) return blocked;
   // Deactivate, never delete — historical scans reference this user (§8.1).
   await db.update(appUser).set({ active }).where(eq(appUser.id, userId));
+  return { status: "ok" };
 }

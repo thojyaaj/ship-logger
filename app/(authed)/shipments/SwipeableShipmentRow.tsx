@@ -51,6 +51,17 @@ export default function SwipeableShipmentRow({
   // it rather than touching the DB (see lib/shiplog.ts) — so this is known
   // up front rather than discovered via a failed round-trip.
   const isOpenSession = s.status === "open";
+  // The touch-listener effect below only re-attaches on [isAdmin, deleting]
+  // (attaching/detaching mid-drag on every prop change would be its own
+  // bug), so onTouchEnd's closure can't read `isOpenSession` directly — a
+  // status flip (e.g. this session gets submitted while the row stays
+  // mounted, reconciled by key on the next router.refresh()) would leave it
+  // deciding against a stale value. A ref kept fresh every render sidesteps
+  // that without needing to re-subscribe the listeners.
+  const isOpenSessionRef = useRef(isOpenSession);
+  useEffect(() => {
+    isOpenSessionRef.current = isOpenSession;
+  }, [isOpenSession]);
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -191,7 +202,7 @@ export default function SwipeableShipmentRow({
       e.preventDefault();
       suppressNextClick.current = true;
       if (ts.dx <= -HARD_SWIPE_PX) {
-        if (isOpenSession) {
+        if (isOpenSessionRef.current) {
           rejectDelete();
         } else {
           // A hard swipe opens the same confirm dialog the detail page's
@@ -216,7 +227,6 @@ export default function SwipeableShipmentRow({
       el.removeEventListener("touchend", onTouchEnd);
       el.removeEventListener("touchcancel", onTouchEnd);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, deleting]);
 
   function handleClick() {

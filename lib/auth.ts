@@ -4,8 +4,9 @@ import { redirect } from "next/navigation";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { db } from "./db";
-import { appUser } from "./db/schema";
+import { appUser, loginAttempt } from "./db/schema";
 import { eq } from "drizzle-orm";
+import { nowSqlTimestamp, toSqlTimestamp, parseDbTimestamp } from "./date";
 
 const SESSION_COOKIE = "shiplog_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days — kiosk tablet stays signed in
@@ -93,7 +94,7 @@ export type SessionUser = {
  * how the name is entered ("Thao", "THAO", "Thao Yang") still match.
  */
 const SUPERADMIN_NAME_FRAGMENT = "thao";
-function isSuperAdminName(name: string): boolean {
+export function isSuperAdminName(name: string): boolean {
   return name.trim().toLowerCase().includes(SUPERADMIN_NAME_FRAGMENT);
 }
 
@@ -208,9 +209,16 @@ export async function pinIsTaken(pin: string, excludeUserId?: string): Promise<b
 }
 
 // --- Login rate limiting (§8.1: 5/min per IP, lock out 15min after 10 failures) ---
-// In-memory only — resets on redeploy/restart. Fine for a single-process warehouse
-// kiosk deployment; would need a shared store (Redis/DB) behind a serverless
-// multi-instance deployment.
+// DB-backed, one row per IP. This used to be an in-memory Map, which only
+// works as a rate limit on a single long-lived process — this app runs on
+// Vercel, where a burst of login attempts can be scheduled across several
+// concurrent serverless instances, each with its own independent in-memory
+// counter, so the effective limit scaled with however many instances handled
+// the burst. A DB row is visible to every instance. This isn't wrapped in a
+// transaction: two truly simultaneous failures from the same IP could each
+// read the same starting count and undercount by one, but a rate limiter
+// only needs to be approximately right, not exact — the same slop existed in
+// the in-memory version across two concurrent requests in one process too.
 //
 // `windowCount`/`windowStart` and `cumulativeFailures` are deliberately separate
 // counters. The 5/min check only ever calls recordFailedAttempt for attempts it
@@ -220,55 +228,57 @@ export async function pinIsTaken(pin: string, excludeUserId?: string): Promise<b
 // guessing at one failure per window. cumulativeFailures instead only resets on
 // a successful login (or the lockout itself firing), so failures actually stack
 // across windows.
-type Attempt = {
-  windowCount: number;
-  windowStart: number;
-  cumulativeFailures: number;
-  lockedUntil: number;
-};
-const attempts = new Map<string, Attempt>();
 const WINDOW_MS = 60 * 1000;
 const MAX_PER_WINDOW = 5;
 const LOCKOUT_AFTER = 10;
 const LOCKOUT_MS = 15 * 60 * 1000;
 
-export function checkRateLimit(ip: string): { allowed: boolean; retryAfterMs?: number } {
+export async function checkRateLimit(ip: string): Promise<{ allowed: boolean; retryAfterMs?: number }> {
   const now = Date.now();
-  const entry = attempts.get(ip);
+  const entry = (await db.select().from(loginAttempt).where(eq(loginAttempt.ip, ip)).limit(1))[0];
   if (!entry) return { allowed: true };
-  if (entry.lockedUntil > now) {
-    return { allowed: false, retryAfterMs: entry.lockedUntil - now };
+
+  const lockedUntil = entry.lockedUntil ? parseDbTimestamp(entry.lockedUntil).getTime() : 0;
+  if (lockedUntil > now) {
+    return { allowed: false, retryAfterMs: lockedUntil - now };
   }
-  if (now - entry.windowStart > WINDOW_MS) {
+  const windowStart = parseDbTimestamp(entry.windowStart).getTime();
+  if (now - windowStart > WINDOW_MS) {
     return { allowed: true };
   }
   if (entry.windowCount >= MAX_PER_WINDOW) {
-    return { allowed: false, retryAfterMs: WINDOW_MS - (now - entry.windowStart) };
+    return { allowed: false, retryAfterMs: WINDOW_MS - (now - windowStart) };
   }
   return { allowed: true };
 }
 
-export function recordFailedAttempt(ip: string): void {
+export async function recordFailedAttempt(ip: string): Promise<void> {
   const now = Date.now();
-  const entry = attempts.get(ip);
-  const windowExpired = !entry || now - entry.windowStart > WINDOW_MS;
+  const entry = (await db.select().from(loginAttempt).where(eq(loginAttempt.ip, ip)).limit(1))[0];
+  const windowStart = entry ? parseDbTimestamp(entry.windowStart).getTime() : 0;
+  const windowExpired = !entry || now - windowStart > WINDOW_MS;
 
   const cumulativeFailures = (entry?.cumulativeFailures ?? 0) + 1;
   const tripsLockout = cumulativeFailures >= LOCKOUT_AFTER;
 
-  attempts.set(ip, {
-    windowCount: windowExpired ? 1 : entry.windowCount + 1,
-    windowStart: windowExpired ? now : entry.windowStart,
+  const next = {
+    windowCount: windowExpired ? 1 : entry!.windowCount + 1,
+    windowStart: windowExpired ? nowSqlTimestamp() : entry!.windowStart,
     // Serving the lockout resets the counter. Without this, cumulativeFailures
     // stays >= LOCKOUT_AFTER forever, so every *subsequent* failure re-trips a
     // fresh 15-minute lock — one packer fat-fingering their PIN 10 times would
     // pin the warehouse's shared egress IP to one attempt per 15 minutes
     // indefinitely, since only a successful login clears the entry.
     cumulativeFailures: tripsLockout ? 0 : cumulativeFailures,
-    lockedUntil: tripsLockout ? now + LOCKOUT_MS : (entry?.lockedUntil ?? 0),
-  });
+    lockedUntil: tripsLockout ? toSqlTimestamp(new Date(now + LOCKOUT_MS)) : (entry?.lockedUntil ?? null),
+  };
+
+  await db
+    .insert(loginAttempt)
+    .values({ ip, ...next })
+    .onConflictDoUpdate({ target: loginAttempt.ip, set: next });
 }
 
-export function recordSuccessfulAttempt(ip: string): void {
-  attempts.delete(ip);
+export async function recordSuccessfulAttempt(ip: string): Promise<void> {
+  await db.delete(loginAttempt).where(eq(loginAttempt.ip, ip));
 }

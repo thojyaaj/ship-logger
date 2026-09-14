@@ -38,7 +38,7 @@ export async function loginWithPin(pin: string): Promise<LoginResult> {
   }
 
   const ip = await clientIp();
-  const rate = checkRateLimit(ip);
+  const rate = await checkRateLimit(ip);
   if (!rate.allowed) {
     const seconds = Math.ceil((rate.retryAfterMs ?? 0) / 1000);
     return { ok: false, error: `Too many attempts. Try again in ${seconds}s.` };
@@ -46,11 +46,11 @@ export async function loginWithPin(pin: string): Promise<LoginResult> {
 
   const user = await findUserByPin(pin);
   if (!user) {
-    recordFailedAttempt(ip);
+    await recordFailedAttempt(ip);
     return { ok: false, error: "PIN not recognized." };
   }
 
-  recordSuccessfulAttempt(ip);
+  await recordSuccessfulAttempt(ip);
   await establishSession(user.id);
   return { ok: true };
 }

@@ -9,8 +9,8 @@ export async function addUserAction(name: string, pin: string): Promise<UserMuta
 }
 
 export async function resetPinAction(userId: string, pin: string): Promise<UserMutationResult> {
-  await requireAdmin();
-  return resetPin(userId, pin);
+  const admin = await requireAdmin();
+  return resetPin(admin, userId, pin);
 }
 
 export async function setAdminAction(userId: string, isAdmin: boolean): Promise<UserMutationResult> {
@@ -18,8 +18,7 @@ export async function setAdminAction(userId: string, isAdmin: boolean): Promise<
   if (userId === admin.id && !isAdmin) {
     return { status: "error", message: "You can't remove your own admin access." };
   }
-  await setAdmin(userId, isAdmin);
-  return { status: "ok" };
+  return setAdmin(admin, userId, isAdmin);
 }
 
 export async function setActiveAction(userId: string, active: boolean): Promise<UserMutationResult> {
@@ -27,6 +26,5 @@ export async function setActiveAction(userId: string, active: boolean): Promise<
   if (userId === admin.id && !active) {
     return { status: "error", message: "You can't deactivate your own account." };
   }
-  await setActive(userId, active);
-  return { status: "ok" };
+  return setActive(admin, userId, active);
 }

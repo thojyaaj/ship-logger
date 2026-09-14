@@ -17,6 +17,12 @@ import { getShipmentDetail, ShipmentNotFoundError } from "./shiplog";
 // rather than a keyed settings table.
 const SETTINGS_ID = "default";
 
+const POSTGRES_UNIQUE_VIOLATION = "23505";
+
+function isUniqueViolation(err: unknown): boolean {
+  return (err as { code?: string } | undefined)?.code === POSTGRES_UNIQUE_VIOLATION;
+}
+
 export type DhlPickupSettings = {
   enabled: boolean;
   accountNumber: string;
@@ -462,23 +468,6 @@ export async function schedulePickupForSession(
     return { status: "error", message: "Only a submitted shipment can have a pickup scheduled." };
   }
 
-  // Guard against double-booking: DHL's own docs note that cancelling a
-  // pickup cancels the whole consolidated pickup, not just this shipment, so
-  // two live requests for the same shipment is a real mess to untangle by
-  // hand. The unique index on (session_id) WHERE status='requested' enforces
-  // this at the DB layer too — this check exists to fail with a clear message
-  // instead of a raw constraint-violation error.
-  const active = await db
-    .select()
-    .from(dhlPickupRequest)
-    .where(and(eq(dhlPickupRequest.sessionId, sessionId), eq(dhlPickupRequest.status, "requested")));
-  if (active[0]) {
-    return {
-      status: "error",
-      message: `A pickup is already scheduled for this shipment (confirmation ${active[0].dispatchConfirmationNumber}). Cancel it first to rebook.`,
-    };
-  }
-
   const dashboard = await getShipmentDetail(sessionId);
   const parcelCount = dashboard.totals.dhl;
   if (parcelCount === 0) {
@@ -486,6 +475,46 @@ export async function schedulePickupForSession(
   }
   const { totalWeightLb, dimensions, measuredCount } = await computeDhlWeightAndDimensions(sessionId, parcelCount, settings);
   const pickupDate = resolvePickupDate(session.shipDate, settings);
+
+  const id = newId();
+  const requestedAt = nowSqlTimestamp();
+
+  // Claim the "one active pickup per shipment" slot *before* calling DHL,
+  // not after. DHL's own docs note that cancelling a pickup cancels the
+  // whole consolidated pickup, not just this shipment, so two live requests
+  // for the same shipment is a real mess to untangle by hand — and the old
+  // order (call DHL, then insert under the unique index) only caught the
+  // second *write*, by which point DHL had already dispatched a real truck
+  // twice. Inserting the placeholder first turns this into an ordinary
+  // compare-and-swap: only whoever wins this insert ever calls DHL at all.
+  try {
+    await db.insert(dhlPickupRequest).values({
+      id,
+      sessionId,
+      requestedBy,
+      requestedAt,
+      status: "requested",
+      dispatchConfirmationNumber: null,
+      parcelCount,
+      totalWeightLb,
+      pickupDate,
+      errorMessage: null,
+    });
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    const active = (
+      await db
+        .select()
+        .from(dhlPickupRequest)
+        .where(and(eq(dhlPickupRequest.sessionId, sessionId), eq(dhlPickupRequest.status, "requested")))
+    )[0];
+    return {
+      status: "error",
+      message: active?.dispatchConfirmationNumber
+        ? `A pickup is already scheduled for this shipment (confirmation ${active.dispatchConfirmationNumber}). Cancel it first to rebook.`
+        : "A pickup is already being scheduled for this shipment — check back in a moment before retrying.",
+    };
+  }
 
   const result = await requestDhlPickup({
     accountNumber: settings.accountNumber,
@@ -509,34 +538,11 @@ export async function schedulePickupForSession(
     specialInstructions: settings.specialInstructions ?? undefined,
   });
 
-  const id = newId();
-  const requestedAt = nowSqlTimestamp();
-
   if (result.status === "ok") {
-    try {
-      await db.insert(dhlPickupRequest).values({
-        id,
-        sessionId,
-        requestedBy,
-        requestedAt,
-        status: "requested",
-        dispatchConfirmationNumber: result.dispatchConfirmationNumber,
-        parcelCount,
-        totalWeightLb,
-        pickupDate,
-        errorMessage: null,
-      });
-    } catch (err) {
-      // The unique index rejected a concurrent duplicate that slipped past
-      // the check above (two admins clicking at once) — DHL has already
-      // booked a real truck at this point, so this must not be swallowed
-      // silently. Surface it as a mismatch to investigate by hand rather
-      // than losing the confirmation number.
-      return {
-        status: "error",
-        message: `DHL confirmed pickup ${result.dispatchConfirmationNumber}, but a concurrent request already recorded one for this shipment — check both before proceeding. (${err instanceof Error ? err.message : "unknown error"})`,
-      };
-    }
+    await db
+      .update(dhlPickupRequest)
+      .set({ dispatchConfirmationNumber: result.dispatchConfirmationNumber })
+      .where(eq(dhlPickupRequest.id, id));
     return {
       status: "ok",
       dispatchConfirmationNumber: result.dispatchConfirmationNumber,
@@ -550,17 +556,13 @@ export async function schedulePickupForSession(
     };
   }
 
-  await db.insert(dhlPickupRequest).values({
-    id,
-    sessionId,
-    requestedBy,
-    requestedAt,
-    status: "failed",
-    dispatchConfirmationNumber: null,
-    parcelCount,
-    totalWeightLb,
-    errorMessage: result.message,
-  });
+  // DHL declined/failed — release the slot (status leaves 'requested', which
+  // is the only status the unique index locks on) so a retry isn't blocked
+  // by our own placeholder.
+  await db
+    .update(dhlPickupRequest)
+    .set({ status: "failed", errorMessage: result.message })
+    .where(eq(dhlPickupRequest.id, id));
   return { status: "error", message: result.message };
 }
 
