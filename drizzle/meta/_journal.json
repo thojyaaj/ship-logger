@@ -148,6 +148,20 @@
       "when": 1789325643706,
       "tag": "0020_dizzy_rage",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789346250500,
+      "tag": "0021_numerous_prodigy",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789346450247,
+      "tag": "0022_black_mentallo",
+      "breakpoints": true
     }
   ]
 }

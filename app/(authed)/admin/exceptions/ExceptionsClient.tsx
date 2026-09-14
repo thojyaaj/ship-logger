@@ -95,6 +95,21 @@ export default function ExceptionsClient({
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [isPending, startTransition] = useTransition();
 
+  // A scheduled dismiss is a plain browser timer, independent of React's
+  // lifecycle — navigating away in-app (e.g. to "Dismissed history" below)
+  // unmounts this component but does not itself stop the timer, so without
+  // this it fires anyway and commits a dismissal the admin no longer has any
+  // Cancel button to stop. Matches the "closing the tab" guarantee the
+  // scheduleDismiss comment already documents, extended to cover navigation
+  // too — both are "this component is gone," just via different mechanisms.
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const timeoutId of timers.values()) clearTimeout(timeoutId);
+      timers.clear();
+    };
+  }, []);
+
   function toggle(k: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -130,6 +145,12 @@ export default function ExceptionsClient({
   }
 
   function scheduleDismiss(key: string) {
+    // A row mid-countdown can still be checkbox-selected (its selectability
+    // isn't gated on pending state), so "select all" + "Dismiss selected" can
+    // re-target a key already scheduled. Without this guard, that overwrites
+    // timersRef's entry with a second timer while orphaning the first —
+    // both eventually fire and both call dismissProblemAction.
+    if (timersRef.current.has(key)) return;
     setPendingKeys((prev) => new Set(prev).add(key));
     const timeoutId = setTimeout(() => commitDismiss(key), DISMISS_DELAY_MS);
     timersRef.current.set(key, timeoutId);

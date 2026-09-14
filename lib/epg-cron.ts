@@ -9,6 +9,19 @@ import { lookupOrderIndex } from "./order-index";
 
 const LOOKBACK_DAYS = 45;
 
+// findOrderByName hits the Shopify Admin API sequentially, once per pending
+// scan that still needs order resolution (see lib/shopify.ts's comment on
+// SHOPIFY_TIMEOUT_MS) — unlike the EPG status lookup above, which is one
+// batched call regardless of how many scans are pending. Every other cron in
+// this codebase that makes a sequential per-item external call caps how many
+// it makes in one run (DHL's MAX_LOOKUPS_PER_RUN, the order-index backfill's
+// MAX_ORDERS_PER_BACKFILL_RUN); this one didn't, so a backlog of unresolved
+// EREfs (e.g. after an EPG outage) could run this loop past the platform's
+// function-duration limit every single day. A scan skipped here still lacks
+// orderGid, so it stays a candidate and gets retried on the next run —
+// draining the backlog across days, not stalling on it forever.
+const MAX_ORDER_LOOKUPS_PER_RUN = 30;
+
 function isTerminal(statusLabel: string | null): boolean {
   if (!statusLabel) return false;
   return /delivered|returned to sender|return to shipper/i.test(statusLabel);
@@ -88,6 +101,7 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
   let orderResolutionErrors = 0;
   let epgNoRecord = 0;
   let ordersFromIndex = 0;
+  let orderLookupsThisRun = 0;
   const now = nowSqlTimestamp();
   for (const s of pending) {
     // Try the local index before anything else. It's a free, no-network lookup
@@ -121,7 +135,8 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
       // ERef, we can still resolve the Shopify order from it without EPG
       // telling us anything new. Skipping that was why a parcel could sit
       // with a known ERef and permanently no order number.
-      if (s.epgExternalRef && !s.orderGid) {
+      if (s.epgExternalRef && !s.orderGid && orderLookupsThisRun < MAX_ORDER_LOOKUPS_PER_RUN) {
+        orderLookupsThisRun += 1;
         try {
           const order = await findOrderByName(s.epgExternalRef);
           if (order) {
@@ -163,7 +178,8 @@ export async function runEpgStatusCron(): Promise<EpgCronResult> {
     // isn't guaranteed to repeat every field on every call, and dropping back
     // to null for one poll shouldn't cost us a lookup we could still make.
     const externalRef = record.externalRef ?? s.epgExternalRef;
-    if (externalRef && !s.orderGid) {
+    if (externalRef && !s.orderGid && orderLookupsThisRun < MAX_ORDER_LOOKUPS_PER_RUN) {
+      orderLookupsThisRun += 1;
       try {
         const order = await findOrderByName(externalRef);
         if (order) {

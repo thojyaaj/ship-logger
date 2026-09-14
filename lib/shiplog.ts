@@ -162,6 +162,12 @@ function isUniqueViolation(err: unknown): boolean {
   return (err as { code?: string } | undefined)?.code === POSTGRES_UNIQUE_VIOLATION;
 }
 
+/** Which unique index a 23505 violation actually came from — postgres-js surfaces this as `constraint_name`. */
+function violatesConstraint(err: unknown, constraintName: string): boolean {
+  if (!isUniqueViolation(err)) return false;
+  return (err as { constraint_name?: string }).constraint_name === constraintName;
+}
+
 /**
  * Reads the single shared open session, if one exists — never creates one.
  * A shipment-day row isn't created until the first scan actually commits
@@ -274,6 +280,45 @@ export type RecordScanResult =
       sessionSubmitted: boolean;
     };
 
+/**
+ * Turns an existing `scan` row for a tracking number into the same
+ * "duplicate" result shape recordScan returns for it — shared by the
+ * pre-insert check (the row was already there) and the post-insert unique-
+ * violation recovery below (a concurrent racer's row won the insert).
+ */
+async function classifyDuplicateScan(
+  row: { id: string; sessionId: string; boxId: string | null; scannedBy: string },
+  sessionId: string,
+  trackingNumber: string,
+  carrier: Carrier,
+): Promise<RecordScanResult> {
+  if (row.sessionId === sessionId) {
+    const existingBox = row.boxId ? (await db.select().from(box).where(eq(box.id, row.boxId)))[0] : null;
+    return {
+      status: "duplicate_in_session",
+      trackingNumber,
+      boxNumber: existingBox?.boxNumber ?? null,
+      carrier,
+      dashboard: await loadDashboard(sessionId),
+    };
+  }
+
+  const otherSession = (
+    await db.select().from(shipmentSession).where(eq(shipmentSession.id, row.sessionId))
+  )[0];
+  const otherBox = row.boxId ? (await db.select().from(box).where(eq(box.id, row.boxId)))[0] : null;
+  const scannedByUser = (await db.select().from(appUser).where(eq(appUser.id, row.scannedBy)))[0];
+
+  return {
+    status: "duplicate_previous_shipment",
+    trackingNumber,
+    shipDate: otherSession?.shipDate ?? "unknown date",
+    boxNumber: otherBox?.boxNumber ?? null,
+    scannedByName: scannedByUser?.name ?? "unknown",
+    sessionSubmitted: otherSession?.status === "submitted",
+  };
+}
+
 export async function recordScan(input: RecordScanInput): Promise<RecordScanResult> {
   const detection = detectCarrier(input.rawTrackingNumber);
   const trackingNumber = detection.trackingNumber;
@@ -332,37 +377,11 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
 
   if (existing) {
     if (existing.sessionId === input.sessionId) {
-      const existingBox = existing.boxId
-        ? (await db.select().from(box).where(eq(box.id, existing.boxId)))[0]
-        : null;
-      return {
-        status: "duplicate_in_session",
-        trackingNumber,
-        boxNumber: existingBox?.boxNumber ?? null,
-        carrier: finalCarrier,
-        dashboard: await loadDashboard(input.sessionId),
-      };
+      return classifyDuplicateScan(existing, input.sessionId, trackingNumber, finalCarrier);
     }
 
     if (!input.forcePastDuplicate) {
-      const otherSession = (
-        await db.select().from(shipmentSession).where(eq(shipmentSession.id, existing.sessionId))
-      )[0];
-      const otherBox = existing.boxId
-        ? (await db.select().from(box).where(eq(box.id, existing.boxId)))[0]
-        : null;
-      const scannedByUser = (
-        await db.select().from(appUser).where(eq(appUser.id, existing.scannedBy))
-      )[0];
-
-      return {
-        status: "duplicate_previous_shipment",
-        trackingNumber,
-        shipDate: otherSession?.shipDate ?? "unknown date",
-        boxNumber: otherBox?.boxNumber ?? null,
-        scannedByName: scannedByUser?.name ?? "unknown",
-        sessionSubmitted: otherSession?.status === "submitted",
-      };
+      return classifyDuplicateScan(existing, input.sessionId ?? "", trackingNumber, finalCarrier);
     }
 
     // Admin override: the old row is deleted so the unique constraint on
@@ -418,23 +437,6 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
     boxNumber = activeBox.boxNumber;
   }
 
-  // Highest sequence so far, not count(*). With count(*) the number was reused
-  // after any undo — scan three parcels (1,2,3), undo #2, and the next scan
-  // computed count=2 → sequence 3, colliding with the existing #3. There is no
-  // unique index on (session_id, sequence) to catch it, and loadDashboard
-  // orders by sequence, so two parcels rendered as the same number in an
-  // arbitrary order. max()+1 is monotonic across undos and matches how box
-  // numbers are already allocated.
-  //
-  // postgres-js returns aggregates as strings (bigint-safe) — Number() before
-  // arithmetic or string concatenation silently misbehaves. max() is null on
-  // an empty session, hence the ?? 0.
-  const maxRow = await db
-    .select({ max: sql<number | null>`max(${scan.sequence})` })
-    .from(scan)
-    .where(eq(scan.sessionId, session.id));
-  const sequence = Number(maxRow[0]?.max ?? 0) + 1;
-
   // §9c: a local, no-network lookup against the webhook-fed index (§9b) —
   // never a live Shopify call at scan time.
   //
@@ -450,20 +452,67 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
   // is no downside to asking for all of them.
   const orderMatch = await lookupOrderIndex(trackingNumber);
 
-  await db.insert(scan).values({
-    id: newId(),
-    sessionId: session.id,
-    boxId,
-    scannedBy: input.userId,
-    trackingNumber,
-    carrier: finalCarrier,
-    sequence,
-    orderGid: orderMatch?.orderGid,
-    orderName: orderMatch?.orderName,
-    destinationCountry: orderMatch?.destinationCountry,
-    customerShippingAmount: orderMatch?.customerShippingAmount,
-    customerShippingCurrency: orderMatch?.customerShippingCurrency,
-  });
+  // Highest sequence so far, not count(*). With count(*) the number was reused
+  // after any undo — scan three parcels (1,2,3), undo #2, and the next scan
+  // computed count=2 → sequence 3, colliding with the existing #3. max()+1 is
+  // monotonic across undos and matches how box numbers are already allocated.
+  //
+  // Retried on conflict: two scanners racing into the same session can both
+  // read the same max() before either commits. scan_session_sequence_idx
+  // rejects the loser's insert instead of silently letting two parcels render
+  // under the same number — the loser just recomputes a fresh max and tries
+  // again, same shape as createOpenSessionRow's and the EPG box branch's
+  // retry-on-conflict above. Capped rather than unbounded so a real, non-race
+  // failure (e.g. a malformed row) still surfaces instead of looping forever.
+  const MAX_SEQUENCE_ATTEMPTS = 5;
+  for (let attempt = 1; attempt <= MAX_SEQUENCE_ATTEMPTS; attempt++) {
+    // postgres-js returns aggregates as strings (bigint-safe) — Number()
+    // before arithmetic or string concatenation silently misbehaves. max()
+    // is null on an empty session, hence the ?? 0.
+    const maxRow = await db
+      .select({ max: sql<number | null>`max(${scan.sequence})` })
+      .from(scan)
+      .where(eq(scan.sessionId, session.id));
+    const sequence = Number(maxRow[0]?.max ?? 0) + 1;
+
+    try {
+      await db.insert(scan).values({
+        id: newId(),
+        sessionId: session.id,
+        boxId,
+        scannedBy: input.userId,
+        trackingNumber,
+        carrier: finalCarrier,
+        sequence,
+        orderGid: orderMatch?.orderGid,
+        orderName: orderMatch?.orderName,
+        destinationCountry: orderMatch?.destinationCountry,
+        customerShippingAmount: orderMatch?.customerShippingAmount,
+        customerShippingCurrency: orderMatch?.customerShippingCurrency,
+      });
+      break;
+    } catch (err) {
+      if (violatesConstraint(err, "scan_session_sequence_idx") && attempt < MAX_SEQUENCE_ATTEMPTS) {
+        continue;
+      }
+
+      // Two scanners racing on the identical barcode can both pass the
+      // `existing` check above (both read it as unmatched) and both reach
+      // this insert — the unique index on tracking_number rejects the loser.
+      // Same shape as the retries above: report it as the duplicate it now
+      // is instead of letting a raw constraint-violation propagate as a
+      // generic scan failure.
+      if (!violatesConstraint(err, "scan_tracking_number_idx")) throw err;
+      const winnerRows = await db
+        .select({ id: scan.id, sessionId: scan.sessionId, boxId: scan.boxId, scannedBy: scan.scannedBy })
+        .from(scan)
+        .where(eq(scan.trackingNumber, trackingNumber))
+        .limit(1);
+      const winner = winnerRows[0];
+      if (!winner) throw err; // shouldn't happen, but don't swallow a real error
+      return classifyDuplicateScan(winner, session.id, trackingNumber, finalCarrier);
+    }
+  }
 
   const dashboard = await loadDashboard(session.id);
   return { status: "ok", dashboard, carrier: finalCarrier, boxNumber };
@@ -933,7 +982,7 @@ export type ShipmentListItem = {
 };
 
 export type ListShipmentsOptions = {
-  /** Free-text search against scanned tracking numbers. */
+  /** Free-text search against scanned tracking numbers or matched order names. */
   search?: string;
   /** Exact `ship_date` match ("YYYY-MM-DD") — e.g. "show me everything that went out on the 24th." */
   date?: string;
@@ -948,7 +997,12 @@ export async function listShipments(opts?: ListShipmentsOptions): Promise<Shipme
     const matches = await db
       .select({ sessionId: scan.sessionId })
       .from(scan)
-      .where(sql`upper(${scan.trackingNumber}) LIKE ${"%" + escapeLikePattern(normalized) + "%"}`);
+      .where(
+        or(
+          sql`upper(${scan.trackingNumber}) LIKE ${"%" + escapeLikePattern(normalized) + "%"}`,
+          ilike(scan.orderName, `%${escapeLikePattern(term)}%`),
+        ),
+      );
     sessionIds = [...new Set(matches.map((m) => m.sessionId))];
     if (sessionIds.length === 0) return [];
   }
@@ -1012,8 +1066,9 @@ export type ShipmentPaletteHit = {
 
 /**
  * Lightweight jump-to-shipment lookup for the command palette (§ command
- * palette) — matches session id, AWB, master UPS tracking, ship date, or a
- * scanned tracking number (same tracking-number match `listShipments` uses).
+ * palette) — matches session id, AWB, master UPS tracking, ship date, a
+ * scanned tracking number (same tracking-number match `listShipments` uses),
+ * or a matched Shopify order name.
  * Capped and unpaginated since it's a fast-jump, not the full history browser.
  */
 export async function searchShipmentsForPalette(query: string, limit = 8): Promise<ShipmentPaletteHit[]> {
@@ -1025,11 +1080,16 @@ export async function searchShipmentsForPalette(query: string, limit = 8): Promi
   const like = `%${escapeLikePattern(term)}%`;
 
   const normalizedTracking = term.toUpperCase().replace(/\s+/g, "");
-  const trackingMatches = await db
+  const scanMatches = await db
     .select({ sessionId: scan.sessionId })
     .from(scan)
-    .where(sql`upper(${scan.trackingNumber}) LIKE ${"%" + escapeLikePattern(normalizedTracking) + "%"}`);
-  const trackingSessionIds = [...new Set(trackingMatches.map((m) => m.sessionId))];
+    .where(
+      or(
+        sql`upper(${scan.trackingNumber}) LIKE ${"%" + escapeLikePattern(normalizedTracking) + "%"}`,
+        ilike(scan.orderName, like),
+      ),
+    );
+  const scanSessionIds = [...new Set(scanMatches.map((m) => m.sessionId))];
 
   const sessions = await db
     .select()
@@ -1043,7 +1103,7 @@ export async function searchShipmentsForPalette(query: string, limit = 8): Promi
           ilike(shipmentSession.awbNumber, like),
           ilike(shipmentSession.masterUpsTracking, like),
           ilike(shipmentSession.shipDate, like),
-          trackingSessionIds.length > 0 ? inArray(shipmentSession.id, trackingSessionIds) : undefined,
+          scanSessionIds.length > 0 ? inArray(shipmentSession.id, scanSessionIds) : undefined,
         ),
       ),
     )

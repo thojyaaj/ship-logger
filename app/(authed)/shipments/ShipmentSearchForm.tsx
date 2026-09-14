@@ -4,10 +4,11 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 /**
- * Debounced, no-submit-button search — typing a tracking number or picking
- * a ship date pushes the new query params via router.replace, which
- * re-renders the server component page with fresh results. Keeps the
- * filter shareable/bookmarkable as a URL, same as the old <form> did.
+ * Debounced, no-submit-button search — typing a tracking number/order
+ * number or picking a ship date pushes the new query params via
+ * router.replace, which re-renders the server component page with fresh
+ * results. Keeps the filter shareable/bookmarkable as a URL, same as the
+ * old <form> did.
  */
 export default function ShipmentSearchForm({
   initialQuery,
@@ -66,7 +67,7 @@ export default function ShipmentSearchForm({
         type="text"
         value={query}
         onChange={handleQueryChange}
-        placeholder="SEARCH BY TRACKING NUMBER…"
+        placeholder="SEARCH BY TRACKING OR ORDER NUMBER…"
         className="data flex-1 md:min-w-[220px] text-lg px-4 py-3 border border-line-strong focus:border-orange outline-none bg-paper-panel"
       />
       <label className="hidden md:flex items-center gap-2 shrink-0">

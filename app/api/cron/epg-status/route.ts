@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 import { runEpgStatusCron } from "@/lib/epg-cron";
 import { cronRequestIsAuthorized } from "@/lib/cron-auth";
 
+// Matches dhl-status/route.ts's reasoning: Vercel's default Function
+// duration is 10s, and a Hobby-plan project can't go past 60s regardless.
+// findOrderByName's per-scan Shopify calls are now capped per run (see
+// MAX_ORDER_LOOKUPS_PER_RUN in lib/epg-cron.ts), but the local index lookups
+// and DB writes for the rest of the batch still add up — set explicitly
+// rather than relying on whatever the platform default happens to be.
+export const maxDuration = 60;
+
 export async function GET(req: Request) {
   if (!cronRequestIsAuthorized(req)) {
     return new NextResponse("Unauthorized", { status: 401 });

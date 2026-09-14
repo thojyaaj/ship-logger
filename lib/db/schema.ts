@@ -164,7 +164,14 @@ export const scan = pgTable(
     shipstationBestRateCarrier: text("shipstation_best_rate_carrier"),
     shipstationBestRateCheckedAt: text("shipstation_best_rate_checked_at"),
   },
-  (t) => [uniqueIndex("scan_tracking_number_idx").on(t.trackingNumber)],
+  (t) => [
+    uniqueIndex("scan_tracking_number_idx").on(t.trackingNumber),
+    // Two scans racing into the same session could otherwise both compute
+    // the same max(sequence)+1 and both insert it — this index rejects the
+    // loser at the DB layer instead of silently rendering two parcels under
+    // the same number (see recordScan's retry-on-conflict in lib/shiplog.ts).
+    uniqueIndex("scan_session_sequence_idx").on(t.sessionId, t.sequence),
+  ],
 );
 
 /** A short-lived, server-side snapshot used to undo an accidental Reset Day. */
@@ -341,4 +348,19 @@ export const aiInsight = pgTable("ai_insight", {
   text: text("text").notNull(),
   generatedAt: text("generated_at").notNull().default(nowUtcText),
   generatedBy: text("generated_by").references(() => appUser.id),
+});
+
+// Login rate-limit state, keyed by IP (see lib/auth.ts). Previously an
+// in-memory Map, which only worked as a rate limit on a single long-lived
+// process — this app runs on Vercel, where each concurrent serverless
+// instance would have had its own independent counter, so the limit's
+// effective throughput scaled with however many instances handled a burst
+// of login attempts. A DB row is shared across every instance instead.
+export const loginAttempt = pgTable("login_attempt", {
+  ip: text("ip").primaryKey(),
+  windowCount: integer("window_count").notNull(),
+  windowStart: text("window_start").notNull(),
+  cumulativeFailures: integer("cumulative_failures").notNull(),
+  // Null means "not currently locked out", not "locked out at epoch zero".
+  lockedUntil: text("locked_until"),
 });
