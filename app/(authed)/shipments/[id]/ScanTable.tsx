@@ -145,16 +145,21 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                     )}
                     {/* Confirmation stamp — only rendered once both cost paid
                         and amount charged are known, so it's never a false
-                        "profitable" read against incomplete data. Green
-                        confirms this parcel didn't lose money; red is the
-                        same loss condition surfaced in
+                        "profitable" read against incomplete data, and only
+                        when they actually differ — a break-even parcel
+                        (paid === charged) isn't a "confirmed no loss" worth
+                        flagging, just the absence of a difference to show.
+                        Green confirms this parcel didn't lose money; red is
+                        the same loss condition surfaced in
                         lib/shipment-alerts.ts's exceptions system. The red
                         "!" is clickable (title still covers desktop hover)
                         since it's the only loss indicator left on mobile
                         once the cost/charged stamps above are hidden there —
                         tapping it reveals the actual paid/charged/difference
                         figures the hover title would otherwise carry. */}
-                    {r.shipstationCostAmount !== null && r.customerShippingAmount !== null && (
+                    {r.shipstationCostAmount !== null &&
+                      r.customerShippingAmount !== null &&
+                      r.shipstationCostAmount !== r.customerShippingAmount && (
                       isLoss ? (
                         <span
                           className="relative inline-flex"
