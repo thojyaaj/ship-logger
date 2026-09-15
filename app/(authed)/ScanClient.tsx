@@ -635,6 +635,16 @@ export default function ScanClient({
                 sessionSubmitted: result.sessionSubmitted,
               });
               break;
+            case "session_not_open":
+              // A concurrent Reset Day (or submit) voided the session between
+              // this scan starting and committing — the parcel wasn't recorded.
+              playTone("blocked");
+              setBanner({
+                kind: "error",
+                message: `"${trimmed}" — This shipment is no longer open. Refresh and rescan.`,
+              });
+              setValue((current) => (current.trim() ? current : trimmed));
+              break;
           }
         } catch (err) {
           // A thrown scanAction (e.g. the session was voided out from under
@@ -702,8 +712,15 @@ export default function ScanClient({
     });
     startTransition(async () => {
       try {
-        const updated = await withTransportRetry(() => undoScanAction(sessionId, scanId));
-        if (isNewest()) setDashboard(updated);
+        const result = await withTransportRetry(() => undoScanAction(sessionId, scanId));
+        if (result.status === "error") {
+          if (isNewest()) setDashboard(previous);
+          playTone("blocked");
+          setBanner({ kind: "error", message: result.message });
+          focusInput();
+          return;
+        }
+        if (isNewest()) setDashboard(result.data);
       } catch (err) {
         // Only roll back if nothing newer has landed — `previous` predates any
         // action the packer took while this one was in flight, so restoring it
@@ -721,8 +738,14 @@ export default function ScanClient({
     const isNewest = beginRequest();
     startTransition(async () => {
       try {
-        const updated = await createBoxAction(dashboard.session.id);
-        if (isNewest()) setDashboard(updated);
+        const result = await createBoxAction(dashboard.session.id);
+        if (result.status === "error") {
+          playTone("blocked");
+          setBanner({ kind: "error", message: result.message });
+          focusInput();
+          return;
+        }
+        if (isNewest()) setDashboard(result.data);
       } catch (err) {
         // Previously unguarded: two packers pressing "New Box" at the same
         // instant collide on the unique (session, box_number) index, and the
@@ -742,8 +765,15 @@ export default function ScanClient({
     setDashboard((d) => (d ? { ...d, session: { ...d.session, activeBoxId: boxId } } : d));
     startTransition(async () => {
       try {
-        const updated = await withTransportRetry(() => setActiveBoxAction(sessionId, boxId));
-        if (isNewest()) setDashboard(updated);
+        const result = await withTransportRetry(() => setActiveBoxAction(sessionId, boxId));
+        if (result.status === "error") {
+          if (isNewest()) setDashboard(previous);
+          playTone("blocked");
+          setBanner({ kind: "error", message: result.message });
+          focusInput();
+          return;
+        }
+        if (isNewest()) setDashboard(result.data);
       } catch (err) {
         if (isNewest()) setDashboard(previous);
         playTone("blocked");
@@ -769,8 +799,15 @@ export default function ScanClient({
     );
     startTransition(async () => {
       try {
-        const updated = await withTransportRetry(() => removeEmptyBoxAction(sessionId, boxId));
-        if (isNewest()) setDashboard(updated);
+        const result = await withTransportRetry(() => removeEmptyBoxAction(sessionId, boxId));
+        if (result.status === "error") {
+          if (isNewest()) setDashboard(previous);
+          playTone("blocked");
+          setBanner({ kind: "error", message: result.message });
+          focusInput();
+          return;
+        }
+        if (isNewest()) setDashboard(result.data);
       } catch (err) {
         if (isNewest()) setDashboard(previous);
         playTone("blocked");
@@ -786,10 +823,16 @@ export default function ScanClient({
     const isNewest = beginRequest();
     startTransition(async () => {
       try {
-        const updated = await resetSessionAction(dashboard.session.id);
+        const result = await resetSessionAction(dashboard.session.id);
+        if (result.status === "error") {
+          playTone("blocked");
+          setBanner({ kind: "error", message: result.message });
+          focusInput();
+          return;
+        }
         if (isNewest()) {
-          setDashboard(updated.dashboard);
-          setRestorableReset(updated.restore);
+          setDashboard(result.data.dashboard);
+          setRestorableReset(result.data.restore);
           setBanner(null);
         }
       } catch (err) {
@@ -807,9 +850,15 @@ export default function ScanClient({
     const isNewest = beginRequest();
     startTransition(async () => {
       try {
-        const restored = await restoreResetAction(restorableReset.id);
+        const result = await restoreResetAction(restorableReset.id);
+        if (result.status === "error") {
+          playTone("blocked");
+          setBanner({ kind: "error", message: result.message });
+          focusInput();
+          return;
+        }
         if (isNewest()) {
-          setDashboard(restored);
+          setDashboard(result.data);
           setRestorableReset(null);
           setBanner(null);
         }

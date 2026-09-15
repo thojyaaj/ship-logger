@@ -8,6 +8,7 @@ import { detectCarrier, type Carrier } from "./carrier";
 import { nowSqlTimestamp, localCalendarDate, toSqlTimestamp, parseDbTimestamp } from "./date";
 import { lookupOrderIndex } from "./order-index";
 import { lookupShipstationLabel } from "./shipstation";
+import { ExpectedError } from "./expected-error";
 
 function today(): string {
   return localCalendarDate();
@@ -250,7 +251,7 @@ async function createOpenSessionRow(userId: string): Promise<typeof shipmentSess
 
 export async function createBox(sessionId: string): Promise<SessionDashboard> {
   const session = (await db.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId)))[0];
-  if (!session || session.status !== "open") throw new Error("Session is not open.");
+  if (!session || session.status !== "open") throw new ExpectedError("Session is not open.");
 
   const existing = await db.select().from(box).where(eq(box.sessionId, sessionId));
   const nextNumber = existing.reduce((max, b) => Math.max(max, b.boxNumber), 0) + 1;
@@ -264,7 +265,7 @@ export async function createBox(sessionId: string): Promise<SessionDashboard> {
 
 export async function setActiveBox(sessionId: string, boxId: string): Promise<SessionDashboard> {
   const target = (await db.select().from(box).where(eq(box.id, boxId)))[0];
-  if (!target || target.sessionId !== sessionId) throw new Error("Box not found in this session.");
+  if (!target || target.sessionId !== sessionId) throw new ExpectedError("Box not found in this session.");
   await db.update(shipmentSession).set({ activeBoxId: boxId }).where(eq(shipmentSession.id, sessionId));
   return loadDashboard(sessionId);
 }
@@ -305,7 +306,8 @@ export type RecordScanResult =
       boxNumber: number | null;
       scannedByName: string;
       sessionSubmitted: boolean;
-    };
+    }
+  | { status: "session_not_open" };
 
 /**
  * Turns an existing `scan` row for a tracking number into the same
@@ -388,13 +390,13 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
   // scan is actually about to be recorded. Memoized because both the
   // admin-override branch below and the normal path after it need the same
   // resolved session.
-  async function resolveSession(): Promise<typeof shipmentSession.$inferSelect> {
+  async function resolveSession(): Promise<typeof shipmentSession.$inferSelect | null> {
     if (resolvedSession) return resolvedSession;
     if (input.sessionId) {
       const found = (
         await db.select().from(shipmentSession).where(eq(shipmentSession.id, input.sessionId))
       )[0];
-      if (!found || found.status !== "open") throw new Error("Session is not open.");
+      if (!found || found.status !== "open") return null;
       resolvedSession = found;
     } else {
       resolvedSession = await createOpenSessionRow(input.userId);
@@ -419,11 +421,12 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
     // a few lines below, which meant overriding into a non-open session
     // destroyed the prior shipment's record and *then* threw — the parcel's
     // history was gone and nothing replaced it.
-    await resolveSession();
+    if (!(await resolveSession())) return { status: "session_not_open" };
     await db.delete(scan).where(eq(scan.id, existing.id));
   }
 
   const session = await resolveSession();
+  if (!session) return { status: "session_not_open" };
 
   let boxId: string | null = null;
   let boxNumber: number | null = null;
@@ -671,16 +674,16 @@ async function assertSessionOpen(sessionId: string): Promise<void> {
   const session = (
     await db.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId))
   )[0];
-  if (!session) throw new Error("Shipment not found.");
+  if (!session) throw new ExpectedError("Shipment not found.");
   if (session.status !== "open") {
-    throw new Error("This shipment is no longer open — reopen it before editing.");
+    throw new ExpectedError("This shipment is no longer open — reopen it before editing.");
   }
 }
 
 export async function undoScan(sessionId: string, scanId: string): Promise<SessionDashboard> {
   await assertSessionOpen(sessionId);
   const target = (await db.select().from(scan).where(eq(scan.id, scanId)))[0];
-  if (target && target.sessionId !== sessionId) throw new Error("Scan not found in this session.");
+  if (target && target.sessionId !== sessionId) throw new ExpectedError("Scan not found in this session.");
   // No `target` at all means a retried request after a dropped response
   // landed here once the first attempt already undid it — already the
   // desired end state, not an error.
@@ -790,7 +793,7 @@ export async function submitSession(input: SubmitInput): Promise<SubmitResult> {
 export async function removeEmptyBox(sessionId: string, boxId: string): Promise<SessionDashboard> {
   await assertSessionOpen(sessionId);
   const target = (await db.select().from(box).where(eq(box.id, boxId)))[0];
-  if (target && target.sessionId !== sessionId) throw new Error("Box not found in this session.");
+  if (target && target.sessionId !== sessionId) throw new ExpectedError("Box not found in this session.");
   // No `target` at all means a retried request after a dropped response
   // landed here once the first attempt already removed it — already the
   // desired end state, not an error.
@@ -802,7 +805,7 @@ export async function removeEmptyBox(sessionId: string, boxId: string): Promise<
     // Number() like every other count in this file — postgres-js returns
     // count(*) as a string, and `"0" > 0` only happens to work via JS numeric
     // coercion. This was the one comparison still relying on that.
-    if (Number(countRow[0]?.count ?? 0) > 0) throw new Error("Box has scans — cannot remove.");
+    if (Number(countRow[0]?.count ?? 0) > 0) throw new ExpectedError("Box has scans — cannot remove.");
 
     const session = (await db.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId)))[0];
     await db.delete(box).where(eq(box.id, boxId));
@@ -838,7 +841,7 @@ export async function resetSession(
       await tx.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId))
     )[0];
     if (!session || session.status !== "open") {
-      throw new Error("Only the open session can be reset.");
+      throw new ExpectedError("Only the open session can be reset.");
     }
 
     const scanRows = await tx.select().from(scan).where(eq(scan.sessionId, sessionId));
@@ -897,15 +900,15 @@ export async function restoreReset(resetId: string): Promise<SessionDashboard> {
   // dashboard after it's actually committed.
   const sessionId = await db.transaction(async (tx) => {
     const row = (await tx.select().from(shipmentReset).where(eq(shipmentReset.id, resetId)).limit(1))[0];
-    if (!row || row.restoredAt || row.expiresAt <= nowSqlTimestamp()) throw new Error("This reset can no longer be restored.");
+    if (!row || row.restoredAt || row.expiresAt <= nowSqlTimestamp()) throw new ExpectedError("This reset can no longer be restored.");
     const otherOpen = await tx.select({ id: shipmentSession.id }).from(shipmentSession).where(eq(shipmentSession.status, "open"));
-    if (otherOpen.length > 0) throw new Error("A new session has already started, so this reset cannot be restored safely.");
+    if (otherOpen.length > 0) throw new ExpectedError("A new session has already started, so this reset cannot be restored safely.");
 
     const snapshot = JSON.parse(row.snapshot) as ResetSnapshot;
     const reserved = await tx.update(shipmentReset).set({ restoredAt: nowSqlTimestamp() })
       .where(and(eq(shipmentReset.id, resetId), isNull(shipmentReset.restoredAt), gt(shipmentReset.expiresAt, nowSqlTimestamp())))
       .returning({ id: shipmentReset.id });
-    if (!reserved.length) throw new Error("This reset was already restored or expired.");
+    if (!reserved.length) throw new ExpectedError("This reset was already restored or expired.");
     if (snapshot.boxes.length) await tx.insert(box).values(snapshot.boxes);
     if (snapshot.scans.length) await tx.insert(scan).values(snapshot.scans);
     await tx.update(shipmentSession)
@@ -918,19 +921,19 @@ export async function restoreReset(resetId: string): Promise<SessionDashboard> {
 
 export async function reopenSession(sessionId: string, reopenedByName: string): Promise<void> {
   const session = (await db.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId)))[0];
-  if (!session) throw new Error("Shipment not found.");
+  if (!session) throw new ExpectedError("Shipment not found.");
   // A retried request after a dropped response lands here once the first
   // attempt already went through — the desired end state is already true,
   // so this is success, not "only a submitted session can be reopened."
   if (session.status === "open") return;
-  if (session.status !== "submitted") throw new Error("Only a submitted session can be reopened.");
+  if (session.status !== "submitted") throw new ExpectedError("Only a submitted session can be reopened.");
 
   // Only one session can be "open" at a time — that's what makes "the open
   // session" an unambiguous concept for scanning. Block reopening a second
   // one until whatever's currently open is submitted.
   const otherOpen = await db.select().from(shipmentSession).where(eq(shipmentSession.status, "open"));
   if (otherOpen.length > 0) {
-    throw new Error(
+    throw new ExpectedError(
       `Cannot reopen — a different shipment (${otherOpen[0].shipDate}) is currently open. Submit it first.`,
     );
   }
@@ -950,7 +953,7 @@ export async function reopenSession(sessionId: string, reopenedByName: string): 
     // status='open' correctly rejects the loser — but the raw 23505 used to
     // surface to the packer as an unreadable Postgres error.
     if (!isUniqueViolation(err)) throw err;
-    throw new Error("Another shipment was opened at the same time — refresh and try again.");
+    throw new ExpectedError("Another shipment was opened at the same time — refresh and try again.");
   }
 }
 
@@ -968,7 +971,7 @@ export async function trashShipment(sessionId: string): Promise<void> {
   // attempt already trashed it — that's the desired end state, not an error.
   if (!session) return;
   if (session.status === "open") {
-    throw new Error("Cannot delete the open session — use Reset Day instead.");
+    throw new ExpectedError("Cannot delete the open session — use Reset Day instead.");
   }
   if (session.deletedAt) return;
   await db
