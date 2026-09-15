@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ScanRow } from "@/lib/shiplog";
 import { CARRIER_COLOR, CARRIER_SHORT_LABEL, timeAgo } from "./ScanClient";
 import ConfirmDialog from "./ConfirmDialog";
+import { CopyIcon, CheckIcon } from "./icons";
 
 // Same thresholds as SwipeableShipmentRow (shipments/SwipeableShipmentRow.tsx)
 // — one consistent "how hard is a hard swipe" feel across the app.
@@ -57,8 +58,27 @@ export default function SwipeableScanRow({
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copiedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const touchState = useRef<TouchState | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimeout.current) clearTimeout(copiedTimeout.current);
+    };
+  }, []);
+
+  async function copyTrackingNumber() {
+    try {
+      await navigator.clipboard.writeText(s.trackingNumber);
+    } catch {
+      return;
+    }
+    setCopied(true);
+    if (copiedTimeout.current) clearTimeout(copiedTimeout.current);
+    copiedTimeout.current = setTimeout(() => setCopied(false), 1500);
+  }
   // Set the instant a touch sequence is decided as a horizontal drag — the
   // Order/Undo buttons check (and clear) this so a browser-synthesized
   // click that can still follow a touch-drag never falls through to
@@ -155,8 +175,14 @@ export default function SwipeableScanRow({
         >
           {CARRIER_SHORT_LABEL[s.carrier]}
         </span>
-        <button
-          type="button"
+        {/* Not a <button> — it needs to contain the copy button below, and a
+            button can't nest another interactive control. role="button" +
+            tabIndex/onKeyDown keep it keyboard-operable like the button it
+            replaced; the "disabled" (no orderGid) case just omits the
+            handlers instead of an HTML disabled attribute. */}
+        <div
+          role={s.orderGid ? "button" : undefined}
+          tabIndex={s.orderGid ? 0 : undefined}
           onClick={() => {
             if (suppressNextClick.current) {
               suppressNextClick.current = false;
@@ -164,10 +190,30 @@ export default function SwipeableScanRow({
             }
             if (s.orderGid) onOpenOrder(s.orderGid);
           }}
-          disabled={!s.orderGid}
+          onKeyDown={(e) => {
+            if (!s.orderGid) return;
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onOpenOrder(s.orderGid);
+            }
+          }}
           className="flex-1 flex flex-col items-start text-left min-w-0"
         >
-          <span className="data text-sm">{s.trackingNumber}</span>
+          <span className="inline-flex items-center gap-1.5 min-w-0">
+            <span className="data text-sm truncate">{s.trackingNumber}</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                copyTrackingNumber();
+              }}
+              aria-label={copied ? "Tracking number copied" : "Copy tracking number"}
+              title={copied ? "Copied!" : "Copy tracking number"}
+              className={`shrink-0 p-1 -m-1 ${copied ? "text-green-ink" : "text-ink-faint hover:text-ink"}`}
+            >
+              {copied ? <CheckIcon className="w-3.5 h-3.5" /> : <CopyIcon className="w-3.5 h-3.5" />}
+            </button>
+          </span>
           {/* Always a second line, matching height regardless of carrier or
               match status — a row that skipped this line when unmatched
               (EPG only, previously) made the manifest list visibly uneven. */}
@@ -184,7 +230,7 @@ export default function SwipeableScanRow({
           ) : (
             <span className="text-xs text-ink-faint">no order match yet</span>
           )}
-        </button>
+        </div>
         {s.boxNumber && <span className="tag-label">BOX {String(s.boxNumber).padStart(2, "0")}</span>}
         {/* Desktop-only, same reasoning as scannedByName/timeAgo just below
             — not essential to a packer's next tap, and the row is already
