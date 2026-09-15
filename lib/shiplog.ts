@@ -557,8 +557,14 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
   // this doesn't catch (label not yet issued, API hiccup), so it stays a
   // fallback rather than becoming dead code.
   after(async () => {
+    // Logged at both ends — this is the only trace of whether the after()
+    // background lookup even ran, given Vercel's per-deployment log
+    // retention; lookupShipstationLabel's own logging covers everything in
+    // between (missing API key, a failed call, no label found yet).
+    console.log(`[recordScan] after(): looking up ShipStation label for ${trackingNumber} (scan ${scanId})`);
     const label = await lookupShipstationLabel(trackingNumber);
     if (!label) return;
+    console.log(`[recordScan] after(): weight for ${trackingNumber} = ${label.weightLb ?? "null"} lb`);
     await db
       .update(scan)
       .set({

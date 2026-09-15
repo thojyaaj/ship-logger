@@ -103,7 +103,15 @@ function parseLabel(trackingNumber: string, data: LabelsResponse): ShipstationLa
 /** Looks up the completed label for one tracking number. Never throws — any failure reads as `null`. */
 export async function lookupShipstationLabel(trackingNumber: string): Promise<ShipstationLabel | null> {
   const apiKey = process.env.SHIPSTATION_API_KEY;
-  if (!apiKey) return null;
+  // Logged, not just silently returned — every caller (the cron, and
+  // recordScan's scan-time after() lookup) treats null identically whether
+  // it means "not configured," "ShipStation doesn't have this label yet,"
+  // or "the API call failed," so without a log line there was no way to
+  // tell those apart from the outside when weight wasn't showing up.
+  if (!apiKey) {
+    console.warn("[shipstation] SHIPSTATION_API_KEY not set — skipping lookup for", trackingNumber);
+    return null;
+  }
 
   try {
     const url = new URL(`${apiBase()}/labels`);
@@ -116,11 +124,21 @@ export async function lookupShipstationLabel(trackingNumber: string): Promise<Sh
       signal: AbortSignal.timeout(15_000),
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`[shipstation] labels lookup for ${trackingNumber} failed: ${res.status} ${res.statusText}`);
+      return null;
+    }
 
     const data = (await res.json()) as LabelsResponse;
-    return parseLabel(trackingNumber, data);
-  } catch {
+    const label = parseLabel(trackingNumber, data);
+    if (!label) {
+      console.warn("[shipstation] no completed label found yet for", trackingNumber);
+    } else if (label.weightLb === null) {
+      console.warn("[shipstation] label found for", trackingNumber, "but it carries no weight/dimensions");
+    }
+    return label;
+  } catch (err) {
+    console.error(`[shipstation] labels lookup for ${trackingNumber} threw:`, err);
     return null;
   }
 }
