@@ -15,6 +15,7 @@ export type Row = {
   orderGid: string | null;
   orderName: string | null;
   destinationCountry: string | null;
+  shipstationWeightLb: number | null;
   shipstationCostAmount: number | null;
   shipstationCostCurrency: string | null;
   customerShippingAmount: number | null;
@@ -23,6 +24,11 @@ export type Row = {
   shipstationShipToName: string | null;
   statusLabel: string | null;
 };
+
+/** Real parcel weight, from ShipStation — null renders nothing (same "omit, don't blank" convention as the other ShipStation-sourced fields here; a null here just means this parcel's label hasn't been matched yet). */
+function formatWeight(lb: number | null): string | null {
+  return lb === null ? null : `${lb} lb`;
+}
 
 /** What the label actually cost, from ShipStation — null renders nothing (same "omit, don't blank" convention as the other ShipStation-sourced fields here). */
 function formatCost(amount: number | null, currency: string | null): string | null {
@@ -115,6 +121,7 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
         <tbody>
           {rows.map((r) => {
             const url = trackingUrl(r.carrier as "epg" | "ups" | "dhl", r.trackingNumber);
+            const weight = formatWeight(r.shipstationWeightLb);
             const cost = formatCost(r.shipstationCostAmount, r.shipstationCostCurrency);
             const charged = formatCost(r.customerShippingAmount, r.customerShippingCurrency);
             // Same-currency assumption as lib/shipment-alerts.ts's loss
@@ -135,6 +142,16 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                       <span className="break-all min-w-0">{r.trackingNumber}</span>
                     )}
                     {r.destinationCountry && <Stamp bg="bg-ink" title={`Destination: ${r.destinationCountry}`}>{r.destinationCountry}</Stamp>}
+                    {/* Weight, like cost below, is desktop-only — not
+                        something a packer needs mid-scan on a phone, and it
+                        crowds the row on a narrow screen. Omitted entirely
+                        (not a "—") until this parcel's ShipStation label is
+                        matched, same convention as cost/charged. */}
+                    {weight && (
+                      <Stamp bg="bg-ink-faint" title={`Weight (ShipStation): ${weight}`} className="hidden md:inline-flex">
+                        {weight}
+                      </Stamp>
+                    )}
                     {/* Cost paid is desktop-only — a dollar figure isn't
                         something packers need mid-scan on a phone, and it
                         crowds the row on a narrow screen. */}
