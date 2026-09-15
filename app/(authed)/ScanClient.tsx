@@ -190,10 +190,12 @@ export default function ScanClient({
   initialDashboard,
   initialRestorableReset,
   currentUser,
+  showOrderWeight,
 }: {
   initialDashboard: SessionDashboard | null;
   initialRestorableReset: RestorableReset | null;
   currentUser: SessionUser;
+  showOrderWeight: boolean;
 }) {
   const [dashboard, setDashboard] = useState(initialDashboard);
   const [value, setValue] = useState("");
@@ -746,6 +748,7 @@ export default function ScanClient({
               nowMs !== null &&
               nowMs - parseDbTimestamp(s.scannedAt).getTime() >= UNMATCHED_WARNING_MS
             }
+            showWeight={showOrderWeight}
             onOpenOrder={setOpenOrderGid}
             onUndo={undo}
           />

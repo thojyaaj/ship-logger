@@ -41,7 +41,15 @@ function BoxHeading({ box }: { box: BoxData }) {
  * stacked layout regardless of the setting when there's only one box —
  * nothing to tab between.
  */
-export default function BoxSections({ boxes, boxesAsTabs }: { boxes: BoxData[]; boxesAsTabs: boolean }) {
+export default function BoxSections({
+  boxes,
+  boxesAsTabs,
+  showOrderWeight,
+}: {
+  boxes: BoxData[];
+  boxesAsTabs: boolean;
+  showOrderWeight: boolean;
+}) {
   const [activeBoxId, setActiveBoxId] = useState(boxes[0]?.id);
 
   if (boxes.length === 0) return null;
@@ -52,7 +60,7 @@ export default function BoxSections({ boxes, boxesAsTabs }: { boxes: BoxData[]; 
         {boxes.map((b) => (
           <div key={b.id} className="flex flex-col gap-1">
             <BoxHeading box={b} />
-            <ScanTable rows={b.rows} />
+            <ScanTable rows={b.rows} showWeight={showOrderWeight} />
           </div>
         ))}
       </>
@@ -79,7 +87,7 @@ export default function BoxSections({ boxes, boxesAsTabs }: { boxes: BoxData[]; 
       </div>
       <div className="flex flex-col gap-1">
         <BoxHeading box={active} />
-        <ScanTable rows={active.rows} />
+        <ScanTable rows={active.rows} showWeight={showOrderWeight} />
       </div>
     </div>
   );

@@ -10,6 +10,11 @@ import ConfirmDialog from "./ConfirmDialog";
 const HARD_SWIPE_PX = 96;
 const MAX_DRAG_PX = 140;
 
+/** Real parcel weight, from ShipStation — null renders nothing, same "omit, don't blank" convention as shipments/[id]/ScanTable.tsx's own formatWeight. */
+function formatWeight(lb: number | null): string | null {
+  return lb === null ? null : `${lb} lb`;
+}
+
 type TouchState = {
   startX: number;
   startY: number;
@@ -31,6 +36,7 @@ export default function SwipeableScanRow({
   scannedByName,
   isFlashing,
   unmatchedIsStale,
+  showWeight,
   onOpenOrder,
   onUndo,
 }: {
@@ -41,9 +47,13 @@ export default function SwipeableScanRow({
   // clock, and one in ScanClient covers the whole manifest instead of every
   // row owning a timer. Keeps this component presentational.
   unmatchedIsStale: boolean;
+  // Admin-editable (lib/display-settings.ts, toggled on /admin/users) —
+  // same setting that hides shipments/[id]/ScanTable.tsx's weight stamp.
+  showWeight: boolean;
   onOpenOrder: (orderGid: string) => void;
   onUndo: (scanId: string) => void;
 }) {
+  const weight = showWeight ? formatWeight(s.shipstationWeightLb) : null;
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -176,6 +186,10 @@ export default function SwipeableScanRow({
           )}
         </button>
         {s.boxNumber && <span className="tag-label">BOX {String(s.boxNumber).padStart(2, "0")}</span>}
+        {/* Desktop-only, same reasoning as scannedByName/timeAgo just below
+            — not essential to a packer's next tap, and the row is already
+            tight on a narrow screen. */}
+        {weight && <span className="hidden sm:inline tag-label !normal-case !tracking-normal !text-ink-faint">{weight}</span>}
         {/* Who/when is useful context but not essential to a packer's next
             tap — dropped on narrow screens so the tracking number and Undo
             button (the two things actually needed mid-pack) keep real room

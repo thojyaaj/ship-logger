@@ -1,9 +1,9 @@
 "use server";
 
 import { requireAdmin } from "@/lib/auth";
-import { saveDisplaySettings } from "@/lib/display-settings";
+import { saveDisplaySettings, type DisplaySettings } from "@/lib/display-settings";
 
-export async function saveDisplaySettingsAction(boxesAsTabs: boolean): Promise<void> {
+export async function saveDisplaySettingsAction(settings: DisplaySettings): Promise<void> {
   const admin = await requireAdmin();
-  await saveDisplaySettings(boxesAsTabs, admin.id);
+  await saveDisplaySettings(settings, admin.id);
 }
