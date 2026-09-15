@@ -1,5 +1,6 @@
 import { pageRequireUser } from "@/lib/auth";
 import { getOpenSession, getRestorableReset } from "@/lib/shiplog";
+import { getDisplaySettings } from "@/lib/display-settings";
 import ScanClient from "./ScanClient";
 
 // recordScan's after() callback (lib/shiplog.ts) does a live ShipStation
@@ -12,7 +13,18 @@ export const maxDuration = 60;
 
 export default async function ScanPage() {
   const user = await pageRequireUser();
-  const [dashboard, restorableReset] = await Promise.all([getOpenSession(), getRestorableReset()]);
+  const [dashboard, restorableReset, displaySettings] = await Promise.all([
+    getOpenSession(),
+    getRestorableReset(),
+    getDisplaySettings(),
+  ]);
 
-  return <ScanClient initialDashboard={dashboard} initialRestorableReset={restorableReset} currentUser={user} />;
+  return (
+    <ScanClient
+      initialDashboard={dashboard}
+      initialRestorableReset={restorableReset}
+      currentUser={user}
+      showOrderWeight={displaySettings.showOrderWeight}
+    />
+  );
 }

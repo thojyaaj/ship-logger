@@ -1,0 +1,1 @@
+ALTER TABLE "display_settings" ADD COLUMN "show_order_weight" boolean DEFAULT true NOT NULL;

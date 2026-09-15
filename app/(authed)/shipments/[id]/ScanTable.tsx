@@ -84,7 +84,7 @@ function Stamp({
  * its column if it must), since truncating a tracking number was explicitly
  * not wanted.
  */
-export default function ScanTable({ rows }: { rows: Row[] }) {
+export default function ScanTable({ rows, showWeight = true }: { rows: Row[]; showWeight?: boolean }) {
   const [openOrderGid, setOpenOrderGid] = useState<string | null>(null);
   // Click (not hover, so it works the same on touch) to reveal the exact
   // scan timestamp, or the full status text when it's actually truncated —
@@ -147,7 +147,7 @@ export default function ScanTable({ rows }: { rows: Row[] }) {
                         crowds the row on a narrow screen. Omitted entirely
                         (not a "—") until this parcel's ShipStation label is
                         matched, same convention as cost/charged. */}
-                    {weight && (
+                    {showWeight && weight && (
                       <Stamp bg="bg-ink-faint" title={`Weight (ShipStation): ${weight}`} className="hidden md:inline-flex">
                         {weight}
                       </Stamp>

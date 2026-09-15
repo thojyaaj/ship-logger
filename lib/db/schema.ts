@@ -333,6 +333,10 @@ export const problemDismissal = pgTable(
 export const displaySettings = pgTable("display_settings", {
   id: text("id").primaryKey(),
   boxesAsTabs: boolean("boxes_as_tabs").notNull().default(true),
+  // Shows/hides the per-parcel weight stamp next to the tracking number on
+  // a shipment's scan table (see ScanTable.tsx) — an admin call, not a
+  // per-user preference, same as boxesAsTabs above.
+  showOrderWeight: boolean("show_order_weight").notNull().default(true),
   updatedAt: text("updated_at").notNull().default(nowUtcText),
   updatedBy: text("updated_by").references(() => appUser.id),
 });

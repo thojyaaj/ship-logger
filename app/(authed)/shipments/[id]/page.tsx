@@ -39,7 +39,7 @@ export default async function ShipmentDetailPage({
   // schedule attempt itself already surfaces a clear "not configured" error
   // in that case, so there's nothing extra for the enabled flag to guard.
   const dhlSchedulingEnabled = showDhlPickup ? ((await getDhlPickupSettings())?.enabled ?? true) : true;
-  const { boxesAsTabs } = await getDisplaySettings();
+  const { boxesAsTabs, showOrderWeight } = await getDisplaySettings();
 
   const boxedScans = new Map<string, typeof scans>();
   const unboxedScans: typeof scans = [];
@@ -244,26 +244,26 @@ export default async function ShipmentDetailPage({
         </div>
       )}
 
-      <BoxSections boxes={boxData} boxesAsTabs={boxesAsTabs} />
+      <BoxSections boxes={boxData} boxesAsTabs={boxesAsTabs} showOrderWeight={showOrderWeight} />
 
       {upsScans.length > 0 && (
         <div className="flex flex-col gap-1">
           <h2 className="tag-label !text-sm !text-ink">UPS Parcels</h2>
-          <ScanTable rows={upsScans} />
+          <ScanTable rows={upsScans} showWeight={showOrderWeight} />
         </div>
       )}
 
       {dhlScans.length > 0 && (
         <div className="flex flex-col gap-1">
           <h2 className="tag-label !text-sm !text-ink">DHL Parcels</h2>
-          <ScanTable rows={dhlScans} />
+          <ScanTable rows={dhlScans} showWeight={showOrderWeight} />
         </div>
       )}
 
       {otherScans.length > 0 && (
         <div className="flex flex-col gap-1">
           <h2 className="tag-label !text-sm !text-ink">Other Parcels</h2>
-          <ScanTable rows={otherScans} />
+          <ScanTable rows={otherScans} showWeight={showOrderWeight} />
         </div>
       )}
     </div>
