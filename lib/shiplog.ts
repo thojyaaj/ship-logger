@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 import { db } from "./db";
 import { appUser, shipmentSession, box, scan, shipmentReset } from "./db/schema";
 import { and, eq, desc, sql, ne, inArray, ilike, or, isNull, isNotNull, lt, gt } from "drizzle-orm";
@@ -6,6 +7,7 @@ import { newId } from "./id";
 import { detectCarrier, type Carrier } from "./carrier";
 import { nowSqlTimestamp, localCalendarDate, toSqlTimestamp, parseDbTimestamp } from "./date";
 import { lookupOrderIndex } from "./order-index";
+import { lookupShipstationLabel } from "./shipstation";
 
 function today(): string {
   return localCalendarDate();
@@ -30,6 +32,14 @@ export type BoxSummary = {
   boxNumber: number;
   upsTracking: string | null;
   scanCount: number;
+  // Sum of shipstationWeightLb across this box's scans — null until at
+  // least one scan in the box has a known weight. See scan.shipstationWeightLb's
+  // comment for how/when that gets populated.
+  weightLb: number | null;
+  // How many of `scanCount` parcels contributed to `weightLb` — lets the UI
+  // flag a partial total (e.g. "not yet weighed: 1") instead of silently
+  // understating the box.
+  weighedCount: number;
 };
 
 export type ScanRow = {
@@ -46,6 +56,7 @@ export type ScanRow = {
   destinationCountry: string | null;
   customerShippingAmount: number | null;
   customerShippingCurrency: string | null;
+  shipstationWeightLb: number | null;
   shipstationCostAmount: number | null;
   shipstationCostCurrency: string | null;
   shipstationOrderFallback: string | null;
@@ -86,20 +97,35 @@ async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
     .orderBy(desc(scan.sequence));
 
   const boxCounts = new Map<string, number>();
+  // Summed alongside scanCount above rather than in a separate pass — same
+  // source rows, same loop.
+  const boxWeights = new Map<string, { sum: number; weighed: number }>();
   for (const s of scanRows) {
-    if (s.boxId) boxCounts.set(s.boxId, (boxCounts.get(s.boxId) ?? 0) + 1);
+    if (!s.boxId) continue;
+    boxCounts.set(s.boxId, (boxCounts.get(s.boxId) ?? 0) + 1);
+    if (s.shipstationWeightLb !== null) {
+      const entry = boxWeights.get(s.boxId) ?? { sum: 0, weighed: 0 };
+      entry.sum += s.shipstationWeightLb;
+      entry.weighed += 1;
+      boxWeights.set(s.boxId, entry);
+    }
   }
 
   const boxNumberById = new Map(boxRows.map((b) => [b.id, b.boxNumber]));
 
   const boxes: BoxSummary[] = boxRows
     .sort((a, b) => a.boxNumber - b.boxNumber)
-    .map((b) => ({
-      id: b.id,
-      boxNumber: b.boxNumber,
-      upsTracking: b.upsTracking,
-      scanCount: boxCounts.get(b.id) ?? 0,
-    }));
+    .map((b) => {
+      const w = boxWeights.get(b.id);
+      return {
+        id: b.id,
+        boxNumber: b.boxNumber,
+        upsTracking: b.upsTracking,
+        scanCount: boxCounts.get(b.id) ?? 0,
+        weightLb: w ? Math.round(w.sum * 10) / 10 : null,
+        weighedCount: w?.weighed ?? 0,
+      };
+    });
 
   const scans: ScanRow[] = scanRows.map((s) => ({
     id: s.id,
@@ -115,6 +141,7 @@ async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
     destinationCountry: s.destinationCountry,
     customerShippingAmount: s.customerShippingAmount,
     customerShippingCurrency: s.customerShippingCurrency,
+    shipstationWeightLb: s.shipstationWeightLb,
     shipstationCostAmount: s.shipstationCostAmount,
     shipstationCostCurrency: s.shipstationCostCurrency,
     shipstationOrderFallback: s.shipstationOrderFallback,
@@ -465,6 +492,7 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
   // retry-on-conflict above. Capped rather than unbounded so a real, non-race
   // failure (e.g. a malformed row) still surfaces instead of looping forever.
   const MAX_SEQUENCE_ATTEMPTS = 5;
+  const scanId = newId();
   for (let attempt = 1; attempt <= MAX_SEQUENCE_ATTEMPTS; attempt++) {
     // postgres-js returns aggregates as strings (bigint-safe) — Number()
     // before arithmetic or string concatenation silently misbehaves. max()
@@ -477,7 +505,7 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
 
     try {
       await db.insert(scan).values({
-        id: newId(),
+        id: scanId,
         sessionId: session.id,
         boxId,
         scannedBy: input.userId,
@@ -513,6 +541,38 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
       return classifyDuplicateScan(winner, session.id, trackingNumber, finalCarrier);
     }
   }
+
+  // Real weight (and dimensions/cost) straight from ShipStation, captured at
+  // the moment of the scan rather than left to the once-nightly
+  // shipstation-labels cron (lib/shipstation-cron.ts runs at 9:22 UTC, so a
+  // parcel scanned any other time of day would otherwise show no weight for
+  // up to 24h). The label is normally already sitting in ShipStation by scan
+  // time — it's printed before the parcel reaches the packing desk — so this
+  // usually resolves within a second or two of the physical scan.
+  //
+  // Scheduled with `after()` so a slow or failed ShipStation call can never
+  // delay the scan response a packer's hardware scanner is waiting on.
+  // lookupShipstationLabel never throws and a miss just leaves the columns
+  // null, exactly as if this hadn't run — the cron still sweeps up anything
+  // this doesn't catch (label not yet issued, API hiccup), so it stays a
+  // fallback rather than becoming dead code.
+  after(async () => {
+    const label = await lookupShipstationLabel(trackingNumber);
+    if (!label) return;
+    await db
+      .update(scan)
+      .set({
+        shipstationWeightLb: label.weightLb,
+        shipstationLengthIn: label.lengthIn,
+        shipstationWidthIn: label.widthIn,
+        shipstationHeightIn: label.heightIn,
+        shipstationCostAmount: label.costAmount,
+        shipstationCostCurrency: label.costCurrency,
+        shipstationCarrierCode: label.carrierCode,
+        shipstationCheckedAt: nowSqlTimestamp(),
+      })
+      .where(eq(scan.id, scanId));
+  });
 
   const dashboard = await loadDashboard(session.id);
   return { status: "ok", dashboard, carrier: finalCarrier, boxNumber };
