@@ -125,7 +125,12 @@ export default async function ShipmentDetailPage({
                   showing it to packers would just render a button that
                   always errors. */}
               {session.status === "submitted" && user.isAdmin && <ReopenButton sessionId={session.id} />}
-              {user.isAdmin && <DeleteShipmentButton sessionId={session.id} shipDate={session.shipDate} />}
+              {/* trashShipment refuses the open session server-side ("use Reset
+                  Day instead") — hide the button rather than let an admin hit
+                  that guard every time on today's still-open shipment. */}
+              {session.status !== "open" && user.isAdmin && (
+                <DeleteShipmentButton sessionId={session.id} shipDate={session.shipDate} />
+              )}
               {showDhlPickup && (
                 <DhlPickupPanel
                   sessionId={session.id}
