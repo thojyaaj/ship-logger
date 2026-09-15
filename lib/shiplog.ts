@@ -632,6 +632,34 @@ export async function resolveScanOrders(
 }
 
 /**
+ * Same shape as resolveScanOrders just above, for weight instead of order
+ * match — recordScan's scan-time ShipStation lookup runs in `after()`,
+ * which by construction only starts once the scan's own response (built
+ * from a dashboard snapshot taken before that lookup ran) is already on its
+ * way back to the client. Nothing pushes the resulting weight to an already
+ * -open bench screen without this being polled for, same as an order match
+ * that lands after a webhook.
+ */
+export async function resolveScanWeights(
+  sessionId: string,
+  scanIds: string[],
+): Promise<Record<string, number>> {
+  const ids = scanIds.slice(0, MAX_RESOLVE_IDS);
+  if (ids.length === 0) return {};
+
+  const rows = await db
+    .select({ id: scan.id, shipstationWeightLb: scan.shipstationWeightLb })
+    .from(scan)
+    .where(and(eq(scan.sessionId, sessionId), inArray(scan.id, ids), isNotNull(scan.shipstationWeightLb)));
+
+  const resolved: Record<string, number> = {};
+  for (const row of rows) {
+    if (row.shipstationWeightLb !== null) resolved[row.id] = row.shipstationWeightLb;
+  }
+  return resolved;
+}
+
+/**
  * Editing history is an admin-only capability (deleteShipment is gated behind
  * requireAdmin). The per-scan/per-box edit actions are only requireUser, so
  * they must refuse to touch a session that is no longer open — otherwise any
