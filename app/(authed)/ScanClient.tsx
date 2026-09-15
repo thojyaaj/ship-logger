@@ -14,6 +14,7 @@ import {
   resetSessionAction,
   restoreResetAction,
   resolveScanOrdersAction,
+  resolveScanWeightsAction,
 } from "./scan-actions";
 import SubmitDialog from "./SubmitDialog";
 import DhlPickupPromptModal from "./DhlPickupPromptModal";
@@ -323,6 +324,28 @@ export default function ScanClient({
     };
   }, [dashboard]);
 
+  // Same idea as unmatchedKey/unmatchedFreshUntil above, for weight instead
+  // of order match: recordScan's ShipStation lookup runs in the background
+  // (after() — see its own comment in lib/shiplog.ts) and only starts once
+  // the scan's response, built from a snapshot taken before that lookup
+  // ran, is already on the way back to this screen. Nothing pushes the
+  // resulting weight here without this being polled for. Skipped entirely
+  // when the admin has weight display turned off — no point polling for
+  // something nothing on this screen will show.
+  const { weightPendingKey, weightPendingFreshUntil } = useMemo(() => {
+    const pending = showOrderWeight
+      ? (dashboard?.scans ?? []).filter((s) => s.shipstationWeightLb === null)
+      : [];
+    const newestScannedAt = pending.reduce(
+      (max, s) => Math.max(max, parseDbTimestamp(s.scannedAt).getTime()),
+      0,
+    );
+    return {
+      weightPendingKey: pending.map((s) => s.id).join(","),
+      weightPendingFreshUntil: newestScannedAt + UNMATCHED_WARNING_MS,
+    };
+  }, [dashboard, showOrderWeight]);
+
   // `null` until after mount, deliberately: this component is server-rendered
   // too, and reading Date.now() during render would let the server decide a
   // row is already stale while the client's first paint says it isn't — a
@@ -403,6 +426,64 @@ export default function ScanClient({
       if (timer) clearTimeout(timer);
     };
   }, [sessionId, unmatchedKey, unmatchedFreshUntil]);
+
+  // Same poll shape as the order-match loop just above, for weight — see
+  // weightPendingKey's own comment for why a scan's row needs this at all.
+  useEffect(() => {
+    if (!sessionId || !weightPendingKey) return;
+    const activeSessionId = sessionId;
+    const ids = weightPendingKey.split(",");
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const schedule = (delayMs?: number) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(
+        run,
+        delayMs ??
+          (Date.now() < weightPendingFreshUntil ? UNMATCHED_POLL_MS : UNMATCHED_SLOW_POLL_MS),
+      );
+    };
+
+    async function run() {
+      if (!document.hidden) {
+        try {
+          const resolved = await resolveScanWeightsAction(activeSessionId, ids);
+          if (cancelled) return;
+          if (Object.keys(resolved).length > 0) {
+            setDashboard((d) =>
+              d
+                ? {
+                    ...d,
+                    scans: d.scans.map((s) =>
+                      s.shipstationWeightLb === null && resolved[s.id] !== undefined
+                        ? { ...s, shipstationWeightLb: resolved[s.id] }
+                        : s,
+                    ),
+                  }
+                : d,
+            );
+          }
+        } catch {
+          // Purely additive enrichment — a failed poll just leaves the row
+          // unweighed until the next one.
+        }
+      }
+      if (!cancelled) schedule();
+    }
+
+    const onVisibilityChange = () => {
+      if (!document.hidden && !cancelled) schedule(0);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    schedule();
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (timer) clearTimeout(timer);
+    };
+  }, [sessionId, weightPendingKey, weightPendingFreshUntil]);
 
   // Clock for the warning escalation. The merge above leaves state untouched
   // when nothing resolved, so it can't be what re-renders a row across the

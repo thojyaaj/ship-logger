@@ -8,6 +8,7 @@ import {
   setActiveBox,
   removeEmptyBox,
   resolveScanOrders,
+  resolveScanWeights,
   submitSession,
   reopenSession,
   resetSession,
@@ -67,6 +68,23 @@ export async function resolveScanOrdersAction(
   // rather than a no-op.
   if (!Array.isArray(scanIds)) return {};
   return resolveScanOrders(
+    sessionId,
+    scanIds.filter((id): id is string => typeof id === "string"),
+  );
+}
+
+/**
+ * Same shape as resolveScanOrdersAction above, for the weight poll in
+ * ScanClient — fills in a row's weight once recordScan's after() lookup has
+ * written it, without the packer needing to reload the page.
+ */
+export async function resolveScanWeightsAction(
+  sessionId: string,
+  scanIds: string[],
+): Promise<Record<string, number>> {
+  await requireUser();
+  if (!Array.isArray(scanIds)) return {};
+  return resolveScanWeights(
     sessionId,
     scanIds.filter((id): id is string => typeof id === "string"),
   );
