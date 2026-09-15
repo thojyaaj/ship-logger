@@ -105,7 +105,13 @@ export default function SwipeableShipmentRow({
 
   async function startDelete() {
     try {
-      await deleteShipmentAction(s.id);
+      const result = await deleteShipmentAction(s.id);
+      if (result.status === "error") {
+        setDeleting(false);
+        setDragX(0);
+        setError(result.message);
+        return;
+      }
       // router.refresh() re-fetches the list from the server, which can
       // reconcile this row out of existence well before the 220ms
       // slide-away transition finishes — cutting the animation short and

@@ -54,7 +54,11 @@ export default function ReopenButton({ sessionId }: { sessionId: string }) {
             setError(null);
             startTransition(async () => {
               try {
-                await withTransportRetry(() => reopenSessionAction(sessionId));
+                const result = await withTransportRetry(() => reopenSessionAction(sessionId));
+                if (result.status === "error") {
+                  setError(result.message);
+                  return;
+                }
                 router.push("/");
               } catch (err) {
                 // Was a bare alert(), which drops an OS dialog into an app that

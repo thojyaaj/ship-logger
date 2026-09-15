@@ -58,7 +58,12 @@ export default function DeleteShipmentButton({ sessionId, shipDate }: { sessionI
             setDeleted(true);
             startTransition(async () => {
               try {
-                await withTransportRetry(() => deleteShipmentAction(sessionId));
+                const result = await withTransportRetry(() => deleteShipmentAction(sessionId));
+                if (result.status === "error") {
+                  setDeleted(false);
+                  setError(result.message);
+                  return;
+                }
                 router.push("/shipments");
               } catch (err) {
                 setDeleted(false);

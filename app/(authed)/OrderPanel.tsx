@@ -13,12 +13,19 @@ import { useDismissable } from "./useDismissable";
  */
 export default function OrderPanel({ orderGid, onClose }: { orderGid: string; onClose: () => void }) {
   const [order, setOrder] = useState<OrderDetail | null | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
   useDismissable(onClose);
 
   useEffect(() => {
     let cancelled = false;
     getOrderDetailAction(orderGid).then((result) => {
-      if (!cancelled) setOrder(result);
+      if (cancelled) return;
+      if (result.status === "error") {
+        setError(result.message);
+        setOrder(null);
+        return;
+      }
+      setOrder(result.order);
     });
     return () => {
       cancelled = true;
@@ -40,9 +47,13 @@ export default function OrderPanel({ orderGid, onClose }: { orderGid: string; on
           </button>
         </div>
 
-        {order === undefined && <p className="text-ink-faint text-sm data">FETCHING ORDER…</p>}
+        {order === undefined && !error && <p className="text-ink-faint text-sm data">FETCHING ORDER…</p>}
 
-        {order === null && (
+        {error && (
+          <p className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm">{error}</p>
+        )}
+
+        {order === null && !error && (
           <p className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm">
             No matching order found in Shopify — check the tracking number was scanned correctly.
           </p>

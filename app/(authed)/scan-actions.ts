@@ -17,8 +17,10 @@ import {
   restoreShipment,
   type RecordScanResult,
   type SessionDashboard,
+  type RestorableReset,
 } from "@/lib/shiplog";
 import type { Carrier } from "@/lib/carrier";
+import { runExpectable, type ActionResult } from "@/lib/action-result";
 
 // Carriers a packer may manually assign to an unrecognized scan. TypeScript's
 // `Carrier` type is erased at the Server Action boundary and the `carrier`
@@ -90,24 +92,30 @@ export async function resolveScanWeightsAction(
   );
 }
 
-export async function undoScanAction(sessionId: string, scanId: string): Promise<SessionDashboard> {
+export async function undoScanAction(sessionId: string, scanId: string): Promise<ActionResult<SessionDashboard>> {
   await requireUser();
-  return undoScan(sessionId, scanId);
+  return runExpectable(() => undoScan(sessionId, scanId));
 }
 
-export async function createBoxAction(sessionId: string): Promise<SessionDashboard> {
+export async function createBoxAction(sessionId: string): Promise<ActionResult<SessionDashboard>> {
   await requireUser();
-  return createBox(sessionId);
+  return runExpectable(() => createBox(sessionId));
 }
 
-export async function setActiveBoxAction(sessionId: string, boxId: string): Promise<SessionDashboard> {
+export async function setActiveBoxAction(
+  sessionId: string,
+  boxId: string,
+): Promise<ActionResult<SessionDashboard>> {
   await requireUser();
-  return setActiveBox(sessionId, boxId);
+  return runExpectable(() => setActiveBox(sessionId, boxId));
 }
 
-export async function removeEmptyBoxAction(sessionId: string, boxId: string): Promise<SessionDashboard> {
+export async function removeEmptyBoxAction(
+  sessionId: string,
+  boxId: string,
+): Promise<ActionResult<SessionDashboard>> {
   await requireUser();
-  return removeEmptyBox(sessionId, boxId);
+  return runExpectable(() => removeEmptyBox(sessionId, boxId));
 }
 
 export async function submitSessionAction(input: {
@@ -122,28 +130,30 @@ export async function submitSessionAction(input: {
   return submitSession({ ...input, userId: user.id });
 }
 
-export async function reopenSessionAction(sessionId: string): Promise<void> {
+export async function reopenSessionAction(sessionId: string): Promise<ActionResult> {
   // Admin-only, like deleteShipment. Reopening a submitted shipment puts
   // already-shipped history back into an editable state, which is the same
   // class of capability — it was the one destructive-adjacent action still
   // reachable by any packer.
   const user = await requireAdmin();
-  await reopenSession(sessionId, user.name);
+  return runExpectable(() => reopenSession(sessionId, user.name));
 }
 
-export async function resetSessionAction(sessionId: string) {
+export async function resetSessionAction(
+  sessionId: string,
+): Promise<ActionResult<{ dashboard: null; restore: RestorableReset }>> {
   const user = await requireUser();
-  return resetSession(sessionId, user.id, user.name);
+  return runExpectable(() => resetSession(sessionId, user.id, user.name));
 }
 
-export async function restoreResetAction(resetId: string): Promise<SessionDashboard> {
+export async function restoreResetAction(resetId: string): Promise<ActionResult<SessionDashboard>> {
   await requireUser();
-  return restoreReset(resetId);
+  return runExpectable(() => restoreReset(resetId));
 }
 
-export async function deleteShipmentAction(sessionId: string): Promise<void> {
+export async function deleteShipmentAction(sessionId: string): Promise<ActionResult> {
   await requireAdmin();
-  await trashShipment(sessionId);
+  return runExpectable(() => trashShipment(sessionId));
 }
 
 export async function restoreShipmentAction(sessionId: string): Promise<void> {
