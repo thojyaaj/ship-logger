@@ -455,11 +455,22 @@ export default function ScanClient({
     // alone (setTimeout) didn't fix that — it deferred *when* the stale
     // closure ran, not *what* it saw.
     if (overlayOpenRef.current) return;
-    inputRef.current?.focus();
+    // preventScroll: refocusing is about catching the next hardware-scanner
+    // keystroke, not about where the viewport is pointed. Desktop's scan
+    // input sits in normal document flow (see isDesktop's comment above —
+    // "keeps the original normal-document-scroll behavior"), not pinned in
+    // place the way mobile's fixed header is, so scrolled down a long
+    // manifest it's genuinely off-screen. Without preventScroll, every click
+    // that blurs it from there (Undo, a box tab, anything that doesn't open
+    // an overlay and so reaches this line) snapped the whole page back to
+    // the top to bring it into view — jarring on its own, and confusing
+    // right on top of a click that *did* open something, since the jump
+    // happens in the same instant and reads as "nothing happened."
+    inputRef.current?.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {
-    if (!overlayOpen) inputRef.current?.focus();
+    if (!overlayOpen) inputRef.current?.focus({ preventScroll: true });
   }, [overlayOpen]);
 
   // Any pending scanner-burst timer must not outlive the component — it would

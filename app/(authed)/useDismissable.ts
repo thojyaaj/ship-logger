@@ -35,8 +35,11 @@ export function useDismissable(onDismiss: () => void) {
       document.removeEventListener("keydown", onKeyDown);
       // The scan input's own focus management may legitimately have moved
       // focus on by now; only restore if focus wasn't deliberately placed.
+      // preventScroll — same reasoning as ScanClient's focusInput: restoring
+      // focus is about where keystrokes go next, not about yanking the
+      // viewport back to wherever that element happens to sit on the page.
       if (previouslyFocused?.isConnected && document.activeElement === document.body) {
-        previouslyFocused.focus();
+        previouslyFocused.focus({ preventScroll: true });
       }
     };
   }, []);
