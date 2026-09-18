@@ -20,6 +20,8 @@ import "server-only";
  * "not found" both read as `null` for the caller to retry later.
  */
 
+import { normalizeTrackingNumber } from "./carrier";
+
 const PROD_BASE = "https://api.shipstation.com/v2";
 
 function apiBase(): string {
@@ -154,23 +156,23 @@ export type ShipstationShipment = {
   shipToStateProvince: string | null;
 };
 
-type ShipmentsResponse = {
-  shipments?: {
-    tracking_number?: string;
-    external_order_id?: string | null;
-    ship_to?: {
-      name?: string | null;
-      postal_code?: string | null;
-      country_code?: string | null;
-      city_locality?: string | null;
-      state_province?: string | null;
-    } | null;
-  }[];
+type LabelLookupResponse = {
+  labels?: { tracking_number?: string; shipment_id?: string }[];
 };
 
-function parseShipment(trackingNumber: string, data: ShipmentsResponse): ShipstationShipment | null {
-  const shipment = data.shipments?.[0];
-  if (!shipment) return null;
+type ShipmentResponse = {
+  shipment_id?: string;
+  external_order_id?: string | null;
+  ship_to?: {
+    name?: string | null;
+    postal_code?: string | null;
+    country_code?: string | null;
+    city_locality?: string | null;
+    state_province?: string | null;
+  } | null;
+};
+
+function parseShipment(trackingNumber: string, shipment: ShipmentResponse): ShipstationShipment {
   const shipTo = shipment.ship_to;
   return {
     trackingNumber,
@@ -190,25 +192,46 @@ function parseShipment(trackingNumber: string, data: ShipmentsResponse): Shipsta
  * feeding rate-shop estimates (lib/shipstation-rates.ts) — same call, two
  * independent callers, neither one persists more of the response than it
  * needs. Never throws — any failure reads as `null`.
+ *
+ * Two steps on purpose: `GET /v2/shipments` has no `tracking_number` filter
+ * (its documented filters are batch_id, tag, shipment_status, created/modified
+ * date ranges and sales_order_id), so the old single call silently returned
+ * the account's newest shipment for *every* tracking number — one stranger's
+ * name and address stamped onto unrelated parcels. `GET /v2/labels` does
+ * filter by tracking number, and its label carries the `shipment_id` to fetch.
+ * Both hops verify what came back is the record that was asked for, because
+ * an ignored filter is otherwise indistinguishable from a real answer.
  */
 export async function lookupShipstationShipment(trackingNumber: string): Promise<ShipstationShipment | null> {
   const apiKey = process.env.SHIPSTATION_API_KEY;
   if (!apiKey) return null;
 
   try {
-    const url = new URL(`${apiBase()}/shipments`);
-    url.searchParams.set("tracking_number", trackingNumber);
-    url.searchParams.set("page_size", "1");
+    const labelUrl = new URL(`${apiBase()}/labels`);
+    labelUrl.searchParams.set("tracking_number", trackingNumber);
+    labelUrl.searchParams.set("label_status", "completed");
+    labelUrl.searchParams.set("page_size", "1");
 
-    const res = await fetch(url, {
+    const labelRes = await fetch(labelUrl, {
       headers: { "API-Key": apiKey },
       signal: AbortSignal.timeout(15_000),
     });
+    if (!labelRes.ok) return null;
 
-    if (!res.ok) return null;
+    const label = ((await labelRes.json()) as LabelLookupResponse).labels?.[0];
+    if (!label?.shipment_id || normalizeTrackingNumber(label.tracking_number ?? "") !== normalizeTrackingNumber(trackingNumber)) {
+      return null;
+    }
 
-    const data = (await res.json()) as ShipmentsResponse;
-    return parseShipment(trackingNumber, data);
+    const shipmentRes = await fetch(`${apiBase()}/shipments/${encodeURIComponent(label.shipment_id)}`, {
+      headers: { "API-Key": apiKey },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!shipmentRes.ok) return null;
+
+    const shipment = (await shipmentRes.json()) as ShipmentResponse;
+    if (shipment.shipment_id !== label.shipment_id) return null;
+    return parseShipment(trackingNumber, shipment);
   } catch {
     return null;
   }
