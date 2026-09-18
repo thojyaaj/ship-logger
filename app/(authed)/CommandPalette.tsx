@@ -326,10 +326,14 @@ export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
                               </span>
                               <span
                                 className={`tag-label !text-[0.6rem] ml-auto ${
-                                  s.status === "submitted" ? "!text-green-ink" : "!text-amber-ink"
+                                  s.deletedAt
+                                    ? "!text-red-ink"
+                                    : s.status === "submitted"
+                                      ? "!text-green-ink"
+                                      : "!text-amber-ink"
                                 }`}
                               >
-                                {s.status}
+                                {s.deletedAt ? "deleted" : s.status}
                               </span>
                             </ResultRow>
                           );

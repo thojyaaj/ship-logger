@@ -1218,6 +1218,8 @@ export type ShipmentPaletteHit = {
   awbNumber: string | null;
   /** The tracking number, order name, or ship-to name that made this shipment match, when the query hit one — null for id/date/AWB-only hits. */
   matchedNumber: string | null;
+  /** Set when the shipment is in Trash — its scans still count for duplicate detection, so search has to be able to find it. */
+  deletedAt: string | null;
   totals: { epg: number; ups: number; dhl: number; unknown: number; total: number };
 };
 
@@ -1226,6 +1228,9 @@ export type ShipmentPaletteHit = {
  * palette) — matches session id, AWB, master UPS tracking, ship date, a
  * or any tracking number / order name `listShipments` searches (see
  * `findSessionsByNumber`).
+ * Includes shipments in Trash (flagged via `deletedAt`): a trashed shipment
+ * keeps its scans, so re-scanning one of its parcels still reports "already
+ * shipped" — search has to be able to find where that came from.
  * Capped and unpaginated since it's a fast-jump, not the full history browser.
  */
 export async function searchShipmentsForPalette(query: string, limit = 8): Promise<ShipmentPaletteHit[]> {
@@ -1244,7 +1249,6 @@ export async function searchShipmentsForPalette(query: string, limit = 8): Promi
     .where(
       and(
         ne(shipmentSession.status, "voided"),
-        isNull(shipmentSession.deletedAt),
         or(
           ilike(shipmentSession.id, like),
           ilike(shipmentSession.shipDate, like),
@@ -1252,7 +1256,7 @@ export async function searchShipmentsForPalette(query: string, limit = 8): Promi
         ),
       ),
     )
-    .orderBy(desc(shipmentSession.shipDate), desc(shipmentSession.openedAt))
+    .orderBy(sql`${shipmentSession.deletedAt} IS NOT NULL`, desc(shipmentSession.shipDate), desc(shipmentSession.openedAt))
     .limit(limit);
 
   const results: ShipmentPaletteHit[] = [];
@@ -1266,6 +1270,7 @@ export async function searchShipmentsForPalette(query: string, limit = 8): Promi
       status: s.status,
       awbNumber: s.awbNumber,
       matchedNumber: numberMatches.get(s.id) ?? null,
+      deletedAt: s.deletedAt,
       totals,
     });
   }
