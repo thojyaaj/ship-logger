@@ -4,7 +4,7 @@ import { db } from "./db";
 import { appUser, shipmentSession, box, scan, shipmentReset } from "./db/schema";
 import { and, eq, desc, sql, ne, inArray, ilike, or, isNull, isNotNull, lt, gt } from "drizzle-orm";
 import { newId } from "./id";
-import { detectCarrier, type Carrier } from "./carrier";
+import { detectCarrier, normalizeTrackingNumber, type Carrier } from "./carrier";
 import { nowSqlTimestamp, localCalendarDate, toSqlTimestamp, parseDbTimestamp } from "./date";
 import { lookupOrderIndex } from "./order-index";
 import { lookupShipstationLabel } from "./shipstation";
@@ -1079,28 +1079,86 @@ export type ShipmentListItem = {
 };
 
 export type ListShipmentsOptions = {
-  /** Free-text search against scanned tracking numbers or matched order names. */
+  /** Free-text search against every tracking number on a shipment (scanned, per-box, master UPS, AWB, EPG final-mile), order names, or ShipStation ship-to names. */
   search?: string;
   /** Exact `ship_date` match ("YYYY-MM-DD") — e.g. "show me everything that went out on the 24th." */
   date?: string;
 };
+
+/**
+ * Sessions containing a tracking-ish number, order name, or ShipStation ship-to name matching `term`,
+ * keyed by session id → the number that matched (so a caller can show *why* a
+ * shipment came up). Covers every place a tracking number lives: scanned
+ * numbers, EPG final-mile numbers, per-box UPS tracking, and the session's
+ * master UPS tracking / AWB, plus order names and ShipStation's fallback order id / ship-to name (what the Order column shows when Shopify has no match). Doesn't filter voided or deleted sessions —
+ * callers apply that with the session query they already run.
+ */
+async function findSessionsByNumber(term: string): Promise<Map<string, string>> {
+  const normalized = normalizeTrackingNumber(term);
+  const numberLike = `%${escapeLikePattern(normalized)}%`;
+  const textLike = `%${escapeLikePattern(term)}%`;
+  const matches = (value: string | null): value is string => !!value && normalizeTrackingNumber(value).includes(normalized);
+
+  const [scanRows, boxRows, sessionRows] = await Promise.all([
+    db
+      .select({
+        sessionId: scan.sessionId,
+        trackingNumber: scan.trackingNumber,
+        epgFinalMile: scan.epgFinalMile,
+        orderName: scan.orderName,
+        fallbackOrder: scan.shipstationOrderFallback,
+        shipToName: scan.shipstationShipToName,
+      })
+      .from(scan)
+      .where(
+        or(
+          sql`upper(${scan.trackingNumber}) LIKE ${numberLike}`,
+          sql`upper(${scan.epgFinalMile}) LIKE ${numberLike}`,
+          ilike(scan.orderName, textLike),
+          ilike(scan.shipstationOrderFallback, textLike),
+          ilike(scan.shipstationShipToName, textLike),
+        ),
+      ),
+    db
+      .select({ sessionId: box.sessionId, upsTracking: box.upsTracking })
+      .from(box)
+      .where(sql`upper(${box.upsTracking}) LIKE ${numberLike}`),
+    db
+      .select({ id: shipmentSession.id, awbNumber: shipmentSession.awbNumber, masterUpsTracking: shipmentSession.masterUpsTracking })
+      .from(shipmentSession)
+      .where(
+        or(
+          sql`upper(${shipmentSession.awbNumber}) LIKE ${numberLike}`,
+          sql`upper(${shipmentSession.masterUpsTracking}) LIKE ${numberLike}`,
+        ),
+      ),
+  ]);
+
+  const found = new Map<string, string>();
+  const note = (sessionId: string, value: string | null) => {
+    if (value && !found.has(sessionId)) found.set(sessionId, value);
+  };
+  for (const r of scanRows) {
+    const textMatches = (value: string | null): value is string =>
+      !!value && value.toLowerCase().includes(term.toLowerCase());
+    note(
+      r.sessionId,
+      [r.trackingNumber, r.epgFinalMile].find(matches) ??
+        [r.orderName, r.fallbackOrder, r.shipToName].find(textMatches) ??
+        null,
+    );
+  }
+  for (const r of boxRows) note(r.sessionId, r.upsTracking);
+  for (const r of sessionRows) note(r.id, [r.masterUpsTracking, r.awbNumber].find(matches) ?? null);
+  return found;
+}
 
 export async function listShipments(opts?: ListShipmentsOptions): Promise<ShipmentListItem[]> {
   let sessionIds: string[] | null = null;
 
   const term = opts?.search?.trim();
   if (term) {
-    const normalized = term.toUpperCase().replace(/\s+/g, "");
-    const matches = await db
-      .select({ sessionId: scan.sessionId })
-      .from(scan)
-      .where(
-        or(
-          sql`upper(${scan.trackingNumber}) LIKE ${"%" + escapeLikePattern(normalized) + "%"}`,
-          ilike(scan.orderName, `%${escapeLikePattern(term)}%`),
-        ),
-      );
-    sessionIds = [...new Set(matches.map((m) => m.sessionId))];
+    sessionIds = [...(await findSessionsByNumber(term)).keys()];
     if (sessionIds.length === 0) return [];
   }
 
@@ -1158,14 +1216,16 @@ export type ShipmentPaletteHit = {
   shipDate: string;
   status: string;
   awbNumber: string | null;
+  /** The tracking number, order name, or ship-to name that made this shipment match, when the query hit one — null for id/date/AWB-only hits. */
+  matchedNumber: string | null;
   totals: { epg: number; ups: number; dhl: number; unknown: number; total: number };
 };
 
 /**
  * Lightweight jump-to-shipment lookup for the command palette (§ command
  * palette) — matches session id, AWB, master UPS tracking, ship date, a
- * scanned tracking number (same tracking-number match `listShipments` uses),
- * or a matched Shopify order name.
+ * or any tracking number / order name `listShipments` searches (see
+ * `findSessionsByNumber`).
  * Capped and unpaginated since it's a fast-jump, not the full history browser.
  */
 export async function searchShipmentsForPalette(query: string, limit = 8): Promise<ShipmentPaletteHit[]> {
@@ -1176,17 +1236,7 @@ export async function searchShipmentsForPalette(query: string, limit = 8): Promi
   // number is still treated as a wildcard, silently widening the match.
   const like = `%${escapeLikePattern(term)}%`;
 
-  const normalizedTracking = term.toUpperCase().replace(/\s+/g, "");
-  const scanMatches = await db
-    .select({ sessionId: scan.sessionId })
-    .from(scan)
-    .where(
-      or(
-        sql`upper(${scan.trackingNumber}) LIKE ${"%" + escapeLikePattern(normalizedTracking) + "%"}`,
-        ilike(scan.orderName, like),
-      ),
-    );
-  const scanSessionIds = [...new Set(scanMatches.map((m) => m.sessionId))];
+  const numberMatches = await findSessionsByNumber(term);
 
   const sessions = await db
     .select()
@@ -1197,10 +1247,8 @@ export async function searchShipmentsForPalette(query: string, limit = 8): Promi
         isNull(shipmentSession.deletedAt),
         or(
           ilike(shipmentSession.id, like),
-          ilike(shipmentSession.awbNumber, like),
-          ilike(shipmentSession.masterUpsTracking, like),
           ilike(shipmentSession.shipDate, like),
-          scanSessionIds.length > 0 ? inArray(shipmentSession.id, scanSessionIds) : undefined,
+          numberMatches.size > 0 ? inArray(shipmentSession.id, [...numberMatches.keys()]) : undefined,
         ),
       ),
     )
@@ -1212,7 +1260,14 @@ export async function searchShipmentsForPalette(query: string, limit = 8): Promi
     const scanRows = await db.select({ carrier: scan.carrier }).from(scan).where(eq(scan.sessionId, s.id));
     const totals = { epg: 0, ups: 0, dhl: 0, unknown: 0, total: scanRows.length };
     for (const row of scanRows) totals[row.carrier as Carrier] += 1;
-    results.push({ id: s.id, shipDate: s.shipDate, status: s.status, awbNumber: s.awbNumber, totals });
+    results.push({
+      id: s.id,
+      shipDate: s.shipDate,
+      status: s.status,
+      awbNumber: s.awbNumber,
+      matchedNumber: numberMatches.get(s.id) ?? null,
+      totals,
+    });
   }
   return results;
 }

@@ -318,6 +318,7 @@ export default function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
                               onClick={() => runResult({ kind: "shipment", shipment: s })}
                             >
                               <span className="data font-semibold">{s.shipDate}</span>
+                              {s.matchedNumber && <span className="data text-ink-soft truncate">{s.matchedNumber}</span>}
                               <span className="tag-label !normal-case !tracking-normal !text-ink-soft">
                                 {s.awbNumber
                                   ? `AWB ${s.awbNumber}`
