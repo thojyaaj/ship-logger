@@ -1,8 +1,8 @@
 import "server-only";
 import readExcelFile from "read-excel-file/node";
-import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "../db";
-import { invoiceAudit, invoiceAuditLine, scan } from "../db/schema";
+import { invoiceAudit, invoiceAuditLine, scan, shipmentSession } from "../db/schema";
 import { newId } from "../id";
 import { ExpectedError } from "../expected-error";
 import { lookupShipstationLabel } from "../shipstation";
@@ -516,14 +516,24 @@ export async function listInvoiceAudits() {
 }
 
 export type InvoiceAuditRow = Awaited<ReturnType<typeof listInvoiceAudits>>[number];
-export type InvoiceAuditLineRow = typeof invoiceAuditLine.$inferSelect;
+/**
+ * A saved line plus the ship date of the parcel it matched: the shipment
+ * (session) the parcel was scanned into, i.e. the day it actually left the
+ * warehouse. Null for a parcel ship_logger never scanned.
+ */
+export type InvoiceAuditLineRow = typeof invoiceAuditLine.$inferSelect & {
+  shipDate: string | null;
+  sessionId: string | null;
+};
 
 export async function getInvoiceAudit(id: string): Promise<{ audit: InvoiceAuditRow; lines: InvoiceAuditLineRow[] } | null> {
   const [audit] = await db.select().from(invoiceAudit).where(eq(invoiceAudit.id, id)).limit(1);
   if (!audit) return null;
   const lines = await db
-    .select()
+    .select({ ...getTableColumns(invoiceAuditLine), shipDate: shipmentSession.shipDate, sessionId: shipmentSession.id })
     .from(invoiceAuditLine)
+    .leftJoin(scan, eq(scan.id, invoiceAuditLine.scanId))
+    .leftJoin(shipmentSession, eq(shipmentSession.id, scan.sessionId))
     .where(eq(invoiceAuditLine.auditId, id))
     .orderBy(invoiceAuditLine.sheetRow);
   return { audit, lines };
