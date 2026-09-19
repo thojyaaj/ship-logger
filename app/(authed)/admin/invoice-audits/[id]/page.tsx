@@ -7,6 +7,7 @@ import { getLineShipping, getShippingSummaries } from "@/lib/invoice-audit/shipp
 import { formatWarehouseTimestamp } from "@/lib/date";
 import AuditLinesClient from "./AuditLinesClient";
 import RecheckClient from "./RecheckClient";
+import { gmailDraftLink, gmailDraftUrl } from "@/lib/invoice-audit/gmail-draft";
 
 // recheckInvoiceAuditAction runs live ShipStation lookups — up to ~30s (see
 // MAX_LIVE_LOOKUPS in lib/invoice-audit/audit.ts).
@@ -22,6 +23,7 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
   const shipping = summaries.get(id);
   // currency_mismatch is folded into noQuoteCount but isn't something a
   // re-check can fix, so it's counted out here.
+  const draftUrl = gmailDraftUrl();
   const unverified = lines.filter((l) => l.status === "no_quote" || l.status === "not_found").length;
 
   const netAmount = netOvercharge(a);
@@ -57,12 +59,37 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
             {a.fileName ? ` · ${a.fileName}` : ""} · {a.lineCount} parcels
           </p>
         </div>
-        <a
-          href={`/admin/invoice-audits/${a.id}/export`}
-          className="btn px-3 py-2 border border-line-strong bg-paper-panel hover:bg-paper-dim text-sm"
-        >
-          Export CSV
-        </a>
+        <div className="flex items-center gap-2 flex-wrap">
+          {a.overCount + a.duplicateCount > 0 && (
+            <>
+              {draftUrl && (
+                <a
+                  href={gmailDraftLink(draftUrl, [a.id])}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn px-3 py-2 bg-orange text-paper text-sm"
+                  title="Save a Gmail draft to ePost Global with the dispute report attached — nothing is sent"
+                >
+                  Create Gmail draft
+                </a>
+              )}
+              <a
+                href={`/admin/invoice-audits/dispute-report?ids=${a.id}`}
+                className={`btn px-3 py-2 text-sm ${draftUrl ? "border border-line-strong bg-paper-panel hover:bg-paper-dim" : "bg-orange text-paper"}`}
+                title="Overcharged and double-billed parcels, with reasons, to send to ePost Global"
+              >
+                Dispute report CSV
+              </a>
+            </>
+          )}
+          <a
+            href={`/admin/invoice-audits/${a.id}/export`}
+            className="btn px-3 py-2 border border-line-strong bg-paper-panel hover:bg-paper-dim text-sm"
+            title="Every parcel with internal figures, for your own records"
+          >
+            Export CSV
+          </a>
+        </div>
       </div>
 
       {/* Five tiles: on a phone the fifth (net) spans both columns rather

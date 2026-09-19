@@ -12,6 +12,11 @@
  *   INVOICE_INTAKE_SECRET   same value as Vercel's INVOICE_INTAKE_SECRET_GMAIL
  *   EPG_SENDER              the address EPG invoices come from
  *   LOOKBACK_DAYS           optional, default 60 — how far back to look
+ *   DISPUTE_TO              optional — pre-fills "To" on dispute drafts
+ *
+ * Also a web app (doGet): ship_logger's "Create Gmail draft" button opens it
+ * to draft a billing-dispute email to EPG with the report attached. Deploy
+ * it as Execute as: Me, Who has access: Only myself — see the docs.
  *
  * Signing must match lib/invoice-audit/intake-auth.ts exactly — change both
  * together.
@@ -19,6 +24,7 @@
 
 var CALLER_ID = "gmail-apps-script";
 var INTAKE_PATH = "/api/v1/invoices/epg";
+var DISPUTE_PATH = "/api/v1/invoices/dispute-draft";
 var DONE_LABEL = "ShipLogger/Audited";
 var REJECTED_LABEL = "ShipLogger/Rejected";
 var DEFAULT_LOOKBACK_DAYS = 60;
@@ -113,25 +119,10 @@ function findInvoiceMessages_(sender, lookbackDays) {
 
 /** @return {"created"|"duplicate"|"rejected"|"failed"} */
 function postInvoice_(baseUrl, secret, attachment, messageId) {
-  var bytes = attachment.getBytes();
-  var timestamp = String(Math.floor(Date.now() / 1000));
-  var bodyHash = toHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes));
-  var canonical = ["POST", INTAKE_PATH, timestamp, bodyHash].join("\n");
-  var signature = toHex_(Utilities.computeHmacSha256Signature(canonical, secret, Utilities.Charset.UTF_8));
-
-  var response = UrlFetchApp.fetch(baseUrl + INTAKE_PATH, {
-    method: "post",
-    contentType: "application/octet-stream",
-    payload: bytes,
-    muteHttpExceptions: true,
-    headers: {
-      "X-ShipLogger-Caller": CALLER_ID,
-      "X-ShipLogger-Timestamp": timestamp,
-      "X-ShipLogger-Signature": signature,
-      // ASCII-only so the header is always valid; the name is informational.
-      "X-ShipLogger-Filename": attachment.getName().replace(/[^\x20-\x7E]/g, "_"),
-      "X-ShipLogger-Message-Id": messageId,
-    },
+  var response = signedPost_(baseUrl, secret, INTAKE_PATH, attachment.getBytes(), "application/octet-stream", {
+    // ASCII-only so the header is always valid; the name is informational.
+    "X-ShipLogger-Filename": attachment.getName().replace(/[^\x20-\x7E]/g, "_"),
+    "X-ShipLogger-Message-Id": messageId,
   });
 
   var code = response.getResponseCode();
@@ -154,6 +145,103 @@ function postInvoice_(baseUrl, secret, attachment, messageId) {
   }
   console.error("Intake failed for " + attachment.getName() + " (HTTP " + code + "): " + text);
   return "failed";
+}
+
+/**
+ * POSTs `bytes` to ship_logger, HMAC-signed per lib/invoice-audit/intake-auth.ts:
+ * method, path, timestamp and the body's SHA-256, one per line.
+ */
+function signedPost_(baseUrl, secret, path, bytes, contentType, extraHeaders) {
+  var timestamp = String(Math.floor(Date.now() / 1000));
+  var bodyHash = toHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes));
+  var canonical = ["POST", path, timestamp, bodyHash].join("\n");
+  var signature = toHex_(Utilities.computeHmacSha256Signature(canonical, secret, Utilities.Charset.UTF_8));
+  var headers = {
+    "X-ShipLogger-Caller": CALLER_ID,
+    "X-ShipLogger-Timestamp": timestamp,
+    "X-ShipLogger-Signature": signature,
+  };
+  Object.keys(extraHeaders || {}).forEach(function (k) {
+    headers[k] = extraHeaders[k];
+  });
+  return UrlFetchApp.fetch(baseUrl + path, {
+    method: "post",
+    contentType: contentType,
+    payload: bytes,
+    muteHttpExceptions: true,
+    headers: headers,
+  });
+}
+
+/**
+ * Web app entry point. ship_logger's "Create Gmail draft" button opens
+ * <web app URL>?ids=<auditId>,<auditId>… in a new tab; this fetches the
+ * dispute report for those invoices and saves a Gmail draft with the CSV
+ * attached. Nothing is sent — you review and send the draft yourself.
+ */
+function doGet(e) {
+  var ids = String((e && e.parameter && e.parameter.ids) || "")
+    .split(",")
+    .map(function (id) {
+      return id.trim();
+    })
+    .filter(function (id) {
+      return /^[0-9A-Za-z-]{1,64}$/.test(id);
+    });
+  if (ids.length === 0) return resultPage_("No invoices were selected.", null);
+
+  try {
+    var result = createDisputeDraft_(ids);
+    return resultPage_(null, result);
+  } catch (err) {
+    return resultPage_("Couldn't create the draft: " + err.message, null);
+  }
+}
+
+function createDisputeDraft_(ids) {
+  var props = PropertiesService.getScriptProperties();
+  var baseUrl = requiredProp_(props, "SHIPLOGGER_URL").replace(/\/+$/, "");
+  var secret = requiredProp_(props, "INVOICE_INTAKE_SECRET");
+
+  var bytes = Utilities.newBlob(JSON.stringify({ ids: ids })).getBytes();
+  var response = signedPost_(baseUrl, secret, DISPUTE_PATH, bytes, "application/json", {});
+  var body = response.getContentText();
+  if (response.getResponseCode() !== 200) {
+    var message = "HTTP " + response.getResponseCode();
+    try {
+      message = JSON.parse(body).error || message;
+    } catch (e) {}
+    throw new Error(message);
+  }
+
+  var data = JSON.parse(body);
+  var attachment = Utilities.newBlob(data.csv, "text/csv", data.fileName);
+  var draft = GmailApp.createDraft(props.getProperty("DISPUTE_TO") || "", data.subject, data.text, {
+    htmlBody: data.html,
+    attachments: [attachment],
+  });
+  console.log("Created dispute draft: " + data.subject);
+  return { draft: draft, subject: data.subject, fileName: data.fileName, parcelCount: data.parcelCount };
+}
+
+function resultPage_(error, result) {
+  var draftsUrl = "https://mail.google.com/mail/u/0/#drafts";
+  var html = error
+    ? "<h2>Draft not created</h2><p>" + escapeHtml_(error) + "</p>"
+    : "<h2>Gmail draft created</h2>" +
+      "<p><strong>" + escapeHtml_(result.subject) + "</strong></p>" +
+      "<p>" + result.parcelCount + " disputed parcel(s), with " + escapeHtml_(result.fileName) + " attached. " +
+      "Review it, add the recipient if it's blank, and send it from Gmail.</p>" +
+      '<p><a href="' + draftsUrl + '" target="_top">Open Gmail drafts</a></p>';
+  return HtmlService.createHtmlOutput(
+    '<div style="font-family:system-ui,sans-serif;max-width:560px;margin:40px auto;line-height:1.5">' + html + "</div>"
+  ).setTitle("EPG dispute draft");
+}
+
+function escapeHtml_(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
 }
 
 /** Run once by hand after setup: installs the hourly trigger (replacing any old one). */

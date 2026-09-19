@@ -4,6 +4,8 @@ import { listInvoiceAudits } from "@/lib/invoice-audit/audit";
 import { formatMoney, netLabel, netOvercharge } from "@/lib/invoice-audit/format";
 import { formatWarehouseTimestamp } from "@/lib/date";
 import UploadInvoiceClient from "./UploadInvoiceClient";
+import DisputeReportClient from "./DisputeReportClient";
+import { gmailDraftUrl } from "@/lib/invoice-audit/gmail-draft";
 import InvoiceAnalyticsSection from "./InvoiceAnalytics";
 import { getInvoiceAnalytics } from "@/lib/invoice-audit/analytics";
 import { getShippingSummaries, sumShippingSummaries } from "@/lib/invoice-audit/shipping-margin";
@@ -25,6 +27,15 @@ const NET_TONE = {
 export default async function InvoiceAuditsPage() {
   await pageRequireAdmin();
   const [audits, analytics, shipping] = await Promise.all([listInvoiceAudits(), getInvoiceAnalytics(), getShippingSummaries()]);
+  const disputable = audits
+    .filter((a) => a.overCount + a.duplicateCount > 0)
+    .map((a) => ({
+      id: a.id,
+      invoiceNumber: a.invoiceNumber,
+      parcels: a.overCount + a.duplicateCount,
+      amount: a.overchargeTotal,
+      currency: a.currency,
+    }));
 
   return (
     <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
@@ -38,6 +49,8 @@ export default async function InvoiceAuditsPage() {
       {analytics.invoiceCount > 0 && (
         <InvoiceAnalyticsSection data={analytics} shipping={sumShippingSummaries(shipping.values())} />
       )}
+
+      {disputable.length > 0 && <DisputeReportClient invoices={disputable} gmailDraftUrl={gmailDraftUrl()} />}
 
       <UploadInvoiceClient />
 
