@@ -38,6 +38,7 @@ export default async function AuthedLayout({ children }: { children: React.React
                   <NavLink href="/">Scan</NavLink>
                   <NavLink href="/shipments">Shipments</NavLink>
                   {user.isAdmin && <NavLink href="/analytics">Analytics</NavLink>}
+                  {user.isAdmin && <NavLink href="/admin/invoice-audits">Invoices</NavLink>}
                   {/* DHL Pickup settings now live inside this page too — see
                       admin/users/page.tsx — and Trash is reachable from the
                       shipments log page instead (next to its record count),

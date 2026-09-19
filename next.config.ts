@@ -25,6 +25,14 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      // Invoice .xlsx uploads (app/(authed)/admin/invoice-audits) — the file
+      // itself is capped at 10 MB (MAX_INVOICE_BYTES in
+      // lib/invoice-audit/audit.ts); the headroom covers multipart overhead.
+      bodySizeLimit: "11mb",
+    },
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

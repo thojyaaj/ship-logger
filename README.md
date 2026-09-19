@@ -48,6 +48,10 @@ See [`.env.example`](.env.example).
 - `CRON_SECRET` — optional, protects `/api/cron/epg-status` from being triggered by anyone who finds the URL. Vercel Cron sends this automatically when set (see `vercel.json`).
 - `SHOPIFY_STORE`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` — the custom app credential used for order lookups. The app needs `read_orders`, `read_all_orders`, `read_fulfillments`, and `read_customers` scopes approved on the store, plus protected customer data access configured in the Dev Dashboard (see PRD §9, Step 0) — without these, `orders`/`order` queries (or just the `customer` field on them) fail with `ACCESS_DENIED`.
 
+## Invoice audits
+
+Admins can audit carrier invoices against ShipStation's quoted label cost at `/admin/invoice-audits`, by upload or automatically from Gmail. See [`docs/invoice-audit.md`](docs/invoice-audit.md) for how parcels are judged and for the Apps Script setup.
+
 ## Notes for future work
 
 - `lib/epg.ts` talks to an **undocumented, unofficial** ePost Global endpoint (verified working, not supported by EPG) — see the comment at the top of that file before changing it.
