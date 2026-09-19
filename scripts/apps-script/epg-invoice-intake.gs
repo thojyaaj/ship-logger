@@ -94,7 +94,9 @@ function postInvoice_(baseUrl, secret, attachment, messageId) {
   });
 
   var code = response.getResponseCode();
-  var text = response.getContentText();
+  // Capped: an error page (e.g. a 404 before the endpoint is deployed) is
+  // a whole HTML document, which floods the execution log.
+  var text = response.getContentText().slice(0, 300);
   if (code === 200) {
     console.log("Audited " + attachment.getName() + ": " + text);
     return "ok";
