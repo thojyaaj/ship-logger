@@ -205,6 +205,24 @@ function ParcelIds({ line }: { line: InvoiceAuditLineRow }) {
         <span className="break-all">{line.finalMileTracking}</span> · {line.destinationCountry ?? "—"} · row{" "}
         {line.sheetRow}
       </span>
+      {line.disputeId && (
+        <Link
+          href={`/admin/invoice-audits/disputes/${line.disputeId}`}
+          className={`self-start mt-0.5 px-1.5 py-px text-[10px] font-condensed font-semibold uppercase tracking-wider ${
+            line.disputeOutcome === "credited"
+              ? "bg-green-dim text-green-ink"
+              : line.disputeOutcome === "rejected"
+                ? "bg-red-dim text-red-ink"
+                : "bg-amber-dim text-amber-ink"
+          }`}
+        >
+          {line.disputeOutcome === "credited"
+            ? `Credited ${formatMoney(line.creditedAmount ?? 0, line.invoicedCurrency)}`
+            : line.disputeOutcome === "rejected"
+              ? "Dispute rejected"
+              : "In dispute"}
+        </Link>
+      )}
       <span className="data text-[11px] text-ink-soft">
         Shipped{" "}
         {line.shipDate && line.sessionId ? (

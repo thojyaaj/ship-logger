@@ -411,6 +411,20 @@ export const invoiceAudit = pgTable(
   (t) => [uniqueIndex("invoice_audit_carrier_invoice_idx").on(t.carrier, t.invoiceNumber)],
 );
 
+// One dispute sent (or being prepared) to a carrier about billing
+// discrepancies. Its parcels are the invoice_audit_line rows pointing at it
+// (disputeId below) — a parcel sits in at most one dispute, so a new dispute
+// never re-sends one already disputed. Status is derived: draft until
+// sentAt is set, then open until every line has an outcome.
+export const invoiceDispute = pgTable("invoice_dispute", {
+  id: text("id").primaryKey(),
+  carrier: text("carrier", { enum: ["epg"] }).notNull(),
+  createdAt: text("created_at").notNull().default(nowUtcText),
+  createdBy: text("created_by").references(() => appUser.id),
+  sentAt: text("sent_at"),
+  sentBy: text("sent_by").references(() => appUser.id),
+});
+
 export const invoiceAuditLine = pgTable(
   "invoice_audit_line",
   {
@@ -447,11 +461,22 @@ export const invoiceAuditLine = pgTable(
     difference: real("difference"),
     billedHeavier: boolean("billed_heavier").notNull().default(false),
     note: text("note"),
+    // Dispute tracking (lib/invoice-audit/disputes.ts). All null until the
+    // parcel is put in a dispute. disputedAmount is the overcharge as it
+    // stood when disputed — what was actually claimed — so the dispute's
+    // CSV doesn't shift if the audit is later re-run. A re-upload of the
+    // invoice carries these over to the new lines (see auditEpgInvoice).
+    disputeId: text("dispute_id").references(() => invoiceDispute.id, { onDelete: "set null" }),
+    disputedAmount: real("disputed_amount"),
+    disputeOutcome: text("dispute_outcome", { enum: ["pending", "credited", "rejected"] }),
+    creditedAmount: real("credited_amount"),
+    disputeResolvedAt: text("dispute_resolved_at"),
   },
   (t) => [
     index("invoice_audit_line_audit_idx").on(t.auditId),
     // Cross-invoice duplicate check: has this EPG label been billed on an
     // earlier invoice already? (see lib/invoice-audit/audit.ts)
     index("invoice_audit_line_epg_ref_idx").on(t.epgRef),
+    index("invoice_audit_line_dispute_idx").on(t.disputeId),
   ],
 );

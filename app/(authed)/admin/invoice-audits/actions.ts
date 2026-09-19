@@ -3,6 +3,13 @@
 import { requireAdmin } from "@/lib/auth";
 import { runExpectable, type ActionResult } from "@/lib/action-result";
 import { ExpectedError } from "@/lib/expected-error";
+import {
+  createDispute,
+  deleteDraftDispute,
+  markDisputeSent,
+  recordOutcome,
+  type DisputeOutcome,
+} from "@/lib/invoice-audit/disputes";
 import { auditEpgInvoice, recheckUnverifiedLines, type AuditOutcome, type RecheckResult } from "@/lib/invoice-audit/audit";
 
 // The extended function duration this needs (live ShipStation lookups) is
@@ -27,4 +34,32 @@ export async function uploadEpgInvoiceAction(formData: FormData): Promise<Action
 export async function recheckInvoiceAuditAction(auditId: string): Promise<ActionResult<RecheckResult>> {
   await requireAdmin();
   return runExpectable(() => recheckUnverifiedLines(auditId));
+}
+
+export async function createDisputeAction(auditIds: string[]): Promise<ActionResult<{ id: string; parcels: number }>> {
+  const admin = await requireAdmin();
+  return runExpectable(() => createDispute(auditIds.slice(0, 200), admin.id));
+}
+
+export async function markDisputeSentAction(disputeId: string): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  return runExpectable(() => markDisputeSent(disputeId, admin.id));
+}
+
+export async function deleteDraftDisputeAction(disputeId: string): Promise<ActionResult> {
+  await requireAdmin();
+  return runExpectable(() => deleteDraftDispute(disputeId));
+}
+
+export async function recordDisputeOutcomeAction(
+  disputeId: string,
+  lineIds: string[],
+  outcome: DisputeOutcome,
+  creditedAmount?: number,
+): Promise<ActionResult> {
+  await requireAdmin();
+  if (!["pending", "credited", "rejected"].includes(outcome)) {
+    return { status: "error", message: "Unknown outcome." };
+  }
+  return runExpectable(() => recordOutcome(disputeId, lineIds, outcome, creditedAmount));
 }
