@@ -94,13 +94,34 @@ billed twice, in EPG's own terms.
 It leaves out everything internal: customer payments, the Fruugo fee and
 ship_logger's own notes.
 
-On each audit, use **Create Gmail draft** or **Dispute report CSV**. To
-cover several invoices at once, use the **Dispute report for EPG** panel on
-the Invoices page. **Export CSV** stays the internal, full-detail export.
+The report is built from a **dispute** (see below), so it always matches
+exactly what was sent. **Export CSV** on an audit stays the internal,
+full-detail export.
+
+### Disputes: tracking what you sent and what came back
+
+1. **Start a dispute.** Use **Start a dispute with EPG** on the Invoices
+   page (pick invoices) or **Start a dispute** on an audit. It collects
+   every overcharged or double-billed parcel that isn't already in a
+   dispute. A parcel is only ever in one dispute, so the same charge is
+   never sent twice.
+2. **Send it.** On the dispute's page, use **Create Gmail draft** (or
+   **Download CSV** and email it yourself), send it, then click **Mark as
+   sent to EPG**. Until then it's a draft and can be deleted, which frees
+   its parcels.
+3. **Record EPG's answer.** Select parcels and mark them **Credited in
+   full**, **Rejected**, or **Back to waiting**. Use **Partial credit** on
+   a parcel to enter the amount EPG actually credited.
+
+The Invoices page totals every sent dispute: amount disputed, amount
+credited back (and the percentage), parcels still waiting, and parcels
+rejected. Each parcel on an audit shows its dispute status and links to
+the dispute. The amount claimed is saved when the dispute is created, and
+re-uploading an invoice keeps its parcels' dispute records.
 
 ### Gmail draft (one-time setup)
 
-**Create Gmail draft** saves a draft in your Gmail with the CSV attached
+**Create Gmail draft** on a dispute saves a draft in your Gmail with the CSV attached
 and a summary email written for you: totals by invoice and by issue, and a
 request for a credit. Nothing is sent: you review it, edit it, and send
 it. The draft is made by the same Apps Script that handles intake:
@@ -195,6 +216,18 @@ Set the `LOOKBACK_DAYS` Script Property, e.g. `365` for a year, and run
 Invoices that were already audited are skipped. To send everything in the
 window again, run `forgetProcessedEmails` once. The server still skips
 invoices it has already audited.
+
+### Alerts when intake goes quiet
+
+Two emails, sent to `ALERT_TO_EMAILS` like the other alerts:
+- **An invoice couldn't be read.** The email is labeled
+  `ShipLogger/Rejected` and isn't retried, so without this an EPG format
+  change would silently stop audits. The alert names the file and reason;
+  upload it by hand meanwhile.
+- **No invoice received from Gmail in 14 days.** Sent from the nightly
+  invoice-recheck cron, then weekly while it stays quiet. It usually means
+  the Apps Script's trigger or Google authorization stopped. The email
+  lists what to check. Ignore it if EPG simply hasn't invoiced.
 
 ### Security
 

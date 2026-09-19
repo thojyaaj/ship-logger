@@ -18,8 +18,8 @@ export function gmailDraftUrl(): string | null {
   }
 }
 
-export function gmailDraftLink(baseUrl: string, auditIds: string[]): string {
+export function gmailDraftLink(baseUrl: string, disputeId: string): string {
   const u = new URL(baseUrl);
-  u.searchParams.set("ids", auditIds.join(","));
+  u.searchParams.set("dispute", disputeId);
   return u.toString();
 }

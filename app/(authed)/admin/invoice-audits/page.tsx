@@ -4,8 +4,9 @@ import { listInvoiceAudits } from "@/lib/invoice-audit/audit";
 import { formatMoney, netLabel, netOvercharge } from "@/lib/invoice-audit/format";
 import { formatWarehouseTimestamp } from "@/lib/date";
 import UploadInvoiceClient from "./UploadInvoiceClient";
-import DisputeReportClient from "./DisputeReportClient";
-import { gmailDraftUrl } from "@/lib/invoice-audit/gmail-draft";
+import StartDisputeClient, { type DisputableInvoice } from "./StartDisputeClient";
+import DisputesSection from "./DisputesSection";
+import { disputeTotals, listDisputes, undisputedCounts } from "@/lib/invoice-audit/disputes";
 import InvoiceAnalyticsSection from "./InvoiceAnalytics";
 import { getInvoiceAnalytics } from "@/lib/invoice-audit/analytics";
 import { getShippingSummaries, sumShippingSummaries } from "@/lib/invoice-audit/shipping-margin";
@@ -26,14 +27,21 @@ const NET_TONE = {
 
 export default async function InvoiceAuditsPage() {
   await pageRequireAdmin();
-  const [audits, analytics, shipping] = await Promise.all([listInvoiceAudits(), getInvoiceAnalytics(), getShippingSummaries()]);
-  const disputable = audits
-    .filter((a) => a.overCount + a.duplicateCount > 0)
+  const [audits, analytics, shipping, disputes] = await Promise.all([
+    listInvoiceAudits(),
+    getInvoiceAnalytics(),
+    getShippingSummaries(),
+    listDisputes(),
+  ]);
+  // Only parcels not already in a dispute — see lib/invoice-audit/disputes.ts.
+  const undisputed = await undisputedCounts(audits.map((a) => a.id));
+  const disputable: DisputableInvoice[] = audits
+    .filter((a) => undisputed.has(a.id))
     .map((a) => ({
       id: a.id,
       invoiceNumber: a.invoiceNumber,
-      parcels: a.overCount + a.duplicateCount,
-      amount: a.overchargeTotal,
+      parcels: undisputed.get(a.id)!.parcels,
+      amount: undisputed.get(a.id)!.amount,
       currency: a.currency,
     }));
 
@@ -50,7 +58,9 @@ export default async function InvoiceAuditsPage() {
         <InvoiceAnalyticsSection data={analytics} shipping={sumShippingSummaries(shipping.values())} />
       )}
 
-      {disputable.length > 0 && <DisputeReportClient invoices={disputable} gmailDraftUrl={gmailDraftUrl()} />}
+      {disputes.length > 0 && <DisputesSection disputes={disputes} totals={disputeTotals(disputes)} />}
+
+      {disputable.length > 0 && <StartDisputeClient invoices={disputable} />}
 
       <UploadInvoiceClient />
 

@@ -1,6 +1,6 @@
 import "server-only";
 import readExcelFile from "read-excel-file/node";
-import { and, desc, eq, getTableColumns, inArray, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, isNotNull, ne, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../db";
 import { invoiceAudit, invoiceAuditLine, scan, shipmentSession } from "../db/schema";
 import { newId } from "../id";
@@ -342,6 +342,42 @@ export async function auditEpgInvoice(input: {
 
   const inserted = await db.transaction(async (tx) => {
     if (input.source === "upload") {
+      // A re-upload replaces the audit's lines; a parcel that's already in
+      // a dispute keeps its dispute record (and outcome) on the new line,
+      // or the dispute would silently lose it.
+      const disputed = await tx
+        .select({
+          sheetRow: invoiceAuditLine.sheetRow,
+          epgRef: invoiceAuditLine.epgRef,
+          finalMileTracking: invoiceAuditLine.finalMileTracking,
+          disputeId: invoiceAuditLine.disputeId,
+          disputedAmount: invoiceAuditLine.disputedAmount,
+          disputeOutcome: invoiceAuditLine.disputeOutcome,
+          creditedAmount: invoiceAuditLine.creditedAmount,
+          disputeResolvedAt: invoiceAuditLine.disputeResolvedAt,
+        })
+        .from(invoiceAuditLine)
+        .innerJoin(invoiceAudit, eq(invoiceAuditLine.auditId, invoiceAudit.id))
+        .where(
+          and(
+            eq(invoiceAudit.carrier, "epg"),
+            eq(invoiceAudit.invoiceNumber, invoiceNumber),
+            isNotNull(invoiceAuditLine.disputeId),
+          ),
+        );
+      const key = (l: { sheetRow: number; epgRef: string | null; finalMileTracking: string | null }) =>
+        `${l.sheetRow}|${l.epgRef ?? l.finalMileTracking}`;
+      const byKey = new Map(disputed.map((d) => [key(d), d]));
+      for (const line of lines) {
+        const d = byKey.get(key({ sheetRow: line.sheetRow, epgRef: line.epgRef ?? null, finalMileTracking: line.finalMileTracking ?? null }));
+        if (!d) continue;
+        line.disputeId = d.disputeId;
+        line.disputedAmount = d.disputedAmount;
+        line.disputeOutcome = d.disputeOutcome;
+        line.creditedAmount = d.creditedAmount;
+        line.disputeResolvedAt = d.disputeResolvedAt;
+      }
+
       await tx
         .delete(invoiceAudit)
         .where(and(eq(invoiceAudit.carrier, "epg"), eq(invoiceAudit.invoiceNumber, invoiceNumber)));
@@ -526,15 +562,26 @@ export type InvoiceAuditLineRow = typeof invoiceAuditLine.$inferSelect & {
   sessionId: string | null;
 };
 
+/** Lines matching `where`, with each parcel's ship date (see InvoiceAuditLineRow). */
+export async function loadLinesWithShipDate(where: SQL | undefined) {
+  return db
+    .select({
+      ...getTableColumns(invoiceAuditLine),
+      shipDate: shipmentSession.shipDate,
+      sessionId: shipmentSession.id,
+      invoiceNumber: invoiceAudit.invoiceNumber,
+    })
+    .from(invoiceAuditLine)
+    .innerJoin(invoiceAudit, eq(invoiceAudit.id, invoiceAuditLine.auditId))
+    .leftJoin(scan, eq(scan.id, invoiceAuditLine.scanId))
+    .leftJoin(shipmentSession, eq(shipmentSession.id, scan.sessionId))
+    .where(where)
+    .orderBy(invoiceAudit.invoiceNumber, invoiceAuditLine.sheetRow);
+}
+
 export async function getInvoiceAudit(id: string): Promise<{ audit: InvoiceAuditRow; lines: InvoiceAuditLineRow[] } | null> {
   const [audit] = await db.select().from(invoiceAudit).where(eq(invoiceAudit.id, id)).limit(1);
   if (!audit) return null;
-  const lines = await db
-    .select({ ...getTableColumns(invoiceAuditLine), shipDate: shipmentSession.shipDate, sessionId: shipmentSession.id })
-    .from(invoiceAuditLine)
-    .leftJoin(scan, eq(scan.id, invoiceAuditLine.scanId))
-    .leftJoin(shipmentSession, eq(shipmentSession.id, scan.sessionId))
-    .where(eq(invoiceAuditLine.auditId, id))
-    .orderBy(invoiceAuditLine.sheetRow);
+  const lines = await loadLinesWithShipDate(eq(invoiceAuditLine.auditId, id));
   return { audit, lines };
 }

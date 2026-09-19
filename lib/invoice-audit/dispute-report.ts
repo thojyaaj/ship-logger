@@ -3,7 +3,8 @@ import { and, eq, inArray, ne } from "drizzle-orm";
 import { db } from "../db";
 import { invoiceAudit, invoiceAuditLine } from "../db/schema";
 import { toCsv, csvPreambleLine } from "../csv";
-import { getInvoiceAudit, type InvoiceAuditLineRow } from "./audit";
+import { invoiceDispute } from "../db/schema";
+import { loadLinesWithShipDate, type InvoiceAuditLineRow } from "./audit";
 import { PRICE_TOLERANCE } from "./classify";
 
 /**
@@ -19,7 +20,6 @@ import { PRICE_TOLERANCE } from "./classify";
  * or ship_logger's own notes.
  */
 
-const MAX_INVOICES = 100;
 const SENDER_NAME = "OTC Shoppe Express";
 
 type Issue = "rate" | "weight" | "surcharge" | "duplicate";
@@ -33,7 +33,7 @@ const ISSUE_LABEL: Record<Issue, string> = {
 
 type DisputedParcel = {
   invoiceNumber: string;
-  line: InvoiceAuditLineRow;
+  line: InvoiceAuditLineRow & { disputedAmount: number | null };
   issue: Issue;
   details: string;
   expected: number;
@@ -95,12 +95,14 @@ function describe(
       issue: "duplicate",
       details: `This parcel was already billed on ${where}. The full charge is disputed.`,
       expected: 0,
-      overcharge: round2(l.invoicedAmount),
+      overcharge: round2(l.disputedAmount ?? l.invoicedAmount),
     };
   }
 
-  const overcharge = round2(l.difference ?? 0);
-  const expected = round2(l.quotedAmount ?? l.invoicedAmount - overcharge);
+  // The amount claimed when the dispute was created, not the audit's
+  // current figure — the report has to match what EPG was sent.
+  const overcharge = round2(l.disputedAmount ?? l.difference ?? 0);
+  const expected = round2(l.invoicedAmount - overcharge);
   const heavier = l.billedHeavier && l.billedWeightLb !== null && l.quotedWeightLb !== null;
   const parts = [`Charged ${money(overcharge)} more than the ${money(expected)} rate quoted when the label was purchased.`];
   if (heavier) {
@@ -115,26 +117,24 @@ function describe(
   };
 }
 
-export async function buildDisputeReport(auditIds: string[]): Promise<DisputeReport | null> {
-  const ids = [...new Set(auditIds)].slice(0, MAX_INVOICES);
-  const audits = (await Promise.all(ids.map((id) => getInvoiceAudit(id)))).filter((a) => a !== null);
-  if (audits.length === 0) return null;
-  audits.sort((a, b) => a.audit.invoiceNumber.localeCompare(b.audit.invoiceNumber));
+/** The report and cover email for one dispute (see lib/invoice-audit/disputes.ts). */
+export async function buildDisputeReport(disputeId: string): Promise<DisputeReport | null> {
+  const [dispute] = await db.select({ id: invoiceDispute.id }).from(invoiceDispute).where(eq(invoiceDispute.id, disputeId));
+  if (!dispute) return null;
+  const lines = await loadLinesWithShipDate(eq(invoiceAuditLine.disputeId, disputeId));
+  if (lines.length === 0) return null;
 
-  const disputedLines = audits.flatMap(({ audit, lines }) =>
-    lines.filter((l) => l.status === "over" || l.status === "duplicate").map((line) => ({ audit, line })),
-  );
   const originals = await findOriginals([
-    ...new Set(disputedLines.filter((d) => d.line.status === "duplicate" && d.line.epgRef).map((d) => d.line.epgRef!)),
+    ...new Set(lines.filter((l) => l.status === "duplicate" && l.epgRef).map((l) => l.epgRef!)),
   ]);
-  const parcels: DisputedParcel[] = disputedLines.map(({ audit, line }) => ({
-    invoiceNumber: audit.invoiceNumber,
+  const parcels: DisputedParcel[] = lines.map((line) => ({
+    invoiceNumber: line.invoiceNumber,
     line,
-    ...describe(audit.invoiceNumber, line, line.epgRef ? originals.get(line.epgRef) : undefined),
+    ...describe(line.invoiceNumber, line, line.epgRef ? originals.get(line.epgRef) : undefined),
   }));
 
-  const currency = audits[0].audit.currency;
-  const invoiceNumbers = audits.map((a) => a.audit.invoiceNumber);
+  const currency = lines[0].invoicedCurrency;
+  const invoiceNumbers = [...new Set(lines.map((l) => l.invoiceNumber))].sort();
   const totalCharged = round2(parcels.reduce((s, p) => s + p.line.invoicedAmount, 0));
   const totalExpected = round2(parcels.reduce((s, p) => s + p.expected, 0));
   const totalDisputed = round2(parcels.reduce((s, p) => s + p.overcharge, 0));
@@ -226,7 +226,7 @@ export async function buildDisputeReport(auditIds: string[]): Promise<DisputeRep
     parcelCount: parcels.length,
     currency,
     totalDisputed,
-    email: buildEmail({ parcels, audits: audits.map((a) => a.audit), invoiceLabel, currency, totalCharged, totalExpected, totalDisputed, fileName }),
+    email: buildEmail({ parcels, invoiceNumbers, invoiceLabel, currency, totalCharged, totalExpected, totalDisputed, fileName }),
   };
 }
 
@@ -240,7 +240,7 @@ function escapeHtml(s: string): string {
  */
 function buildEmail(input: {
   parcels: DisputedParcel[];
-  audits: { invoiceNumber: string; invoicedTotal: number }[];
+  invoiceNumbers: string[];
   invoiceLabel: string;
   currency: string;
   totalCharged: number;
@@ -249,10 +249,10 @@ function buildEmail(input: {
   fileName: string;
 }): DisputeReport["email"] {
   const { parcels, currency } = input;
-  const byInvoice = input.audits
-    .map((a) => {
-      const own = parcels.filter((p) => p.invoiceNumber === a.invoiceNumber);
-      return { invoiceNumber: a.invoiceNumber, count: own.length, amount: round2(own.reduce((s, p) => s + p.overcharge, 0)) };
+  const byInvoice = input.invoiceNumbers
+    .map((invoiceNumber) => {
+      const own = parcels.filter((p) => p.invoiceNumber === invoiceNumber);
+      return { invoiceNumber, count: own.length, amount: round2(own.reduce((s, p) => s + p.overcharge, 0)) };
     })
     .filter((i) => i.count > 0);
   const byIssue = (Object.keys(ISSUE_LABEL) as Issue[])

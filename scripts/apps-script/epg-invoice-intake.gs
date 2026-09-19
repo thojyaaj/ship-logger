@@ -14,7 +14,7 @@
  *   LOOKBACK_DAYS           optional, default 60 — how far back to look
  *   DISPUTE_TO              optional — pre-fills "To" on dispute drafts
  *
- * Also a web app (doGet): ship_logger's "Create Gmail draft" button opens it
+ * Also a web app (doGet): a dispute's "Create Gmail draft" button opens it
  * to draft a billing-dispute email to EPG with the report attached. Deploy
  * it as Execute as: Me, Who has access: Only myself — see the docs.
  *
@@ -174,36 +174,28 @@ function signedPost_(baseUrl, secret, path, bytes, contentType, extraHeaders) {
 }
 
 /**
- * Web app entry point. ship_logger's "Create Gmail draft" button opens
- * <web app URL>?ids=<auditId>,<auditId>… in a new tab; this fetches the
- * dispute report for those invoices and saves a Gmail draft with the CSV
- * attached. Nothing is sent — you review and send the draft yourself.
+ * Web app entry point. ship_logger's "Create Gmail draft" button on a
+ * dispute opens <web app URL>?dispute=<disputeId> in a new tab; this fetches
+ * that dispute's report and saves a Gmail draft with the CSV attached.
+ * Nothing is sent — you review and send the draft yourself.
  */
 function doGet(e) {
-  var ids = String((e && e.parameter && e.parameter.ids) || "")
-    .split(",")
-    .map(function (id) {
-      return id.trim();
-    })
-    .filter(function (id) {
-      return /^[0-9A-Za-z-]{1,64}$/.test(id);
-    });
-  if (ids.length === 0) return resultPage_("No invoices were selected.", null);
+  var disputeId = String((e && e.parameter && e.parameter.dispute) || "").trim();
+  if (!/^[0-9A-Za-z-]{1,64}$/.test(disputeId)) return resultPage_("No dispute was selected.", null);
 
   try {
-    var result = createDisputeDraft_(ids);
-    return resultPage_(null, result);
+    return resultPage_(null, createDisputeDraft_(disputeId));
   } catch (err) {
     return resultPage_("Couldn't create the draft: " + err.message, null);
   }
 }
 
-function createDisputeDraft_(ids) {
+function createDisputeDraft_(disputeId) {
   var props = PropertiesService.getScriptProperties();
   var baseUrl = requiredProp_(props, "SHIPLOGGER_URL").replace(/\/+$/, "");
   var secret = requiredProp_(props, "INVOICE_INTAKE_SECRET");
 
-  var bytes = Utilities.newBlob(JSON.stringify({ ids: ids })).getBytes();
+  var bytes = Utilities.newBlob(JSON.stringify({ disputeId: disputeId })).getBytes();
   var response = signedPost_(baseUrl, secret, DISPUTE_PATH, bytes, "application/json", {});
   var body = response.getContentText();
   if (response.getResponseCode() !== 200) {

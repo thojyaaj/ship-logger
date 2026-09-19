@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { verifyIntakeRequest } from "@/lib/invoice-audit/intake-auth";
 import { auditEpgInvoice, MAX_INVOICE_BYTES } from "@/lib/invoice-audit/audit";
 import { ExpectedError } from "@/lib/expected-error";
+import { sendRejectedInvoiceAlert } from "@/lib/invoice-audit/intake-alerts";
 
 // Live ShipStation lookups for unscanned parcels can take ~30s — see
 // MAX_LIVE_LOOKUPS in lib/invoice-audit/audit.ts.
@@ -49,6 +50,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ status: result.outcome, invoiceNumber: result.invoiceNumber, auditId: result.auditId });
   } catch (err) {
     if (err instanceof ExpectedError) {
+      // The script labels this email "Rejected" and never retries it, so
+      // without an alert an EPG format change would quietly stop audits.
+      await sendRejectedInvoiceAlert(fileName, emailMessageId, err.message);
       return NextResponse.json({ error: err.message }, { status: 422 });
     }
     throw err;
