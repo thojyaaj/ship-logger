@@ -51,8 +51,11 @@ ship_logger emails a summary (via the existing Resend alert setup, to
 3. **Apps Script**: signed into the Gmail account that receives EPG
    invoices, go to [script.google.com](https://script.google.com) → New
    project. Paste in `scripts/apps-script/epg-invoice-intake.gs`, replacing
-   the starter code.
-4. **Project Settings → Script Properties**, add:
+   the starter code. **Don't edit the code.** The values below go in
+   Script Properties, not in the script. Putting the URL in the code
+   produces "Script property https://… is not set".
+4. **Project Settings (gear icon) → Script Properties**, add these as
+   name/value rows:
    - `SHIPLOGGER_URL` = `https://ship.otcshoppeexpress.com`
    - `INVOICE_INTAKE_SECRET` = the same secret
    - `EPG_SENDER` = the address EPG invoices come from
