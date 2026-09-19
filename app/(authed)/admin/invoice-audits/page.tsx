@@ -5,6 +5,7 @@ import { formatMoney, netLabel, netOvercharge } from "@/lib/invoice-audit/format
 import { formatWarehouseTimestamp } from "@/lib/date";
 import UploadInvoiceClient from "./UploadInvoiceClient";
 import DisputeReportClient from "./DisputeReportClient";
+import { gmailDraftUrl } from "@/lib/invoice-audit/gmail-draft";
 import InvoiceAnalyticsSection from "./InvoiceAnalytics";
 import { getInvoiceAnalytics } from "@/lib/invoice-audit/analytics";
 import { getShippingSummaries, sumShippingSummaries } from "@/lib/invoice-audit/shipping-margin";
@@ -49,7 +50,7 @@ export default async function InvoiceAuditsPage() {
         <InvoiceAnalyticsSection data={analytics} shipping={sumShippingSummaries(shipping.values())} />
       )}
 
-      {disputable.length > 0 && <DisputeReportClient invoices={disputable} />}
+      {disputable.length > 0 && <DisputeReportClient invoices={disputable} gmailDraftUrl={gmailDraftUrl()} />}
 
       <UploadInvoiceClient />
 

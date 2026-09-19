@@ -75,21 +75,52 @@ date, customer paid and shipping profit/loss.
 
 ## Dispute report for EPG
 
-A CSV to send to ePost Global about billing discrepancies. It lists only
-parcels billed above the ShipStation quote or billed twice, in EPG's own
-terms: invoice, AWB, EPG reference, tracking number, ship date,
-destination, service, billed vs. label weight, amount billed, amount
-expected and amount disputed. Each row has a plain-English reason:
-- charged above the quoted rate, noting heavier-than-label weight or
-  surcharges where they apply;
-- or billed twice, naming the invoice and row where the parcel was
-  already billed.
+A CSV meant for ePost Global, plus a cover email, about billing
+discrepancies. It lists only parcels billed above the ShipStation quote or
+billed twice, in EPG's own terms.
+
+- **Top of the CSV:** a "How to read this report" section, then totals:
+  parcels, charged, expected and total overcharge.
+- **Each row:** invoice, AWB, EPG reference, tracking number, ship date,
+  destination and service.
+  - Weights: **our label weight** next to **EPG's actual and billed weight**,
+    plus the difference.
+  - Charges: **expected charge**, the rate quoted when the label was bought,
+    next to **what EPG charged**, plus the overcharge.
+  - An issue label (charged above quoted rate, billed at a higher weight,
+    surcharge added, billed twice) and a one-line explanation.
+- **Bottom of the CSV:** a TOTAL row.
 
 It leaves out everything internal: customer payments, the Fruugo fee and
-ship_logger's own notes. Download it for one invoice from the **Dispute
-report for EPG** button on the audit, or for several invoices from the
-panel on the Invoices page. **Export CSV** stays the internal, full-detail
-export.
+ship_logger's own notes.
+
+On each audit, use **Create Gmail draft** or **Dispute report CSV**. To
+cover several invoices at once, use the **Dispute report for EPG** panel on
+the Invoices page. **Export CSV** stays the internal, full-detail export.
+
+### Gmail draft (one-time setup)
+
+**Create Gmail draft** saves a draft in your Gmail with the CSV attached
+and a summary email written for you: totals by invoice and by issue, and a
+request for a credit. Nothing is sent: you review it, edit it, and send
+it. The draft is made by the same Apps Script that handles intake:
+
+1. Re-paste `scripts/apps-script/epg-invoice-intake.gs` into the Apps
+   Script project; it now includes the draft step.
+2. Optionally, add a Script Property `DISPUTE_TO` with EPG's billing
+   contact address, to fill in "To" automatically.
+3. **Deploy → New deployment → Select type: Web app**. Set **Execute as:
+   Me** and **Who has access: Only myself**. Deploy, approve the Gmail
+   permission prompt, and copy the **Web app URL**
+   (`https://script.google.com/macros/s/…/exec`).
+4. In Vercel, set `GMAIL_DISPUTE_DRAFT_URL` to that URL and redeploy.
+
+"Only myself" means the page only works while you're signed in to that
+Google account; nobody else can use the URL to create drafts. The script
+fetches the report from `POST /api/v1/invoices/dispute-draft`, signed
+with the same secret as the intake. If you edit the script later, deploy
+again: **Manage deployments → Edit → New version**, which keeps the same
+URL.
 
 ## Analytics
 
