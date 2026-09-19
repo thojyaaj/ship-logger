@@ -1,5 +1,6 @@
 import type { InvoiceAnalytics, OverchargeCause } from "@/lib/invoice-audit/analytics";
-import { formatMoney, netLabel } from "@/lib/invoice-audit/format";
+import { formatMoney, MARKETPLACE_FEE_LABEL, netLabel } from "@/lib/invoice-audit/format";
+import type { ShippingSummary } from "@/lib/invoice-audit/shipping-margin";
 import StatTile from "../../analytics/StatTile";
 import BarList from "../../analytics/BarList";
 
@@ -15,7 +16,7 @@ const CAUSE_LABEL: Record<OverchargeCause, string> = {
  * hover text uses native SVG <title>, same as shipments/VolumeChart.tsx, so
  * there's no client boundary here.
  */
-export default function InvoiceAnalyticsSection({ data }: { data: InvoiceAnalytics }) {
+export default function InvoiceAnalyticsSection({ data, shipping }: { data: InvoiceAnalytics; shipping: ShippingSummary }) {
   const { currency } = data;
   const net = netLabel(data.net, currency);
   const overRate = data.verifiedParcels > 0 ? Math.round((data.overchargedParcels / data.verifiedParcels) * 100) : 0;
@@ -59,6 +60,28 @@ export default function InvoiceAnalyticsSection({ data }: { data: InvoiceAnalyti
           sub={`of ${data.verifiedParcels} verified parcels`}
         />
       </div>
+
+      {shipping.parcelsCounted > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <StatTile
+              label={shipping.profit < 0 ? "Shipping loss" : "Shipping profit"}
+              accent={shipping.profit < 0 ? "!text-red-ink" : "!text-green-ink"}
+              value={formatMoney(Math.abs(shipping.profit), currency)}
+              sub={`${formatMoney(Math.abs(shipping.profit) / shipping.parcelsCounted, currency)} per parcel`}
+            />
+            <StatTile label="Customers paid for shipping" value={formatMoney(shipping.customerPaid, currency)} />
+            <StatTile label={MARKETPLACE_FEE_LABEL} value={`−${formatMoney(shipping.fee, currency)}`} />
+            <StatTile label="EPG billed" value={`−${formatMoney(shipping.billed, currency)}`} sub={`${shipping.parcelsCounted} parcels`} />
+          </div>
+          {shipping.parcelsMissing > 0 && (
+            <p className="text-xs text-ink-faint">
+              Shipping figures leave out {shipping.parcelsMissing} parcel{shipping.parcelsMissing === 1 ? "" : "s"} with no
+              matched order yet.
+            </p>
+          )}
+        </div>
+      )}
 
       <NetPerInvoiceChart points={data.perInvoice} currency={currency} />
 

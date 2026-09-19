@@ -6,6 +6,7 @@ import { formatWarehouseTimestamp } from "@/lib/date";
 import UploadInvoiceClient from "./UploadInvoiceClient";
 import InvoiceAnalyticsSection from "./InvoiceAnalytics";
 import { getInvoiceAnalytics } from "@/lib/invoice-audit/analytics";
+import { getShippingSummaries, sumShippingSummaries } from "@/lib/invoice-audit/shipping-margin";
 
 // uploadEpgInvoiceAction runs live ShipStation lookups for parcels without
 // a backfilled cost — up to ~30s (see MAX_LIVE_LOOKUPS in
@@ -23,7 +24,7 @@ const NET_TONE = {
 
 export default async function InvoiceAuditsPage() {
   await pageRequireAdmin();
-  const [audits, analytics] = await Promise.all([listInvoiceAudits(), getInvoiceAnalytics()]);
+  const [audits, analytics, shipping] = await Promise.all([listInvoiceAudits(), getInvoiceAnalytics(), getShippingSummaries()]);
 
   return (
     <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
@@ -34,7 +35,9 @@ export default async function InvoiceAuditsPage() {
         </p>
       </div>
 
-      {analytics.invoiceCount > 0 && <InvoiceAnalyticsSection data={analytics} />}
+      {analytics.invoiceCount > 0 && (
+        <InvoiceAnalyticsSection data={analytics} shipping={sumShippingSummaries(shipping.values())} />
+      )}
 
       <UploadInvoiceClient />
 
@@ -42,7 +45,9 @@ export default async function InvoiceAuditsPage() {
         <div>
           <h2 className="tag-label !text-base">Past audits</h2>
           <p className="text-xs text-ink-faint mt-1">
-            Net = overcharged − undercharged. Unverified parcels aren&apos;t counted until they&apos;re re-checked.
+            Net = overcharged − undercharged, against ShipStation&apos;s quote. Shipping = what customers paid for
+            shipping, minus Fruugo&apos;s 20% fee, minus what EPG billed. Parcels without a quote or a matched order
+            aren&apos;t counted yet.
           </p>
         </div>
         {audits.length === 0 ? (
@@ -52,6 +57,7 @@ export default async function InvoiceAuditsPage() {
             {audits.map((a) => {
               const flagged = a.overCount + a.duplicateCount;
               const net = netLabel(netOvercharge(a), a.currency);
+              const ship = shipping.get(a.id);
               return (
                 <Link
                   key={a.id}
@@ -75,6 +81,15 @@ export default async function InvoiceAuditsPage() {
                       {a.underCount} under · −{formatMoney(a.underchargeTotal, a.currency)}
                     </span>
                     <span className={`px-2 py-1 ${NET_TONE[net.tone]}`}>{net.text}</span>
+                    {ship && ship.parcelsCounted > 0 && (
+                      // Outlined, not filled, so it doesn't read as a second
+                      // version of the Net chip beside it — a different measure.
+                      <span
+                        className={`px-2 py-1 border-2 ${ship.profit < 0 ? "border-red text-red-ink" : "border-green text-green-ink"}`}
+                      >
+                        Shipping {ship.profit < 0 ? "loss" : "profit"} {formatMoney(Math.abs(ship.profit), a.currency)}
+                      </span>
+                    )}
                     {a.notFoundCount + a.noQuoteCount > 0 && (
                       <span className="px-2 py-1 bg-paper-dim text-ink-soft">{a.notFoundCount + a.noQuoteCount} unverified</span>
                     )}

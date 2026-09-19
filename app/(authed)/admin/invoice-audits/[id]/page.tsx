@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { pageRequireAdmin } from "@/lib/auth";
 import { getInvoiceAudit } from "@/lib/invoice-audit/audit";
-import { formatMoney, netLabel, netOvercharge } from "@/lib/invoice-audit/format";
+import { formatMoney, MARKETPLACE_FEE_LABEL, netLabel, netOvercharge } from "@/lib/invoice-audit/format";
+import { getLineShipping, getShippingSummaries } from "@/lib/invoice-audit/shipping-margin";
 import { formatWarehouseTimestamp } from "@/lib/date";
 import AuditLinesClient from "./AuditLinesClient";
 import RecheckClient from "./RecheckClient";
@@ -17,6 +18,8 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
   const result = await getInvoiceAudit(id);
   if (!result) notFound();
   const { audit: a, lines } = result;
+  const [lineShipping, summaries] = await Promise.all([getLineShipping(id), getShippingSummaries([id])]);
+  const shipping = summaries.get(id);
   // currency_mismatch is folded into noQuoteCount but isn't something a
   // re-check can fix, so it's counted out here.
   const unverified = lines.filter((l) => l.status === "no_quote" || l.status === "not_found").length;
@@ -80,6 +83,30 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
         ))}
       </div>
 
+      {shipping && shipping.parcelsCounted > 0 && (
+        <section className="flex flex-col gap-2" aria-labelledby="shipping-pl-heading">
+          <h2 id="shipping-pl-heading" className="tag-label !text-base">
+            Shipping profit / loss
+          </h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <Tile label="Customers paid for shipping" value={formatMoney(shipping.customerPaid, a.currency)} />
+            <Tile label={MARKETPLACE_FEE_LABEL} value={`−${formatMoney(shipping.fee, a.currency)}`} />
+            <Tile label="EPG billed" value={`−${formatMoney(shipping.billed, a.currency)}`} />
+            <Tile
+              label={shipping.profit < 0 ? "Shipping loss" : "Shipping profit"}
+              value={formatMoney(Math.abs(shipping.profit), a.currency)}
+              tone={shipping.profit < 0 ? "red" : "green"}
+            />
+          </div>
+          <p className="text-xs text-ink-faint">
+            What customers paid for shipping, minus Fruugo&apos;s fee, minus what EPG billed. Multi-parcel orders split
+            their shipping across parcels.
+            {shipping.parcelsMissing > 0 &&
+              ` ${shipping.parcelsMissing} parcel${shipping.parcelsMissing === 1 ? " has" : "s have"} no matched order yet and ${shipping.parcelsMissing === 1 ? "isn't" : "aren't"} counted.`}
+          </p>
+        </section>
+      )}
+
       {unverified > 0 && (
         <>
           {a.quotedTotal > 0 && (
@@ -92,7 +119,18 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
         </>
       )}
 
-      <AuditLinesClient lines={lines} currency={a.currency} />
+      <AuditLinesClient lines={lines} currency={a.currency} shipping={Object.fromEntries(lineShipping)} />
+    </div>
+  );
+}
+
+function Tile({ label, value, tone }: { label: string; value: string; tone?: "red" | "green" }) {
+  return (
+    <div className="border border-line bg-paper-panel px-3 py-2 min-w-0">
+      <div className="tag-label !text-ink-faint truncate">{label}</div>
+      <div className={`data text-lg font-semibold ${tone === "red" ? "text-red-ink" : tone === "green" ? "text-green-ink" : ""}`}>
+        {value}
+      </div>
     </div>
   );
 }

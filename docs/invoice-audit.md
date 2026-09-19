@@ -49,6 +49,30 @@ replaces the old result. That doesn't help with the lookup limit, because
 it starts over in the same order. Email intake never replaces: a re-sent
 invoice is ignored.
 
+## Shipping profit / loss
+
+Alongside the billing audit, each parcel shows whether shipping made or
+lost money:
+
+> what the customer paid for shipping − Fruugo's 20% fee − what EPG billed
+
+- **Customer paid:** the shipping charge on the parcel's matched Shopify
+  order. If the order shipped as several parcels, the charge is split
+  evenly across them, so it isn't counted more than once.
+- **Fruugo fee:** a flat 20% on every EPG parcel, since every EPG order is
+  a Fruugo sale. Set by `MARKETPLACE_FEE_RATE` in
+  `lib/invoice-audit/format.ts`.
+- **Billed twice:** a duplicate charge earns nothing, so its whole billed
+  amount counts as a loss.
+- **No order data:** parcels with no matched order are left out of the
+  totals and counted separately, not treated as $0.
+
+This is worked out when the page loads, not saved with the audit, so
+order matches that arrive later are picked up without re-auditing. Each
+parcel also shows its **ship date**, the day its shipment was submitted in
+ship_logger, and links to that shipment. The CSV export includes ship
+date, customer paid and shipping profit/loss.
+
 ## Analytics
 
 The top of the Invoices page totals every audited invoice:

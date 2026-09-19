@@ -8,7 +8,9 @@ const FORMULA_TRIGGERS = /^[=+\-@\t\r]/;
 
 function csvCell(value: unknown): string {
   const raw = value === null || value === undefined ? "" : String(value);
-  const s = FORMULA_TRIGGERS.test(raw) ? `'${raw}` : raw;
+  // A real number can't carry a formula, and prefixing one turns a negative
+  // amount ("-9.75") into text the spreadsheet won't sum.
+  const s = typeof value !== "number" && FORMULA_TRIGGERS.test(raw) ? `'${raw}` : raw;
   // \r must be quoted alongside \n: a bare carriage return inside an unquoted
   // cell splits the row in most parsers, corrupting every column after it.
   if (/[",\n\r]/.test(s)) {

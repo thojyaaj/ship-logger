@@ -1,12 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import type { InvoiceAuditLineRow } from "@/lib/invoice-audit/audit";
+import type { LineShipping } from "@/lib/invoice-audit/shipping-margin";
 import type { LineStatus } from "@/lib/invoice-audit/classify";
 import { formatMoney, STATUS_LABEL } from "@/lib/invoice-audit/format";
 import { trackingUrl } from "@/lib/carrier";
 
-type Filter = "review" | "all" | LineStatus;
+// "losing": shipping cost more than the customer paid, after the Fruugo fee.
+type Filter = "review" | "all" | "losing" | LineStatus;
 
 // "Needs review" is the default: an admin opening an audit wants the
 // problems, not 100 matching rows to scroll past.
@@ -26,28 +29,47 @@ function needsReview(l: InvoiceAuditLineRow): boolean {
   return NEEDS_REVIEW.has(l.status) || l.billedHeavier;
 }
 
-export default function AuditLinesClient({ lines, currency }: { lines: InvoiceAuditLineRow[]; currency: string }) {
+const NO_SHIPPING: LineShipping = { customerPaid: null, profit: null };
+
+export default function AuditLinesClient({
+  lines,
+  currency,
+  shipping,
+}: {
+  lines: InvoiceAuditLineRow[];
+  currency: string;
+  shipping: Record<string, LineShipping>;
+}) {
+  const shipOf = (l: InvoiceAuditLineRow) => shipping[l.id] ?? NO_SHIPPING;
+  const losing = (l: InvoiceAuditLineRow) => (shipOf(l).profit ?? 0) < 0;
+
   const counts = useMemo(() => {
     const c = new Map<Filter, number>([
       ["review", lines.filter(needsReview).length],
       ["all", lines.length],
+      ["losing", lines.filter(losing).length],
     ]);
     for (const l of lines) c.set(l.status, (c.get(l.status) ?? 0) + 1);
     return c;
-  }, [lines]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `losing` only reads `shipping`, listed here
+  }, [lines, shipping]);
 
   const [filter, setFilter] = useState<Filter>(() => (counts.get("review") ? "review" : "all"));
 
   const chips: Filter[] = [
     "review",
     "all",
+    ...(counts.get("losing") ? (["losing"] as Filter[]) : []),
     ...(["over", "duplicate", "under", "match", "no_quote", "currency_mismatch", "not_found"] as LineStatus[]).filter(
       (s) => counts.get(s),
     ),
   ];
-  const visible = lines.filter((l) => (filter === "all" ? true : filter === "review" ? needsReview(l) : l.status === filter));
+  const visible = lines.filter((l) =>
+    filter === "all" ? true : filter === "review" ? needsReview(l) : filter === "losing" ? losing(l) : l.status === filter,
+  );
 
-  const label = (f: Filter) => (f === "review" ? "Needs review" : f === "all" ? "All" : STATUS_LABEL[f]);
+  const label = (f: Filter) =>
+    f === "review" ? "Needs review" : f === "all" ? "All" : f === "losing" ? "Losing money on shipping" : STATUS_LABEL[f];
 
   return (
     <section className="flex flex-col gap-3">
@@ -74,13 +96,15 @@ export default function AuditLinesClient({ lines, currency }: { lines: InvoiceAu
           <div className="hidden md:block border border-line overflow-x-auto">
             <table className="w-full text-sm table-fixed">
               <colgroup>
-                <col className="w-[22%]" />
-                <col className="w-[13%]" />
-                <col className="w-[10%]" />
-                <col className="w-[10%]" />
-                <col className="w-[9%]" />
+                <col className="w-[18%]" />
                 <col className="w-[11%]" />
-                <col className="w-[25%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[9%]" />
+                <col className="w-[9%]" />
+                <col className="w-[9%]" />
+                <col className="w-[20%]" />
               </colgroup>
               <thead className="bg-paper-dim">
                 <tr>
@@ -90,6 +114,10 @@ export default function AuditLinesClient({ lines, currency }: { lines: InvoiceAu
                   <th className="text-right px-3 py-2 tag-label !text-ink-faint">Quoted</th>
                   <th className="text-right px-3 py-2 tag-label !text-ink-faint">Diff</th>
                   <th className="text-right px-3 py-2 tag-label !text-ink-faint">Weight (lb)</th>
+                  <th className="text-right px-3 py-2 tag-label !text-ink-faint">Cust. paid</th>
+                  <th className="text-right px-3 py-2 tag-label !text-ink-faint" title="Customer paid, minus the Fruugo fee, minus what EPG billed">
+                    Ship P/L
+                  </th>
                   <th className="text-left px-3 py-2 tag-label !text-ink-faint">Notes</th>
                 </tr>
               </thead>
@@ -114,6 +142,10 @@ export default function AuditLinesClient({ lines, currency }: { lines: InvoiceAu
                       {l.billedWeightLb ?? "—"}
                       <div className="text-[10px] text-ink-faint">label {l.quotedWeightLb?.toFixed(3) ?? "—"}</div>
                     </td>
+                    <td className="px-3 py-2 data text-right">{formatMoney(shipOf(l).customerPaid, currency)}</td>
+                    <td className="px-3 py-2 data text-right">
+                      <Profit value={shipOf(l).profit} currency={currency} />
+                    </td>
                     <td className="px-3 py-2 text-xs text-ink-soft">{l.note ?? ""}</td>
                   </tr>
                 ))}
@@ -135,6 +167,13 @@ export default function AuditLinesClient({ lines, currency }: { lines: InvoiceAu
                     <div className="tag-label !text-ink-faint">Diff</div>
                     <div className="data">
                       <Diff value={l.difference} currency={currency} />
+                    </div>
+                  </div>
+                  <Figure label="Cust. paid" value={formatMoney(shipOf(l).customerPaid, currency)} />
+                  <div className="col-span-2">
+                    <div className="tag-label !text-ink-faint">Shipping P/L</div>
+                    <div className="data">
+                      <Profit value={shipOf(l).profit} currency={currency} />
                     </div>
                   </div>
                 </div>
@@ -160,8 +199,23 @@ function ParcelIds({ line }: { line: InvoiceAuditLineRow }) {
         ) : (
           <span className="data break-all">{line.epgRef}</span>
         ))}
-      <span className="data text-[11px] text-ink-faint break-all">
-        {line.finalMileTracking} · {line.destinationCountry ?? "—"} · row {line.sheetRow}
+      {/* Only the tracking number may break mid-string (it has no spaces);
+          country and row wrap normally so "AUSTRALIA" isn't split. */}
+      <span className="data text-[11px] text-ink-faint">
+        <span className="break-all">{line.finalMileTracking}</span> · {line.destinationCountry ?? "—"} · row{" "}
+        {line.sheetRow}
+      </span>
+      <span className="data text-[11px] text-ink-soft">
+        Shipped{" "}
+        {line.shipDate && line.sessionId ? (
+          <Link href={`/shipments/${line.sessionId}`} className="text-blue hover:underline">
+            {line.shipDate}
+          </Link>
+        ) : (
+          <span className="text-ink-faint" title="Not scanned in ship_logger">
+            —
+          </span>
+        )}
       </span>
     </div>
   );
@@ -181,6 +235,18 @@ function Diff({ value, currency }: { value: number | null; currency: string }) {
   return (
     <span className={value > 0 ? "text-red-ink font-semibold" : "text-blue-ink"}>
       {value > 0 ? "+" : "−"}
+      {formatMoney(Math.abs(value), currency)}
+    </span>
+  );
+}
+
+/** Shipping profit (+, green) or loss (−, red) for one parcel. */
+function Profit({ value, currency }: { value: number | null; currency: string }) {
+  if (value === null) return <span className="text-ink-faint" title="No matched order yet">—</span>;
+  if (value === 0) return <span>{formatMoney(0, currency)}</span>;
+  return (
+    <span className={value < 0 ? "text-red-ink font-semibold" : "text-green-ink"}>
+      {value < 0 ? "−" : "+"}
       {formatMoney(Math.abs(value), currency)}
     </span>
   );
