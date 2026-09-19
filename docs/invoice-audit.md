@@ -89,22 +89,39 @@ ship_logger emails a summary (via the existing Resend alert setup, to
    - `SHIPLOGGER_URL` = `https://ship.otcshoppeexpress.com`
    - `INVOICE_INTAKE_SECRET` = the same secret
    - `EPG_SENDER` = the address EPG invoices come from
+   - `LOOKBACK_DAYS` (optional) = how many days back to look, default `60`
 5. In the editor, select `processEpgInvoices` and click **Run** once. Google
    will ask you to authorize Gmail and external-request access. Check the
    execution log, then the Invoices page.
 6. Select `installHourlyTrigger` and click **Run** once to schedule it.
 
-### Labels
+### What the script does each run
 
-- `ShipLogger/Audited`: accepted (or already audited). Won't be sent again.
-- `ShipLogger/Rejected`: ship_logger couldn't parse the attachment as an
-  EPG invoice. Check the execution log, fix, then remove the label to retry.
-- No label: not yet processed, or a transient failure that will be retried
-  next hour.
+The execution log starts with a line like "Found 7 EPG invoice email(s)
+… in the last 60 days; 7 already handled, 0 to send". If it says 0 to
+send, there's nothing new. That's normal, not a failure.
 
-Only emails from the last 60 days are picked up, so turning this on won't
-import your whole invoice history. Upload older invoices by hand if you
-want them.
+The script keeps its own list of emails it has handled, in the Script
+Properties. It doesn't rely on Gmail labels, because Gmail labels whole
+conversations: if EPG's emails thread together, a new invoice in an
+already-labeled conversation would otherwise be skipped. The labels are
+only there for you to see:
+
+- `ShipLogger/Audited`: sent and accepted (or already audited).
+- `ShipLogger/Rejected`: ship_logger couldn't read the attachment as an
+  EPG invoice. Upload it by hand if it's a real invoice.
+
+A failed send (network error, site down) isn't recorded, so the next run
+retries it. Each run sends for up to 4 minutes and leaves the rest for the
+next hourly run.
+
+### Older invoices
+
+Set the `LOOKBACK_DAYS` Script Property, e.g. `365` for a year, and run
+`processEpgInvoices`. The next few hourly runs work through the backlog.
+Invoices that were already audited are skipped. To send everything in the
+window again, run `forgetProcessedEmails` once. The server still skips
+invoices it has already audited.
 
 ### Security
 

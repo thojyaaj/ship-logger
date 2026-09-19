@@ -11,6 +11,7 @@
  *   SHIPLOGGER_URL          e.g. https://ship.otcshoppeexpress.com
  *   INVOICE_INTAKE_SECRET   same value as Vercel's INVOICE_INTAKE_SECRET_GMAIL
  *   EPG_SENDER              the address EPG invoices come from
+ *   LOOKBACK_DAYS           optional, default 60 — how far back to look
  *
  * Signing must match lib/invoice-audit/intake-auth.ts exactly — change both
  * together.
@@ -20,57 +21,97 @@ var CALLER_ID = "gmail-apps-script";
 var INTAKE_PATH = "/api/v1/invoices/epg";
 var DONE_LABEL = "ShipLogger/Audited";
 var REJECTED_LABEL = "ShipLogger/Rejected";
-// Each post can take up to ~60s server-side; Apps Script stops a run at
-// 6 minutes. Anything left over is picked up next hour.
-var MAX_MESSAGES_PER_RUN = 4;
+var DEFAULT_LOOKBACK_DAYS = 60;
+// Apps Script stops a run at 6 minutes and one post can take ~60s
+// server-side, so no new post starts past this point. Anything left is
+// picked up next run.
+var RUN_BUDGET_MS = 4 * 60 * 1000;
+// Handled message ids live in Script Properties, not in the Gmail labels:
+// Gmail labels whole conversations, so if EPG's emails thread together, a
+// label-based "skip what's done" would also skip a new invoice that lands
+// in an already-labeled conversation. The labels are just for you to see.
+var PROCESSED_KEY = "PROCESSED_MESSAGE_IDS";
+var MAX_PROCESSED_IDS = 2000;
 
 function processEpgInvoices() {
+  var started = Date.now();
   var props = PropertiesService.getScriptProperties();
   var baseUrl = requiredProp_(props, "SHIPLOGGER_URL").replace(/\/+$/, "");
   var secret = requiredProp_(props, "INVOICE_INTAKE_SECRET");
   var sender = requiredProp_(props, "EPG_SENDER");
+  var lookbackDays = Number(props.getProperty("LOOKBACK_DAYS")) || DEFAULT_LOOKBACK_DAYS;
 
+  var processed = loadProcessed_(props);
   var done = labelFor_(DONE_LABEL);
   var rejected = labelFor_(REJECTED_LABEL);
-  var query =
-    "from:" + sender + " has:attachment filename:xlsx " +
-    '-label:"' + DONE_LABEL + '" -label:"' + REJECTED_LABEL + '" newer_than:60d';
 
-  var threads = GmailApp.search(query, 0, 20);
-  var processed = 0;
+  var pending = findInvoiceMessages_(sender, lookbackDays);
+  var total = pending.length;
+  pending = pending.filter(function (item) {
+    return !processed[item.message.getId()];
+  });
+  console.log(
+    "Found " + total + " EPG invoice email(s) from " + sender + " in the last " + lookbackDays + " days; " +
+      (total - pending.length) + " already handled, " + pending.length + " to send."
+  );
 
-  for (var t = 0; t < threads.length && processed < MAX_MESSAGES_PER_RUN; t++) {
-    var thread = threads[t];
-    var threadOk = true;
-    var threadRejected = false;
-    var messages = thread.getMessages();
+  var counts = { created: 0, duplicate: 0, rejected: 0, failed: 0 };
+  var sent = 0;
+  for (var i = 0; i < pending.length; i++) {
+    if (Date.now() - started > RUN_BUDGET_MS) break;
+    var item = pending[i];
+    var messageOk = true;
+    var messageRejected = false;
 
-    for (var m = 0; m < messages.length && processed < MAX_MESSAGES_PER_RUN; m++) {
-      var message = messages[m];
-      if (message.getFrom().toLowerCase().indexOf(sender.toLowerCase()) === -1) continue;
-      var attachments = message.getAttachments().filter(function (a) {
-        return /\.xlsx$/i.test(a.getName());
-      });
-      if (attachments.length === 0) continue;
-      processed++;
-
-      for (var a = 0; a < attachments.length; a++) {
-        var result = postInvoice_(baseUrl, secret, attachments[a], message.getId());
-        if (result === "rejected") threadRejected = true;
-        else if (result !== "ok") threadOk = false;
-      }
+    for (var a = 0; a < item.attachments.length; a++) {
+      var result = postInvoice_(baseUrl, secret, item.attachments[a], item.message.getId());
+      counts[result]++;
+      if (result === "rejected") messageRejected = true;
+      else if (result === "failed") messageOk = false;
     }
+    sent++;
 
-    // Only a fully handled thread gets labeled — anything transient is left
-    // unlabeled so the next run retries it (the server dedupes on invoice
-    // number, so re-sending one that already went through is harmless).
-    // Also unlabeled if this run's cap cut the thread off partway through.
-    if (m < messages.length) threadOk = false;
-    if (threadOk) thread.addLabel(threadRejected ? rejected : done);
+    // A transient failure is left unrecorded so the next run retries it
+    // (the server dedupes on invoice number, so a resend is harmless).
+    if (messageOk) {
+      processed[item.message.getId()] = true;
+      saveProcessed_(props, processed);
+      item.thread.addLabel(messageRejected ? rejected : done);
+    }
   }
+
+  console.log(
+    "Done: " + counts.created + " audited, " + counts.duplicate + " already audited, " +
+      counts.rejected + " rejected, " + counts.failed + " failed" +
+      (sent < pending.length ? "; " + (pending.length - sent) + " left for the next run." : ".")
+  );
 }
 
-/** @return {"ok"|"rejected"|"retry"} */
+/** Every message from EPG in the window with an .xlsx attachment, oldest first. */
+function findInvoiceMessages_(sender, lookbackDays) {
+  var query = "from:" + sender + " has:attachment filename:xlsx newer_than:" + lookbackDays + "d";
+  var items = [];
+  // GmailApp.search returns at most 500 threads per call — page through.
+  for (var start = 0; ; start += 100) {
+    var threads = GmailApp.search(query, start, 100);
+    threads.forEach(function (thread) {
+      thread.getMessages().forEach(function (message) {
+        if (message.getFrom().toLowerCase().indexOf(sender.toLowerCase()) === -1) return;
+        var attachments = message.getAttachments().filter(function (att) {
+          return /\.xlsx$/i.test(att.getName());
+        });
+        if (attachments.length > 0) items.push({ thread: thread, message: message, attachments: attachments });
+      });
+    });
+    if (threads.length < 100) break;
+  }
+  items.sort(function (x, y) {
+    return x.message.getDate() - y.message.getDate();
+  });
+  return items;
+}
+
+/** @return {"created"|"duplicate"|"rejected"|"failed"} */
 function postInvoice_(baseUrl, secret, attachment, messageId) {
   var bytes = attachment.getBytes();
   var timestamp = String(Math.floor(Date.now() / 1000));
@@ -94,12 +135,17 @@ function postInvoice_(baseUrl, secret, attachment, messageId) {
   });
 
   var code = response.getResponseCode();
-  // Capped: an error page (e.g. a 404 before the endpoint is deployed) is
-  // a whole HTML document, which floods the execution log.
-  var text = response.getContentText().slice(0, 300);
+  var body = response.getContentText();
+  // Capped: an error page (e.g. a 404) is a whole HTML document, which
+  // floods the execution log.
+  var text = body.slice(0, 300);
   if (code === 200) {
-    console.log("Audited " + attachment.getName() + ": " + text);
-    return "ok";
+    var status = "created";
+    try {
+      status = JSON.parse(body).status === "duplicate" ? "duplicate" : "created";
+    } catch (e) {}
+    console.log((status === "duplicate" ? "Already audited " : "Audited ") + attachment.getName());
+    return status;
   }
   if (code === 422) {
     // Not an invoice the parser understands — retrying won't change that.
@@ -107,7 +153,7 @@ function postInvoice_(baseUrl, secret, attachment, messageId) {
     return "rejected";
   }
   console.error("Intake failed for " + attachment.getName() + " (HTTP " + code + "): " + text);
-  return "retry";
+  return "failed";
 }
 
 /** Run once by hand after setup: installs the hourly trigger (replacing any old one). */
@@ -116,6 +162,27 @@ function installHourlyTrigger() {
     if (trigger.getHandlerFunction() === "processEpgInvoices") ScriptApp.deleteTrigger(trigger);
   });
   ScriptApp.newTrigger("processEpgInvoices").timeBased().everyHours(1).create();
+}
+
+/** Run by hand to make the script send every invoice in the window again (the server skips ones already audited). */
+function forgetProcessedEmails() {
+  PropertiesService.getScriptProperties().deleteProperty(PROCESSED_KEY);
+  console.log("Cleared the list of handled emails.");
+}
+
+function loadProcessed_(props) {
+  var ids = JSON.parse(props.getProperty(PROCESSED_KEY) || "[]");
+  var map = {};
+  ids.forEach(function (id) {
+    map[id] = true;
+  });
+  return map;
+}
+
+function saveProcessed_(props, map) {
+  // Oldest ids drop off first — by then they're far outside any lookback.
+  var ids = Object.keys(map).slice(-MAX_PROCESSED_IDS);
+  props.setProperty(PROCESSED_KEY, JSON.stringify(ids));
 }
 
 function requiredProp_(props, name) {
