@@ -5,6 +5,7 @@ import {
   integer,
   boolean,
   real,
+  index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
@@ -368,3 +369,89 @@ export const loginAttempt = pgTable("login_attempt", {
   // Null means "not currently locked out", not "locked out at epoch zero".
   lockedUntil: text("locked_until"),
 });
+
+// Carrier invoice audits (lib/invoice-audit/) — one row per invoice,
+// comparing what the carrier billed per parcel against what ShipStation
+// quoted when the label was bought. Persisted rather than computed on the
+// fly because audits also arrive unattended (the Gmail intake endpoint,
+// app/api/v1/invoices/epg), and a disputed overcharge needs to be findable
+// again later. Summary figures are denormalized onto this row so the audit
+// list never has to aggregate every line.
+export const invoiceAudit = pgTable(
+  "invoice_audit",
+  {
+    id: text("id").primaryKey(),
+    carrier: text("carrier", { enum: ["epg"] }).notNull(),
+    invoiceNumber: text("invoice_number").notNull(),
+    fileName: text("file_name"),
+    source: text("source", { enum: ["upload", "email"] }).notNull(),
+    // Gmail message id for email-sourced audits — traceability back to the
+    // exact email, not used for dedupe (invoiceNumber is the dedupe key).
+    emailMessageId: text("email_message_id"),
+    createdAt: text("created_at").notNull().default(nowUtcText),
+    createdBy: text("created_by").references(() => appUser.id),
+    currency: text("currency").notNull(),
+    lineCount: integer("line_count").notNull(),
+    invoicedTotal: real("invoiced_total").notNull(),
+    // Sum over lines that have a quote only — compare against invoicedTotal
+    // with care when noQuoteCount/notFoundCount are non-zero.
+    quotedTotal: real("quoted_total").notNull(),
+    overchargeTotal: real("overcharge_total").notNull(),
+    underchargeTotal: real("undercharge_total").notNull(),
+    overCount: integer("over_count").notNull(),
+    underCount: integer("under_count").notNull(),
+    matchCount: integer("match_count").notNull(),
+    noQuoteCount: integer("no_quote_count").notNull(),
+    notFoundCount: integer("not_found_count").notNull(),
+    duplicateCount: integer("duplicate_count").notNull(),
+  },
+  // One audit per carrier invoice: the Gmail intake relies on this to make a
+  // re-delivered email a no-op, and a manual re-upload replaces the row in
+  // place (see lib/invoice-audit/audit.ts).
+  (t) => [uniqueIndex("invoice_audit_carrier_invoice_idx").on(t.carrier, t.invoiceNumber)],
+);
+
+export const invoiceAuditLine = pgTable(
+  "invoice_audit_line",
+  {
+    id: text("id").primaryKey(),
+    auditId: text("audit_id")
+      .notNull()
+      .references(() => invoiceAudit.id, { onDelete: "cascade" }),
+    sheetRow: integer("sheet_row").notNull(),
+    awb: text("awb"),
+    service: text("service"),
+    // EPG label number (= scan.trackingNumber) and final-mile tracking
+    // (= scan.epgFinalMile) — see lib/invoice-audit/epg-parse.ts.
+    epgRef: text("epg_ref"),
+    finalMileTracking: text("final_mile_tracking"),
+    destinationCountry: text("destination_country"),
+    actualWeightLb: real("actual_weight_lb"),
+    dimWeightLb: real("dim_weight_lb"),
+    billedWeightLb: real("billed_weight_lb"),
+    sellRate: real("sell_rate").notNull(),
+    surchargeTotal: real("surcharge_total").notNull(),
+    invoicedAmount: real("invoiced_amount").notNull(),
+    invoicedCurrency: text("invoiced_currency").notNull(),
+    // Not a foreign key: scans get purged with trashed shipments, and an audit
+    // is a historical record that shouldn't block (or vanish with) that purge.
+    scanId: text("scan_id"),
+    quoteSource: text("quote_source", { enum: ["scan", "shipstation"] }),
+    quotedAmount: real("quoted_amount"),
+    quotedCurrency: text("quoted_currency"),
+    quotedWeightLb: real("quoted_weight_lb"),
+    status: text("status", {
+      enum: ["over", "under", "match", "no_quote", "not_found", "currency_mismatch", "duplicate"],
+    }).notNull(),
+    // invoiced − quoted; for a duplicate, the whole invoiced amount.
+    difference: real("difference"),
+    billedHeavier: boolean("billed_heavier").notNull().default(false),
+    note: text("note"),
+  },
+  (t) => [
+    index("invoice_audit_line_audit_idx").on(t.auditId),
+    // Cross-invoice duplicate check: has this EPG label been billed on an
+    // earlier invoice already? (see lib/invoice-audit/audit.ts)
+    index("invoice_audit_line_epg_ref_idx").on(t.epgRef),
+  ],
+);
