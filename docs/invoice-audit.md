@@ -73,6 +73,24 @@ parcel also shows its **ship date**, the day its shipment was submitted in
 ship_logger, and links to that shipment. The CSV export includes ship
 date, customer paid and shipping profit/loss.
 
+## Dispute report for EPG
+
+A CSV to send to ePost Global about billing discrepancies. It lists only
+parcels billed above the ShipStation quote or billed twice, in EPG's own
+terms: invoice, AWB, EPG reference, tracking number, ship date,
+destination, service, billed vs. label weight, amount billed, amount
+expected and amount disputed. Each row has a plain-English reason:
+- charged above the quoted rate, noting heavier-than-label weight or
+  surcharges where they apply;
+- or billed twice, naming the invoice and row where the parcel was
+  already billed.
+
+It leaves out everything internal: customer payments, the Fruugo fee and
+ship_logger's own notes. Download it for one invoice from the **Dispute
+report for EPG** button on the audit, or for several invoices from the
+panel on the Invoices page. **Export CSV** stays the internal, full-detail
+export.
+
 ## Analytics
 
 The top of the Invoices page totals every audited invoice:

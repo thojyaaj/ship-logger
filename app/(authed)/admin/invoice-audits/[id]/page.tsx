@@ -57,12 +57,24 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
             {a.fileName ? ` · ${a.fileName}` : ""} · {a.lineCount} parcels
           </p>
         </div>
-        <a
-          href={`/admin/invoice-audits/${a.id}/export`}
-          className="btn px-3 py-2 border border-line-strong bg-paper-panel hover:bg-paper-dim text-sm"
-        >
-          Export CSV
-        </a>
+        <div className="flex items-center gap-2 flex-wrap">
+          {a.overCount + a.duplicateCount > 0 && (
+            <a
+              href={`/admin/invoice-audits/dispute-report?ids=${a.id}`}
+              className="btn px-3 py-2 bg-orange text-paper text-sm"
+              title="Overcharged and double-billed parcels, with reasons, to send to ePost Global"
+            >
+              Dispute report for EPG
+            </a>
+          )}
+          <a
+            href={`/admin/invoice-audits/${a.id}/export`}
+            className="btn px-3 py-2 border border-line-strong bg-paper-panel hover:bg-paper-dim text-sm"
+            title="Every parcel with internal figures, for your own records"
+          >
+            Export CSV
+          </a>
+        </div>
       </div>
 
       {/* Five tiles: on a phone the fifth (net) spans both columns rather
