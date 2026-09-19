@@ -21,7 +21,7 @@ never scanned, ShipStation is checked live (up to 80 lookups per audit).
 | Billed twice | Same EPG label appears twice on this invoice, or was already billed on an earlier audited invoice. The whole amount counts as an overcharge |
 | Undercharged | Billed less than quoted by over $0.05 |
 | Matches quote | Within $0.05 |
-| No quote | Found, but ShipStation has no cost on the label (or the lookup limit was hit) |
+| No quote | Found, but ShipStation has no cost on the label, or the lookup limit was hit (see Re-check below) |
 | Currency differs | The quote and invoice are in different currencies, so they aren't compared |
 | Not found | Not scanned in ship_logger and no ShipStation label |
 
@@ -29,9 +29,18 @@ Separately, a line is flagged **billed heavier** when EPG's billed weight
 exceeds the ShipStation label weight by more than 10% (minimum 0.1 lb).
 Weights on the EPG sheet are pounds and dimensions are inches.
 
-Uploading an invoice that was already audited re-runs it and replaces the
-old result. That's how to pick up costs the nightly labels cron has
-backfilled since. Email intake never replaces: a re-sent invoice is ignored.
+Each audit makes at most 80 live ShipStation lookups, so on a big invoice
+some parcels can end up "No quote" with a note that the lookup limit was
+hit. The **Re-check unverified parcels** button on the audit re-checks just
+the unverified parcels in place. It uses any costs the nightly labels cron
+has saved since, then up to 80 more live lookups per click, starting with
+parcels that were never looked up. Click it again until nothing is left to
+check.
+
+Uploading an invoice that was already audited re-runs it from scratch and
+replaces the old result. That doesn't help with the lookup limit, because
+it starts over in the same order. Email intake never replaces: a re-sent
+invoice is ignored.
 
 ## Gmail automation (Apps Script)
 
