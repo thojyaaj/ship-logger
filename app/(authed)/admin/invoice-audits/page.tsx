@@ -4,6 +4,8 @@ import { listInvoiceAudits } from "@/lib/invoice-audit/audit";
 import { formatMoney, netLabel, netOvercharge } from "@/lib/invoice-audit/format";
 import { formatWarehouseTimestamp } from "@/lib/date";
 import UploadInvoiceClient from "./UploadInvoiceClient";
+import InvoiceAnalyticsSection from "./InvoiceAnalytics";
+import { getInvoiceAnalytics } from "@/lib/invoice-audit/analytics";
 
 // uploadEpgInvoiceAction runs live ShipStation lookups for parcels without
 // a backfilled cost — up to ~30s (see MAX_LIVE_LOOKUPS in
@@ -21,7 +23,7 @@ const NET_TONE = {
 
 export default async function InvoiceAuditsPage() {
   await pageRequireAdmin();
-  const audits = await listInvoiceAudits();
+  const [audits, analytics] = await Promise.all([listInvoiceAudits(), getInvoiceAnalytics()]);
 
   return (
     <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
@@ -31,6 +33,8 @@ export default async function InvoiceAuditsPage() {
           What the carrier billed for each parcel vs. what ShipStation quoted when the label was bought.
         </p>
       </div>
+
+      {analytics.invoiceCount > 0 && <InvoiceAnalyticsSection data={analytics} />}
 
       <UploadInvoiceClient />
 

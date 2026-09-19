@@ -32,7 +32,7 @@ export const MAX_INVOICE_BYTES = 10 * 1024 * 1024;
 // Same pacing as lib/shipstation-cron.ts (ShipStation v2 allows 200/min).
 // 80 × 350ms ≈ 28s, leaving room for parsing and DB round-trips.
 const RATE_LIMIT_MS = 350;
-const MAX_LIVE_LOOKUPS = 80;
+export const MAX_LIVE_LOOKUPS = 80;
 
 const APP_URL = "https://ship.otcshoppeexpress.com";
 
@@ -135,7 +135,7 @@ function neverLookedUp(note: string | null): boolean {
   return note?.includes(LOOKUP_LIMIT_MARKER) ?? false;
 }
 
-type LookupBudget = { remaining: number; used: number };
+export type LookupBudget = { remaining: number; used: number };
 
 type QuoteResult = {
   quote: Quote;
@@ -432,7 +432,7 @@ export type RecheckResult = {
   neverChecked: number;
 };
 
-const UNVERIFIED: AuditLineRow["status"][] = ["no_quote", "not_found"];
+export const UNVERIFIED: AuditLineRow["status"][] = ["no_quote", "not_found"];
 
 /**
  * Re-checks an audit's unverified lines (no quote / not found) in place,
@@ -446,7 +446,12 @@ const UNVERIFIED: AuditLineRow["status"][] = ["no_quote", "not_found"];
  * found — up to MAX_LIVE_LOOKUPS per call. Duplicates and currency
  * mismatches aren't touched: neither is waiting on a quote.
  */
-export async function recheckUnverifiedLines(auditId: string): Promise<RecheckResult> {
+export async function recheckUnverifiedLines(
+  auditId: string,
+  // Shared across calls by the nightly cron, so one run's lookups stay
+  // capped in total rather than per audit.
+  budget: LookupBudget = { remaining: MAX_LIVE_LOOKUPS, used: 0 },
+): Promise<RecheckResult> {
   const [audit] = await db.select({ id: invoiceAudit.id }).from(invoiceAudit).where(eq(invoiceAudit.id, auditId)).limit(1);
   if (!audit) throw new ExpectedError("That audit no longer exists.");
 
@@ -459,7 +464,6 @@ export async function recheckUnverifiedLines(auditId: string): Promise<RecheckRe
   candidates.sort((a, b) => Number(neverLookedUp(b.note)) - Number(neverLookedUp(a.note)));
 
   const scans = await findScans(candidates);
-  const budget: LookupBudget = { remaining: MAX_LIVE_LOOKUPS, used: 0 };
   const updates: { id: string; columns: ReturnType<typeof verdictColumns> }[] = [];
 
   for (const line of candidates) {
@@ -505,7 +509,10 @@ export async function recheckUnverifiedLines(auditId: string): Promise<RecheckRe
 }
 
 export async function listInvoiceAudits() {
-  return db.select().from(invoiceAudit).orderBy(desc(invoiceAudit.createdAt)).limit(200);
+  // Newest invoice first by invoice number, not audit date — an older
+  // invoice backfilled today shouldn't jump to the top (same reasoning as
+  // lib/invoice-audit/analytics.ts's chart order).
+  return db.select().from(invoiceAudit).orderBy(desc(invoiceAudit.invoiceNumber)).limit(200);
 }
 
 export type InvoiceAuditRow = Awaited<ReturnType<typeof listInvoiceAudits>>[number];

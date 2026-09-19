@@ -43,6 +43,10 @@
       "schedule": "30 9 * * *"
     },
     {
+      "path": "/api/cron/invoice-recheck",
+      "schedule": "35 9 * * *"
+    },
+    {
       "path": "/api/cron/shipment-alerts",
       "schedule": "40 9 * * *"
     }
