@@ -37,10 +37,31 @@ has saved since, then up to 80 more live lookups per click, starting with
 parcels that were never looked up. Click it again until nothing is left to
 check.
 
+A nightly job (`/api/cron/invoice-recheck`, 9:35 UTC, after the labels
+cron) does the same re-check automatically for every audit from the last
+30 days that still has unverified parcels, newest first, sharing one
+budget of 80 live lookups per night. After 30 days an audit is left alone,
+since a parcel still without a cost by then almost never gets one. The
+button still works on it.
+
 Uploading an invoice that was already audited re-runs it from scratch and
 replaces the old result. That doesn't help with the lookup limit, because
 it starts over in the same order. Email intake never replaces: a re-sent
 invoice is ignored.
+
+## Analytics
+
+The top of the Invoices page totals every audited invoice:
+- **Headline figures:** net loss or gain, total overcharged and
+  undercharged, and the share of verified parcels that were overcharged.
+- **Net per invoice:** a chart of the latest 24 invoices. Bars above the
+  line are losses and bars below are gains. Click a bar to open that audit.
+- **Overcharges by cause:** each overcharged parcel is counted once, under
+  the first of these that applies: billed twice, billed heavier than the
+  label, charged surcharges or fees, or otherwise a rate above the quote.
+- **Overcharges by destination:** the top 6 countries.
+
+Unverified parcels aren't counted until they're re-checked.
 
 ## Gmail automation (Apps Script)
 

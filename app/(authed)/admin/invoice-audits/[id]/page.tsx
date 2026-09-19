@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { pageRequireAdmin } from "@/lib/auth";
 import { getInvoiceAudit } from "@/lib/invoice-audit/audit";
-import { formatMoney } from "@/lib/invoice-audit/format";
+import { formatMoney, netLabel, netOvercharge } from "@/lib/invoice-audit/format";
 import { formatWarehouseTimestamp } from "@/lib/date";
 import AuditLinesClient from "./AuditLinesClient";
 import RecheckClient from "./RecheckClient";
@@ -21,6 +21,8 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
   // re-check can fix, so it's counted out here.
   const unverified = lines.filter((l) => l.status === "no_quote" || l.status === "not_found").length;
 
+  const netAmount = netOvercharge(a);
+  const net = netLabel(netAmount, a.currency);
   const tiles: { label: string; value: string; tone?: "red" | "green" }[] = [
     { label: "Invoiced", value: formatMoney(a.invoicedTotal, a.currency) },
     { label: "ShipStation quoted", value: formatMoney(a.quotedTotal, a.currency) },
@@ -30,6 +32,11 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
       tone: a.overchargeTotal > 0 ? "red" : "green",
     },
     { label: "Undercharged", value: `−${formatMoney(a.underchargeTotal, a.currency)}` },
+    {
+      label: net.tone === "gain" ? "Net gain" : net.tone === "loss" ? "Net loss" : "Net",
+      value: net.tone === "even" ? formatMoney(0, a.currency) : formatMoney(Math.abs(netAmount), a.currency),
+      tone: net.tone === "loss" ? "red" : "green",
+    },
   ];
 
   return (
@@ -55,9 +62,14 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
         </a>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        {tiles.map((t) => (
-          <div key={t.label} className="border border-line bg-paper-panel px-3 py-2">
+      {/* Five tiles: on a phone the fifth (net) spans both columns rather
+          than sitting alone at half width. */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+        {tiles.map((t, i) => (
+          <div
+            key={t.label}
+            className={`border border-line bg-paper-panel px-3 py-2 ${i === tiles.length - 1 ? "col-span-2 md:col-span-1" : ""}`}
+          >
             <div className="tag-label !text-ink-faint">{t.label}</div>
             <div
               className={`data text-lg font-semibold ${t.tone === "red" ? "text-red-ink" : t.tone === "green" ? "text-green-ink" : ""}`}
