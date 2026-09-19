@@ -5,6 +5,11 @@ import { getInvoiceAudit } from "@/lib/invoice-audit/audit";
 import { formatMoney } from "@/lib/invoice-audit/format";
 import { formatWarehouseTimestamp } from "@/lib/date";
 import AuditLinesClient from "./AuditLinesClient";
+import RecheckClient from "./RecheckClient";
+
+// recheckInvoiceAuditAction runs live ShipStation lookups — up to ~30s (see
+// MAX_LIVE_LOOKUPS in lib/invoice-audit/audit.ts).
+export const maxDuration = 60;
 
 export default async function InvoiceAuditPage({ params }: { params: Promise<{ id: string }> }) {
   await pageRequireAdmin();
@@ -12,6 +17,9 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
   const result = await getInvoiceAudit(id);
   if (!result) notFound();
   const { audit: a, lines } = result;
+  // currency_mismatch is folded into noQuoteCount but isn't something a
+  // re-check can fix, so it's counted out here.
+  const unverified = lines.filter((l) => l.status === "no_quote" || l.status === "not_found").length;
 
   const tiles: { label: string; value: string; tone?: "red" | "green" }[] = [
     { label: "Invoiced", value: formatMoney(a.invoicedTotal, a.currency) },
@@ -60,12 +68,16 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
         ))}
       </div>
 
-      {a.quotedTotal > 0 && a.noQuoteCount + a.notFoundCount > 0 && (
-        <p className="text-sm text-ink-soft">
-          The quoted total only covers parcels with a ShipStation cost — {a.noQuoteCount + a.notFoundCount} parcel
-          {a.noQuoteCount + a.notFoundCount === 1 ? "" : "s"} couldn&apos;t be verified, so it won&apos;t add up to the
-          invoiced total. Re-uploading the file later re-checks them.
-        </p>
+      {unverified > 0 && (
+        <>
+          {a.quotedTotal > 0 && (
+            <p className="text-sm text-ink-soft">
+              The quoted total only covers parcels with a ShipStation cost, so it won&apos;t add up to the invoiced total
+              until the unverified parcels are resolved.
+            </p>
+          )}
+          <RecheckClient auditId={a.id} unverified={unverified} />
+        </>
       )}
 
       <AuditLinesClient lines={lines} currency={a.currency} />

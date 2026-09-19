@@ -61,7 +61,10 @@ type ScanQuote = {
   weightLb: number | null;
 };
 
-async function findScans(lines: EpgInvoiceLine[]): Promise<{ byTracking: Map<string, ScanQuote>; byFinalMile: Map<string, ScanQuote> }> {
+type ParcelIds = { epgRef: string | null; finalMileTracking: string | null };
+type ScanMaps = { byTracking: Map<string, ScanQuote>; byFinalMile: Map<string, ScanQuote> };
+
+async function findScans(lines: ParcelIds[]): Promise<ScanMaps> {
   const refs = [...new Set(lines.flatMap((l) => [l.epgRef, l.finalMileTracking]).filter((v): v is string => !!v))];
   const byTracking = new Map<string, ScanQuote>();
   const byFinalMile = new Map<string, ScanQuote>();
@@ -89,6 +92,14 @@ async function findScans(lines: EpgInvoiceLine[]): Promise<{ byTracking: Map<str
   return { byTracking, byFinalMile };
 }
 
+function matchScan(ids: ParcelIds, { byTracking, byFinalMile }: ScanMaps): ScanQuote | null {
+  return (
+    (ids.epgRef && byTracking.get(ids.epgRef)) ||
+    (ids.finalMileTracking && (byFinalMile.get(ids.finalMileTracking) ?? byTracking.get(ids.finalMileTracking))) ||
+    null
+  );
+}
+
 /** EPG labels already billed on a *different* invoice — a parcel shouldn't be billed twice. */
 async function findBilledElsewhere(invoiceNumber: string, lines: EpgInvoiceLine[]): Promise<Map<string, string>> {
   const refs = [...new Set(lines.map((l) => l.epgRef).filter((v): v is string => !!v))];
@@ -112,75 +123,131 @@ async function findBilledElsewhere(invoiceNumber: string, lines: EpgInvoiceLine[
 
 type AuditLineRow = typeof invoiceAuditLine.$inferInsert;
 
+// Written on a line whose live lookup was skipped because the audit ran out
+// of lookups — recheckUnverifiedLines checks these first, since they've
+// never been looked up at all.
+const LOOKUP_LIMIT_NOTE = "Not checked in ShipStation yet — this audit hit its lookup limit. Use “Re-check unverified parcels”.";
+// Matched instead of the full note: audits saved before the re-check
+// existed carry older wording ("…hit the per-audit lookup limit.").
+const LOOKUP_LIMIT_MARKER = "lookup limit";
+
+function neverLookedUp(note: string | null): boolean {
+  return note?.includes(LOOKUP_LIMIT_MARKER) ?? false;
+}
+
+type LookupBudget = { remaining: number; used: number };
+
+type QuoteResult = {
+  quote: Quote;
+  quoteSource: AuditLineRow["quoteSource"];
+  notes: string[];
+};
+
+/** A scan with a saved cost — free, no API call. Null when there isn't one. */
+function quoteFromScan(scanRow: ScanQuote | null): QuoteResult | null {
+  if (!scanRow || scanRow.costAmount === null) return null;
+  return {
+    quote: { found: true, amount: scanRow.costAmount, currency: scanRow.costCurrency, weightLb: scanRow.weightLb },
+    quoteSource: "scan",
+    notes: [],
+  };
+}
+
+/** Asks ShipStation directly, spending one lookup from `budget` (or none, if it's used up). */
+async function quoteFromShipstation(key: string, scanRow: ScanQuote | null, budget: LookupBudget): Promise<QuoteResult> {
+  const quote: Quote = { found: !!scanRow, amount: null, currency: null, weightLb: scanRow?.weightLb ?? null };
+  if (budget.remaining <= 0) {
+    // Can't claim "not found" for a parcel nobody looked for.
+    return { quote: { ...quote, found: true }, quoteSource: null, notes: [LOOKUP_LIMIT_NOTE] };
+  }
+  if (budget.used > 0) await sleep(RATE_LIMIT_MS);
+  budget.remaining--;
+  budget.used++;
+
+  const label = await lookupShipstationLabel(scanRow?.trackingNumber ?? key);
+  if (label) {
+    const found: Quote = { found: true, amount: label.costAmount, currency: label.costCurrency, weightLb: label.weightLb ?? quote.weightLb };
+    return label.costAmount !== null
+      ? { quote: found, quoteSource: "shipstation", notes: [] }
+      : { quote: found, quoteSource: null, notes: ["ShipStation has this label but no cost on it (voided?)."] };
+  }
+  return {
+    quote,
+    quoteSource: null,
+    notes: [scanRow ? "Scanned in ship_logger, but ShipStation returned no label cost." : "Not scanned in ship_logger and no ShipStation label found."],
+  };
+}
+
+/** The verdict + quote columns of a line, from a resolved quote. Shared by a fresh audit and a re-check. */
+function verdictColumns(input: {
+  invoicedAmount: number;
+  invoicedCurrency: string;
+  billedWeightLb: number | null;
+  surchargeTotal: number;
+  duplicate: boolean;
+  scanRow: ScanQuote | null;
+  result: QuoteResult;
+  leadingNotes?: string[];
+}) {
+  const { result } = input;
+  const notes = [...(input.leadingNotes ?? []), ...result.notes];
+  if (input.surchargeTotal > 0) {
+    notes.push(`Includes $${input.surchargeTotal.toFixed(2)} in fuel/handling/surcharges/duty/tax.`);
+  }
+  const verdict = classifyLine({
+    invoicedAmount: input.invoicedAmount,
+    invoicedCurrency: input.invoicedCurrency,
+    billedWeightLb: input.billedWeightLb,
+    quote: result.quote,
+    duplicate: input.duplicate,
+  });
+  if (verdict.billedHeavier) {
+    notes.push(`Billed at ${input.billedWeightLb} lb vs ${result.quote.weightLb?.toFixed(3)} lb on the ShipStation label.`);
+  }
+  return {
+    scanId: input.scanRow?.id ?? null,
+    quoteSource: result.quoteSource,
+    quotedAmount: result.quoteSource ? result.quote.amount : null,
+    quotedCurrency: result.quoteSource ? result.quote.currency : null,
+    quotedWeightLb: result.quote.weightLb,
+    status: verdict.status,
+    difference: verdict.difference,
+    billedHeavier: verdict.billedHeavier,
+    note: notes.length > 0 ? notes.join(" ") : null,
+  };
+}
+
 async function buildLines(invoiceNumber: string, lines: EpgInvoiceLine[], auditId: string): Promise<AuditLineRow[]> {
-  const [{ byTracking, byFinalMile }, billedElsewhere] = await Promise.all([
-    findScans(lines),
-    findBilledElsewhere(invoiceNumber, lines),
-  ]);
+  const [scans, billedElsewhere] = await Promise.all([findScans(lines), findBilledElsewhere(invoiceNumber, lines)]);
 
   const seen = new Set<string>();
-  let liveLookups = 0;
+  const budget: LookupBudget = { remaining: MAX_LIVE_LOOKUPS, used: 0 };
   const out: AuditLineRow[] = [];
 
   for (const line of lines) {
     const key = line.epgRef ?? line.finalMileTracking!;
-    const scanRow =
-      (line.epgRef && byTracking.get(line.epgRef)) ||
-      (line.finalMileTracking && (byFinalMile.get(line.finalMileTracking) ?? byTracking.get(line.finalMileTracking))) ||
-      null;
+    const scanRow = matchScan(line, scans);
 
-    const notes: string[] = [];
+    const leadingNotes: string[] = [];
     let duplicate = false;
     if (seen.has(key)) {
       duplicate = true;
-      notes.push("Billed more than once on this invoice.");
+      leadingNotes.push("Billed more than once on this invoice.");
     } else if (line.epgRef && billedElsewhere.has(line.epgRef)) {
       duplicate = true;
-      notes.push(`Already billed on invoice ${billedElsewhere.get(line.epgRef)}.`);
+      leadingNotes.push(`Already billed on invoice ${billedElsewhere.get(line.epgRef)}.`);
     }
     seen.add(key);
 
-    let quote: Quote = { found: !!scanRow, amount: null, currency: null, weightLb: scanRow?.weightLb ?? null };
-    let quoteSource: AuditLineRow["quoteSource"] = null;
-
-    if (scanRow && scanRow.costAmount !== null) {
-      quote = { found: true, amount: scanRow.costAmount, currency: scanRow.costCurrency, weightLb: scanRow.weightLb };
-      quoteSource = "scan";
-    } else if (!duplicate) {
-      if (liveLookups < MAX_LIVE_LOOKUPS) {
-        if (liveLookups > 0) await sleep(RATE_LIMIT_MS);
-        liveLookups++;
-        const label = await lookupShipstationLabel(scanRow?.trackingNumber ?? key);
-        if (label) {
-          quote = { found: true, amount: label.costAmount, currency: label.costCurrency, weightLb: label.weightLb ?? quote.weightLb };
-          if (label.costAmount !== null) quoteSource = "shipstation";
-          else notes.push("ShipStation has this label but no cost on it (voided?).");
-        } else if (scanRow) {
-          notes.push("Scanned in ship_logger, but ShipStation returned no label cost.");
-        } else {
-          notes.push("Not scanned in ship_logger and no ShipStation label found.");
-        }
-      } else {
-        // Can't claim "not found" for a parcel nobody looked for.
-        quote = { ...quote, found: true };
-        notes.push("Not checked in ShipStation — this invoice hit the per-audit lookup limit.");
-      }
-    }
+    // A duplicate is wrong in full whatever the quote says, so it doesn't
+    // spend a live lookup.
+    const result =
+      quoteFromScan(scanRow) ??
+      (duplicate
+        ? { quote: { found: !!scanRow, amount: null, currency: null, weightLb: scanRow?.weightLb ?? null }, quoteSource: null, notes: [] }
+        : await quoteFromShipstation(key, scanRow, budget));
 
     const surchargeTotal = line.duty + line.tax + line.fuel + line.handling + line.transportSurcharge;
-    if (surchargeTotal > 0) notes.push(`Includes $${surchargeTotal.toFixed(2)} in fuel/handling/surcharges/duty/tax.`);
-
-    const verdict = classifyLine({
-      invoicedAmount: line.total,
-      invoicedCurrency: line.currency,
-      billedWeightLb: line.billedWeightLb,
-      quote,
-      duplicate,
-    });
-    if (verdict.billedHeavier) {
-      notes.push(`Billed at ${line.billedWeightLb} lb vs ${quote.weightLb?.toFixed(3)} lb on the ShipStation label.`);
-    }
-
     out.push({
       id: newId(),
       auditId,
@@ -197,15 +264,16 @@ async function buildLines(invoiceNumber: string, lines: EpgInvoiceLine[], auditI
       surchargeTotal,
       invoicedAmount: line.total,
       invoicedCurrency: line.currency,
-      scanId: scanRow?.id ?? null,
-      quoteSource,
-      quotedAmount: quoteSource ? quote.amount : null,
-      quotedCurrency: quoteSource ? quote.currency : null,
-      quotedWeightLb: quote.weightLb,
-      status: verdict.status,
-      difference: verdict.difference,
-      billedHeavier: verdict.billedHeavier,
-      note: notes.length > 0 ? notes.join(" ") : null,
+      ...verdictColumns({
+        invoicedAmount: line.total,
+        invoicedCurrency: line.currency,
+        billedWeightLb: line.billedWeightLb,
+        surchargeTotal,
+        duplicate,
+        scanRow,
+        result,
+        leadingNotes,
+      }),
     });
   }
   return out;
@@ -245,8 +313,9 @@ export type AuditOutcome = {
  *   an invoice that's already been audited is a no-op `duplicate`, since
  *   re-delivery of the same email is expected, not an error.
  * - `source: "upload"` is an explicit admin action, so it re-runs and
- *   replaces the existing audit — the way to pick up costs the labels cron
- *   has backfilled since the first run.
+ *   replaces the existing audit. To finish checking parcels a big invoice
+ *   left unverified, use recheckUnverifiedLines instead: a re-upload
+ *   starts over and hits the same lookup limit at the same place.
  */
 export async function auditEpgInvoice(input: {
   bytes: Uint8Array;
@@ -350,6 +419,89 @@ async function sendAuditEmail(auditId: string, invoiceNumber: string, s: AuditSu
     .join("")}</table>
 <p><a href="${APP_URL}/admin/invoice-audits/${encodeURIComponent(auditId)}">Open the full audit</a></p>`;
   await sendAlertEmail(subject, html);
+}
+
+export type RecheckResult = {
+  /** Unverified lines this pass looked at. */
+  checked: number;
+  /** Of those, how many now have a quote (whatever the verdict). */
+  resolved: number;
+  /** Still unverified after this pass — click again to continue. */
+  remaining: number;
+  /** Still unverified *and* never looked up (not just "looked up, not found"). */
+  neverChecked: number;
+};
+
+const UNVERIFIED: AuditLineRow["status"][] = ["no_quote", "not_found"];
+
+/**
+ * Re-checks an audit's unverified lines (no quote / not found) in place,
+ * without the original file. A fresh audit (or a re-upload) looks parcels
+ * up in sheet order and stops live lookups at MAX_LIVE_LOOKUPS, so on a
+ * big invoice the same tail never gets checked — this is how it does.
+ *
+ * Order: every unverified line first gets a free re-match against scans
+ * (the labels cron may have saved a cost since), then live ShipStation
+ * lookups — never-checked lines before ones already looked up and not
+ * found — up to MAX_LIVE_LOOKUPS per call. Duplicates and currency
+ * mismatches aren't touched: neither is waiting on a quote.
+ */
+export async function recheckUnverifiedLines(auditId: string): Promise<RecheckResult> {
+  const [audit] = await db.select({ id: invoiceAudit.id }).from(invoiceAudit).where(eq(invoiceAudit.id, auditId)).limit(1);
+  if (!audit) throw new ExpectedError("That audit no longer exists.");
+
+  const candidates = await db
+    .select()
+    .from(invoiceAuditLine)
+    .where(and(eq(invoiceAuditLine.auditId, auditId), inArray(invoiceAuditLine.status, UNVERIFIED)))
+    .orderBy(invoiceAuditLine.sheetRow);
+
+  candidates.sort((a, b) => Number(neverLookedUp(b.note)) - Number(neverLookedUp(a.note)));
+
+  const scans = await findScans(candidates);
+  const budget: LookupBudget = { remaining: MAX_LIVE_LOOKUPS, used: 0 };
+  const updates: { id: string; columns: ReturnType<typeof verdictColumns> }[] = [];
+
+  for (const line of candidates) {
+    const scanRow = matchScan(line, scans);
+    let result = quoteFromScan(scanRow);
+    if (!result) {
+      if (budget.remaining <= 0) continue; // left exactly as it was
+      result = await quoteFromShipstation(line.epgRef ?? line.finalMileTracking ?? "", scanRow, budget);
+    }
+    updates.push({
+      id: line.id,
+      columns: verdictColumns({
+        invoicedAmount: line.invoicedAmount,
+        invoicedCurrency: line.invoicedCurrency,
+        billedWeightLb: line.billedWeightLb,
+        surchargeTotal: line.surchargeTotal,
+        duplicate: false,
+        scanRow,
+        result,
+      }),
+    });
+  }
+
+  await db.transaction(async (tx) => {
+    for (const u of updates) {
+      await tx.update(invoiceAuditLine).set(u.columns).where(eq(invoiceAuditLine.id, u.id));
+    }
+    const all = await tx.select().from(invoiceAuditLine).where(eq(invoiceAuditLine.auditId, auditId));
+    await tx.update(invoiceAudit).set(summarize(all)).where(eq(invoiceAudit.id, auditId));
+  });
+
+  const stillUnverified = await db
+    .select({ note: invoiceAuditLine.note })
+    .from(invoiceAuditLine)
+    .where(and(eq(invoiceAuditLine.auditId, auditId), inArray(invoiceAuditLine.status, UNVERIFIED)));
+
+  return {
+    checked: updates.length,
+    resolved: updates.filter((u) => u.columns.quoteSource !== null).length,
+    remaining: stillUnverified.length,
+    neverChecked: stillUnverified.filter((l) => neverLookedUp(l.note)).length,
+  };
 }
 
 export async function listInvoiceAudits() {
