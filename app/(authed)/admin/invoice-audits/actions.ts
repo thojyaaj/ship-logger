@@ -10,6 +10,7 @@ import {
   recordOutcome,
   type DisputeOutcome,
 } from "@/lib/invoice-audit/disputes";
+import { enrichInvoiceLines, type EnrichResult } from "@/lib/invoice-audit/enrich";
 import { auditEpgInvoice, recheckUnverifiedLines, type AuditOutcome, type RecheckResult } from "@/lib/invoice-audit/audit";
 
 // The extended function duration this needs (live ShipStation lookups) is
@@ -62,4 +63,11 @@ export async function recordDisputeOutcomeAction(
     return { status: "error", message: "Unknown outcome." };
   }
   return runExpectable(() => recordOutcome(disputeId, lineIds, outcome, creditedAmount));
+}
+
+// Also runs live ShipStation and Shopify lookups — its maxDuration is declared
+// on invoice-audits/[id]/page.tsx, the route it's invoked from.
+export async function enrichInvoiceAuditAction(auditId: string): Promise<ActionResult<EnrichResult>> {
+  await requireAdmin();
+  return runExpectable(() => enrichInvoiceLines({ auditId }));
 }

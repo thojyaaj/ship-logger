@@ -7,6 +7,8 @@ import { getLineShipping, getShippingSummaries } from "@/lib/invoice-audit/shipp
 import { formatWarehouseTimestamp } from "@/lib/date";
 import AuditLinesClient from "./AuditLinesClient";
 import RecheckClient from "./RecheckClient";
+import EnrichClient from "./EnrichClient";
+import { countEnrichmentCandidates } from "@/lib/invoice-audit/enrich";
 import StartDisputeButton from "./StartDisputeButton";
 
 // recheckInvoiceAuditAction runs live ShipStation lookups — up to ~30s (see
@@ -19,7 +21,11 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
   const result = await getInvoiceAudit(id);
   if (!result) notFound();
   const { audit: a, lines } = result;
-  const [lineShipping, summaries] = await Promise.all([getLineShipping(id), getShippingSummaries([id])]);
+  const [lineShipping, summaries, enrichable] = await Promise.all([
+    getLineShipping(id),
+    getShippingSummaries([id]),
+    countEnrichmentCandidates(id),
+  ]);
   const shipping = summaries.get(id);
   // currency_mismatch is folded into noQuoteCount but isn't something a
   // re-check can fix, so it's counted out here.
@@ -129,7 +135,7 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
                 ; {shipping.parcelsCounted} of {shipping.parcelsTotal} have a customer shipping charge.{" "}
                 {[
                   shipping.missingNoScan > 0 &&
-                    `${shipping.missingNoScan} ${shipping.missingNoScan === 1 ? "isn't" : "aren't"} scanned in ship_logger and ${shipping.missingNoScan === 1 ? "has" : "have"} no Shopify order under EPG's or the final-mile tracking number (so no ship date or customer charge)`,
+                    `${shipping.missingNoScan} ${shipping.missingNoScan === 1 ? "isn't" : "aren't"} scanned in ship_logger and ${shipping.missingNoScan === 1 ? "has" : "have"} no Shopify order under EPG's or the final-mile tracking number (so no ship date or customer charge until looked up in ShipStation)`,
                   shipping.missingNoOrder > 0 &&
                     `${shipping.missingNoOrder} ${shipping.missingNoOrder === 1 ? "is" : "are"} scanned but ${shipping.missingNoOrder === 1 ? "has" : "have"} no matched Shopify order yet`,
                   shipping.missingCurrency > 0 &&
@@ -144,7 +150,10 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
             )}
             {shipping.fromOrderIndex > 0 &&
               ` ${shipping.fromOrderIndex} found their order through Shopify's fulfillment records rather than a scan.`}
+            {shipping.fromShipstation > 0 &&
+              ` ${shipping.fromShipstation} found their order through ShipStation.`}
           </p>
+          {enrichable > 0 && <EnrichClient auditId={a.id} candidates={enrichable} />}
         </section>
       )}
 

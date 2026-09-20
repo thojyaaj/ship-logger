@@ -73,8 +73,32 @@ lost money:
   how many parcels matched a scan and why the rest didn't (not scanned,
   scanned but no order yet, or a different currency), and each blank
   shows its reason.
-- **Ship date** comes from the shipment the parcel was scanned into, so
-  a parcel that was never scanned in ship_logger has none.
+- **Ship date** comes from the shipment the parcel was scanned into. For
+  a parcel that was never scanned, it comes from ShipStation's label, and
+  is marked "(ShipStation)".
+
+### Looking up unscanned parcels in ShipStation
+
+For parcels with no scan, or a scan with no order, the audit page shows
+**Look up in ShipStation**. It follows the chain:
+
+1. The parcel's EPG reference finds its **ShipStation label**, which has
+   the ship date and the shipment.
+2. The **shipment** carries the order source's own order id
+   (`external_order_id`).
+3. That order is looked up in **Shopify** for its shipping charge.
+
+ShipStation's API doesn't carry what the customer paid, only the order
+id, which is why the charge comes from Shopify. Each click looks up
+to 40 parcels. A nightly job (`/api/cron/invoice-enrich`, 9:38 UTC) does
+the same across all audits, newest invoice first.
+
+What was found, or why not, is saved on the audit line, so nothing is
+looked up twice. A blank shows a short reason: *not in ShipStation*, *no
+order id in ShipStation*, or *order not in Shopify*, with the full note on
+hover. A lookup that ended in a note is tried again after 7 days; an API
+failure is retried on the next run. Figures found this way are labeled
+"via ShipStation".
 
 This is worked out when the page loads, not saved with the audit, so
 order matches that arrive later are picked up without re-auditing. Each
