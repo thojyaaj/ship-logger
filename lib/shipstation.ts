@@ -220,7 +220,12 @@ export type ShipstationParcelLookup =
  * Both hops verify what came back is the record that was asked for, because
  * an ignored filter is otherwise indistinguishable from a real answer.
  */
-export async function lookupShipstationParcel(trackingNumber: string): Promise<ShipstationParcelLookup> {
+export async function lookupShipstationParcel(
+  trackingNumber: string,
+  // false skips the second hop (the shipment, which only adds the order id),
+  // for a caller that just wants the label's ship date.
+  opts: { shipment?: boolean } = {},
+): Promise<ShipstationParcelLookup> {
   const apiKey = process.env.SHIPSTATION_API_KEY;
   if (!apiKey) return { status: "error" };
 
@@ -239,6 +244,10 @@ export async function lookupShipstationParcel(trackingNumber: string): Promise<S
     const label = ((await labelRes.json()) as LabelLookupResponse).labels?.[0];
     if (!label?.shipment_id || normalizeTrackingNumber(label.tracking_number ?? "") !== normalizeTrackingNumber(trackingNumber)) {
       return { status: "not_found" };
+    }
+
+    if (opts.shipment === false) {
+      return { status: "found", shipment: parseShipment(trackingNumber, {}, dateOnly(label.ship_date)) };
     }
 
     const shipmentRes = await fetch(`${apiBase()}/shipments/${encodeURIComponent(label.shipment_id)}`, {

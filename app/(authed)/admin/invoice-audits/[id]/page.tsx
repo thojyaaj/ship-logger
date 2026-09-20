@@ -135,7 +135,7 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
                 ; {shipping.parcelsCounted} of {shipping.parcelsTotal} have a customer shipping charge.{" "}
                 {[
                   shipping.missingNoScan > 0 &&
-                    `${shipping.missingNoScan} ${shipping.missingNoScan === 1 ? "isn't" : "aren't"} scanned in ship_logger and ${shipping.missingNoScan === 1 ? "has" : "have"} no Shopify order under EPG's or the final-mile tracking number (so no ship date or customer charge until looked up in ShipStation)`,
+                    `${shipping.missingNoScan} ${shipping.missingNoScan === 1 ? "isn't" : "aren't"} scanned in ship_logger and ${shipping.missingNoScan === 1 ? "has" : "have"} no Shopify order under EPG's or the final-mile tracking number (so no ship date or customer charge until looked up)`,
                   shipping.missingNoOrder > 0 &&
                     `${shipping.missingNoOrder} ${shipping.missingNoOrder === 1 ? "is" : "are"} scanned but ${shipping.missingNoOrder === 1 ? "has" : "have"} no matched Shopify order yet`,
                   shipping.missingCurrency > 0 &&
@@ -150,8 +150,8 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
             )}
             {shipping.fromOrderIndex > 0 &&
               ` ${shipping.fromOrderIndex} found their order through Shopify's fulfillment records rather than a scan.`}
-            {shipping.fromShipstation > 0 &&
-              ` ${shipping.fromShipstation} found their order through ShipStation.`}
+            {shipping.fromLookup > 0 &&
+              ` ${shipping.fromLookup} found their order through the EPG/ShipStation lookup.`}
           </p>
           {enrichable > 0 && <EnrichClient auditId={a.id} candidates={enrichable} />}
         </section>
