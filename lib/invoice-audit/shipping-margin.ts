@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 import { db } from "../db";
-import { invoiceAudit, invoiceAuditLine, scan } from "../db/schema";
+import { invoiceAudit, invoiceAuditLine, scan, shopifyOrderIndex } from "../db/schema";
 import { MARKETPLACE_FEE_RATE } from "./format";
 
 /**
@@ -20,13 +20,25 @@ import { MARKETPLACE_FEE_RATE } from "./format";
  *   line's whole billed amount is a loss.
  * - No matched order (or a currency that differs from the invoice's) means
  *   no figure — left out of totals and counted as missing, not read as $0.
+ *
+ * Where the customer's shipping charge comes from, in order:
+ * 1. The scanned parcel's own order data (scan.customerShippingAmount).
+ * 2. Failing that, the Shopify order index (fed by fulfillment webhooks),
+ *    looked up by the invoice's EPG reference or final-mile tracking
+ *    number — which finds the order for a parcel that was never scanned
+ *    in ship_logger, or was scanned before its order matched.
  */
+
+/** Why a parcel has no shipping figure — shown next to the blank so it isn't a mystery. */
+export type MissingReason = "no_scan" | "no_order" | "currency";
 
 export type LineShipping = {
   /** This parcel's share of what the customer paid for shipping. */
   customerPaid: number | null;
   /** customerPaid less the marketplace fee, minus what was billed. Null when there's no order data. */
   profit: number | null;
+  /** Set exactly when customerPaid is null. */
+  reason: MissingReason | null;
 };
 
 export type ShippingSummary = {
@@ -37,6 +49,15 @@ export type ShippingSummary = {
   /** Parcels with a figure (including duplicates), vs. without order data. */
   parcelsCounted: number;
   parcelsMissing: number;
+  /** Why parcels are missing (sums to parcelsMissing). */
+  missingNoScan: number;
+  missingNoOrder: number;
+  missingCurrency: number;
+  /** Parcels matched to a scan in ship_logger, regardless of order data. */
+  parcelsScanned: number;
+  /** Parcels whose customer charge came from the order index, not a scan. */
+  fromOrderIndex: number;
+  parcelsTotal: number;
 };
 
 function round2(n: number): number {
@@ -47,19 +68,21 @@ export function lineShipping(l: {
   status: string;
   invoicedAmount: number;
   invoicedCurrency: string;
+  hasScan: boolean;
   orderShipping: number | null;
   orderShippingCurrency: string | null;
   orderParcels: number | null;
 }): LineShipping {
-  if (l.status === "duplicate") return { customerPaid: 0, profit: round2(-l.invoicedAmount) };
-  if (l.orderShipping === null) return { customerPaid: null, profit: null };
+  if (l.status === "duplicate") return { customerPaid: 0, profit: round2(-l.invoicedAmount), reason: null };
+  if (l.orderShipping === null) return { customerPaid: null, profit: null, reason: l.hasScan ? "no_order" : "no_scan" };
   if ((l.orderShippingCurrency ?? l.invoicedCurrency).toUpperCase() !== l.invoicedCurrency.toUpperCase()) {
-    return { customerPaid: null, profit: null };
+    return { customerPaid: null, profit: null, reason: "currency" };
   }
   const customerPaid = l.orderShipping / Math.max(1, l.orderParcels ?? 1);
   return {
     customerPaid: round2(customerPaid),
     profit: round2(customerPaid * (1 - MARKETPLACE_FEE_RATE) - l.invoicedAmount),
+    reason: null,
   };
 }
 
@@ -72,13 +95,17 @@ async function loadLines(where: SQL | undefined) {
     .groupBy(scan.orderGid)
     .as("order_parcels");
 
-  return db
+  const rows = await db
     .select({
       id: invoiceAuditLine.id,
       auditId: invoiceAuditLine.auditId,
       status: invoiceAuditLine.status,
       invoicedAmount: invoiceAuditLine.invoicedAmount,
       invoicedCurrency: invoiceAuditLine.invoicedCurrency,
+      epgRef: invoiceAuditLine.epgRef,
+      finalMileTracking: invoiceAuditLine.finalMileTracking,
+      scanId: invoiceAuditLine.scanId,
+      scanRowId: scan.id,
       orderShipping: scan.customerShippingAmount,
       orderShippingCurrency: scan.customerShippingCurrency,
       orderParcels: orderParcels.n,
@@ -88,6 +115,50 @@ async function loadLines(where: SQL | undefined) {
     .leftJoin(scan, eq(scan.id, invoiceAuditLine.scanId))
     .leftJoin(orderParcels, eq(orderParcels.orderGid, scan.orderGid))
     .where(where);
+
+  // Fallback for parcels whose scan has no order data (or that were never
+  // scanned): the Shopify order index, by either tracking number on the invoice.
+  const needIndex = rows.filter((r) => r.orderShipping === null && r.status !== "duplicate");
+  const refs = [...new Set(needIndex.flatMap((r) => [r.epgRef, r.finalMileTracking]).filter((v): v is string => !!v))];
+  const indexed = new Map<string, { orderGid: string; amount: number | null; currency: string | null }>();
+  const perOrder = new Map<string, number>();
+  if (refs.length > 0) {
+    const idx = await db
+      .select({
+        trackingNumber: shopifyOrderIndex.trackingNumber,
+        orderGid: shopifyOrderIndex.orderGid,
+        amount: shopifyOrderIndex.customerShippingAmount,
+        currency: shopifyOrderIndex.customerShippingCurrency,
+      })
+      .from(shopifyOrderIndex)
+      .where(inArray(shopifyOrderIndex.trackingNumber, refs));
+    for (const r of idx) indexed.set(r.trackingNumber.toUpperCase(), r);
+    const gids = [...new Set(idx.map((r) => r.orderGid))];
+    if (gids.length > 0) {
+      const counts = await db
+        .select({ orderGid: shopifyOrderIndex.orderGid, n: sql<number>`count(*)::int` })
+        .from(shopifyOrderIndex)
+        .where(inArray(shopifyOrderIndex.orderGid, gids))
+        .groupBy(shopifyOrderIndex.orderGid);
+      for (const c of counts) perOrder.set(c.orderGid, c.n);
+    }
+  }
+
+  return rows.map((r) => {
+    const hasScan = r.scanRowId !== null;
+    if (r.orderShipping !== null || r.status === "duplicate") return { ...r, hasScan, fromIndex: false };
+    const hit =
+      (r.epgRef && indexed.get(r.epgRef.toUpperCase())) || (r.finalMileTracking && indexed.get(r.finalMileTracking.toUpperCase())) || null;
+    if (!hit || hit.amount === null) return { ...r, hasScan, fromIndex: false };
+    return {
+      ...r,
+      hasScan,
+      fromIndex: true,
+      orderShipping: hit.amount,
+      orderShippingCurrency: hit.currency,
+      orderParcels: perOrder.get(hit.orderGid) ?? 1,
+    };
+  });
 }
 
 /** Per-line figures for one audit, keyed by line id. */
@@ -105,11 +176,17 @@ export async function getShippingSummaries(auditIds?: string[]): Promise<Map<str
 
   const out = new Map<string, ShippingSummary>();
   for (const r of rows) {
-    const s = out.get(r.auditId) ?? { customerPaid: 0, fee: 0, billed: 0, profit: 0, parcelsCounted: 0, parcelsMissing: 0 };
+    const s = out.get(r.auditId) ?? emptySummary();
     const l = lineShipping(r);
+    s.parcelsTotal++;
+    if (r.hasScan) s.parcelsScanned++;
     if (l.profit === null) {
       s.parcelsMissing++;
+      if (l.reason === "no_scan") s.missingNoScan++;
+      else if (l.reason === "no_order") s.missingNoOrder++;
+      else s.missingCurrency++;
     } else {
+      if (r.fromIndex) s.fromOrderIndex++;
       s.parcelsCounted++;
       s.customerPaid += l.customerPaid ?? 0;
       s.fee += (l.customerPaid ?? 0) * MARKETPLACE_FEE_RATE;
@@ -127,15 +204,17 @@ export async function getShippingSummaries(auditIds?: string[]): Promise<Map<str
   return out;
 }
 
+function emptySummary(): ShippingSummary {
+  return {
+    customerPaid: 0, fee: 0, billed: 0, profit: 0, parcelsCounted: 0, parcelsMissing: 0,
+    missingNoScan: 0, missingNoOrder: 0, missingCurrency: 0, parcelsScanned: 0, fromOrderIndex: 0, parcelsTotal: 0,
+  };
+}
+
 export function sumShippingSummaries(summaries: Iterable<ShippingSummary>): ShippingSummary {
-  const t: ShippingSummary = { customerPaid: 0, fee: 0, billed: 0, profit: 0, parcelsCounted: 0, parcelsMissing: 0 };
+  const t = emptySummary();
   for (const s of summaries) {
-    t.customerPaid += s.customerPaid;
-    t.fee += s.fee;
-    t.billed += s.billed;
-    t.profit += s.profit;
-    t.parcelsCounted += s.parcelsCounted;
-    t.parcelsMissing += s.parcelsMissing;
+    for (const k of Object.keys(t) as (keyof ShippingSummary)[]) t[k] += s[k];
   }
   return { ...t, customerPaid: round2(t.customerPaid), fee: round2(t.fee), billed: round2(t.billed), profit: round2(t.profit) };
 }

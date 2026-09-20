@@ -101,26 +101,49 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
         ))}
       </div>
 
-      {shipping && shipping.parcelsCounted > 0 && (
+      {shipping && (
         <section className="flex flex-col gap-2" aria-labelledby="shipping-pl-heading">
           <h2 id="shipping-pl-heading" className="tag-label !text-base">
             Shipping profit / loss
           </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <Tile label="Customers paid for shipping" value={formatMoney(shipping.customerPaid, a.currency)} />
-            <Tile label={MARKETPLACE_FEE_LABEL} value={`−${formatMoney(shipping.fee, a.currency)}`} />
-            <Tile label="EPG billed" value={`−${formatMoney(shipping.billed, a.currency)}`} />
-            <Tile
-              label={shipping.profit < 0 ? "Shipping loss" : "Shipping profit"}
-              value={formatMoney(Math.abs(shipping.profit), a.currency)}
-              tone={shipping.profit < 0 ? "red" : "green"}
-            />
-          </div>
+          {shipping.parcelsCounted > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <Tile label="Customers paid for shipping" value={formatMoney(shipping.customerPaid, a.currency)} />
+              <Tile label={MARKETPLACE_FEE_LABEL} value={`−${formatMoney(shipping.fee, a.currency)}`} />
+              <Tile label="EPG billed" value={`−${formatMoney(shipping.billed, a.currency)}`} />
+              <Tile
+                label={shipping.profit < 0 ? "Shipping loss" : "Shipping profit"}
+                value={formatMoney(Math.abs(shipping.profit), a.currency)}
+                tone={shipping.profit < 0 ? "red" : "green"}
+              />
+            </div>
+          )}
           <p className="text-xs text-ink-faint">
             What customers paid for shipping, minus Fruugo&apos;s fee, minus what EPG billed. Multi-parcel orders split
             their shipping across parcels.
-            {shipping.parcelsMissing > 0 &&
-              ` ${shipping.parcelsMissing} parcel${shipping.parcelsMissing === 1 ? " has" : "s have"} no matched order yet and ${shipping.parcelsMissing === 1 ? "isn't" : "aren't"} counted.`}
+          </p>
+          <p className="text-sm text-ink-soft" data-testid="shipping-coverage">
+            {shipping.parcelsScanned} of {shipping.parcelsTotal} parcels are matched to a scan in ship_logger
+            {shipping.parcelsMissing > 0 ? (
+              <>
+                ; {shipping.parcelsCounted} of {shipping.parcelsTotal} have a customer shipping charge.{" "}
+                {[
+                  shipping.missingNoScan > 0 &&
+                    `${shipping.missingNoScan} ${shipping.missingNoScan === 1 ? "isn't" : "aren't"} scanned in ship_logger and ${shipping.missingNoScan === 1 ? "has" : "have"} no Shopify order under EPG's or the final-mile tracking number (so no ship date or customer charge)`,
+                  shipping.missingNoOrder > 0 &&
+                    `${shipping.missingNoOrder} ${shipping.missingNoOrder === 1 ? "is" : "are"} scanned but ${shipping.missingNoOrder === 1 ? "has" : "have"} no matched Shopify order yet`,
+                  shipping.missingCurrency > 0 &&
+                    `${shipping.missingCurrency} ${shipping.missingCurrency === 1 ? "was" : "were"} charged in a different currency`,
+                ]
+                  .filter(Boolean)
+                  .join("; ")}
+                .
+              </>
+            ) : (
+              "; every one has a customer shipping charge."
+            )}
+            {shipping.fromOrderIndex > 0 &&
+              ` ${shipping.fromOrderIndex} found their order through Shopify's fulfillment records rather than a scan.`}
           </p>
         </section>
       )}
