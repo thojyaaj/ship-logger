@@ -57,15 +57,24 @@ lost money:
 > what the customer paid for shipping − Fruugo's 20% fee − what EPG billed
 
 - **Customer paid:** the shipping charge on the parcel's matched Shopify
-  order. If the order shipped as several parcels, the charge is split
-  evenly across them, so it isn't counted more than once.
+  order. It comes from the scan's own order data or, if the parcel was
+  never scanned (or its scan has no order yet), from Shopify's
+  fulfillment records, looked up by the invoice's EPG reference or
+  final-mile tracking number. If the order shipped as several parcels,
+  the charge is split evenly across them, so it isn't counted more than
+  once.
 - **Fruugo fee:** a flat 20% on every EPG parcel, since every EPG order is
   a Fruugo sale. Set by `MARKETPLACE_FEE_RATE` in
   `lib/invoice-audit/format.ts`.
 - **Billed twice:** a duplicate charge earns nothing, so its whole billed
   amount counts as a loss.
 - **No order data:** parcels with no matched order are left out of the
-  totals and counted separately, not treated as $0.
+  totals and counted separately, not treated as $0. The audit page says
+  how many parcels matched a scan and why the rest didn't (not scanned,
+  scanned but no order yet, or a different currency), and each blank
+  shows its reason.
+- **Ship date** comes from the shipment the parcel was scanned into, so
+  a parcel that was never scanned in ship_logger has none.
 
 This is worked out when the page loads, not saved with the audit, so
 order matches that arrive later are picked up without re-auditing. Each

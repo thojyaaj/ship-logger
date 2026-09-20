@@ -3,7 +3,13 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { InvoiceAuditLineRow } from "@/lib/invoice-audit/audit";
-import type { LineShipping } from "@/lib/invoice-audit/shipping-margin";
+import type { LineShipping, MissingReason } from "@/lib/invoice-audit/shipping-margin";
+
+const REASON_TEXT: Record<MissingReason, string> = {
+  no_scan: "not scanned",
+  no_order: "no order yet",
+  currency: "other currency",
+};
 import type { LineStatus } from "@/lib/invoice-audit/classify";
 import { formatMoney, STATUS_LABEL } from "@/lib/invoice-audit/format";
 import { trackingUrl } from "@/lib/carrier";
@@ -29,7 +35,7 @@ function needsReview(l: InvoiceAuditLineRow): boolean {
   return NEEDS_REVIEW.has(l.status) || l.billedHeavier;
 }
 
-const NO_SHIPPING: LineShipping = { customerPaid: null, profit: null };
+const NO_SHIPPING: LineShipping = { customerPaid: null, profit: null, reason: "no_scan" };
 
 export default function AuditLinesClient({
   lines,
@@ -142,9 +148,13 @@ export default function AuditLinesClient({
                       {l.billedWeightLb ?? "—"}
                       <div className="text-[10px] text-ink-faint">label {l.quotedWeightLb?.toFixed(3) ?? "—"}</div>
                     </td>
-                    <td className="px-3 py-2 data text-right">{formatMoney(shipOf(l).customerPaid, currency)}</td>
+                    <td className="px-3 py-2 data text-right">
+                      {formatMoney(shipOf(l).customerPaid, currency)}
+                      <MissingNote reason={shipOf(l).reason} />
+                    </td>
                     <td className="px-3 py-2 data text-right">
                       <Profit value={shipOf(l).profit} currency={currency} />
+                      <MissingNote reason={shipOf(l).reason} />
                     </td>
                     <td className="px-3 py-2 text-xs text-ink-soft">{l.note ?? ""}</td>
                   </tr>
@@ -169,11 +179,18 @@ export default function AuditLinesClient({
                       <Diff value={l.difference} currency={currency} />
                     </div>
                   </div>
-                  <Figure label="Cust. paid" value={formatMoney(shipOf(l).customerPaid, currency)} />
+                  <div>
+                    <div className="tag-label !text-ink-faint">Cust. paid</div>
+                    <div className="data">
+                      {formatMoney(shipOf(l).customerPaid, currency)}
+                      <MissingNote reason={shipOf(l).reason} />
+                    </div>
+                  </div>
                   <div className="col-span-2">
                     <div className="tag-label !text-ink-faint">Shipping P/L</div>
                     <div className="data">
                       <Profit value={shipOf(l).profit} currency={currency} />
+                      <MissingNote reason={shipOf(l).reason} />
                     </div>
                   </div>
                 </div>
@@ -230,9 +247,7 @@ function ParcelIds({ line }: { line: InvoiceAuditLineRow }) {
             {line.shipDate}
           </Link>
         ) : (
-          <span className="text-ink-faint" title="Not scanned in ship_logger">
-            —
-          </span>
+          <span className="text-ink-faint">— not scanned in ship_logger</span>
         )}
       </span>
     </div>
@@ -259,6 +274,11 @@ function Diff({ value, currency }: { value: number | null; currency: string }) {
 }
 
 /** Shipping profit (+, green) or loss (−, red) for one parcel. */
+/** The reason a shipping figure is blank, under the "—". */
+function MissingNote({ reason }: { reason: MissingReason | null }) {
+  return reason ? <div className="text-[10px] font-normal text-ink-faint">{REASON_TEXT[reason]}</div> : null;
+}
+
 function Profit({ value, currency }: { value: number | null; currency: string }) {
   if (value === null) return <span className="text-ink-faint" title="No matched order yet">—</span>;
   if (value === 0) return <span>{formatMoney(0, currency)}</span>;
