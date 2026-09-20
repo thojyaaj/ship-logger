@@ -47,6 +47,10 @@
       "schedule": "35 9 * * *"
     },
     {
+      "path": "/api/cron/invoice-enrich",
+      "schedule": "38 9 * * *"
+    },
+    {
       "path": "/api/cron/shipment-alerts",
       "schedule": "40 9 * * *"
     }

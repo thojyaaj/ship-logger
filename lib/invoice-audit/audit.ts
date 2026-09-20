@@ -141,6 +141,8 @@ type QuoteResult = {
   quote: Quote;
   quoteSource: AuditLineRow["quoteSource"];
   notes: string[];
+  /** The label's ship date, when a live ShipStation lookup found one — free, since the label was fetched for its cost anyway. */
+  shipDate?: string | null;
 };
 
 /** A scan with a saved cost — free, no API call. Null when there isn't one. */
@@ -168,8 +170,8 @@ async function quoteFromShipstation(key: string, scanRow: ScanQuote | null, budg
   if (label) {
     const found: Quote = { found: true, amount: label.costAmount, currency: label.costCurrency, weightLb: label.weightLb ?? quote.weightLb };
     return label.costAmount !== null
-      ? { quote: found, quoteSource: "shipstation", notes: [] }
-      : { quote: found, quoteSource: null, notes: ["ShipStation has this label but no cost on it (voided?)."] };
+      ? { quote: found, quoteSource: "shipstation", notes: [], shipDate: label.shipDate }
+      : { quote: found, quoteSource: null, notes: ["ShipStation has this label but no cost on it (voided?)."], shipDate: label.shipDate };
   }
   return {
     quote,
@@ -206,6 +208,9 @@ function verdictColumns(input: {
   }
   return {
     scanId: input.scanRow?.id ?? null,
+    // Only ever set from a live lookup; undefined leaves an existing value
+    // (from an earlier lookup or enrichment) alone on a re-check.
+    ...(result.shipDate ? { shipstationShipDate: result.shipDate } : {}),
     quoteSource: result.quoteSource,
     quotedAmount: result.quoteSource ? result.quote.amount : null,
     quotedCurrency: result.quoteSource ? result.quote.currency : null,
@@ -558,7 +563,10 @@ export type InvoiceAuditRow = Awaited<ReturnType<typeof listInvoiceAudits>>[numb
  * warehouse. Null for a parcel ship_logger never scanned.
  */
 export type InvoiceAuditLineRow = typeof invoiceAuditLine.$inferSelect & {
+  /** From the shipment the parcel was scanned into, else ShipStation's label (see shipDateSource). */
   shipDate: string | null;
+  shipDateSource: "scan" | "shipstation" | null;
+  /** The scanned shipment, for linking; null when the date came from ShipStation or there is none. */
   sessionId: string | null;
 };
 
@@ -567,7 +575,10 @@ export async function loadLinesWithShipDate(where: SQL | undefined) {
   return db
     .select({
       ...getTableColumns(invoiceAuditLine),
-      shipDate: shipmentSession.shipDate,
+      // A scan's shipment is the better source; ShipStation's label date
+      // (see lib/invoice-audit/enrich.ts) covers parcels with no scan.
+      shipDate: sql<string | null>`coalesce(${shipmentSession.shipDate}, ${invoiceAuditLine.shipstationShipDate})`,
+      shipDateSource: sql<"scan" | "shipstation" | null>`case when ${shipmentSession.shipDate} is not null then 'scan' when ${invoiceAuditLine.shipstationShipDate} is not null then 'shipstation' end`,
       sessionId: shipmentSession.id,
       invoiceNumber: invoiceAudit.invoiceNumber,
     })

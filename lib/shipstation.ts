@@ -45,6 +45,8 @@ export type ShipstationLabel = {
   costCurrency: string | null;
   /** ShipStation's own carrier code (e.g. "ups", "dhl_express") — captured here rather than guessed, so lookupShipstationTracking's carrier_code param is always the real one for this label, not a mapping this app made up. */
   carrierCode: string | null;
+  /** The label's ship date as a date-only string ("YYYY-MM-DD"); documented `ship_date` on GET /v2/labels. */
+  shipDate: string | null;
 };
 
 type WeightUnit = "pound" | "ounce" | "gram" | "kilogram";
@@ -54,6 +56,7 @@ type LabelsResponse = {
   labels?: {
     tracking_number?: string;
     carrier_code?: string;
+    ship_date?: string | null;
     shipment_cost?: { amount?: number; currency?: string };
     packages?: {
       weight?: { value?: number; unit?: WeightUnit };
@@ -99,7 +102,14 @@ function parseLabel(trackingNumber: string, data: LabelsResponse): ShipstationLa
     costAmount: cost?.amount ?? null,
     costCurrency: cost?.currency ?? null,
     carrierCode: label.carrier_code ?? null,
+    shipDate: dateOnly(label.ship_date),
   };
+}
+
+/** ShipStation timestamps look like "2024-09-23T00:00:00.000Z"; the calendar day is what matters here. */
+function dateOnly(value: string | null | undefined): string | null {
+  const day = value?.slice(0, 10);
+  return day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
 }
 
 /** Looks up the completed label for one tracking number. Never throws — any failure reads as `null`. */
@@ -147,6 +157,8 @@ export async function lookupShipstationLabel(trackingNumber: string): Promise<Sh
 
 export type ShipstationShipment = {
   trackingNumber: string;
+  /** The label's ship date ("YYYY-MM-DD"), from the same label lookup that finds the shipment. */
+  shipDate: string | null;
   /** The order-source's own order id/number (e.g. Shopify's), confirmed field on GET /v2/shipments. Used only as a fallback when Shopify's own order-matching (lib/order-index.ts) comes up empty — never as a replacement for it. */
   externalOrderId: string | null;
   shipToName: string | null;
@@ -157,7 +169,7 @@ export type ShipstationShipment = {
 };
 
 type LabelLookupResponse = {
-  labels?: { tracking_number?: string; shipment_id?: string }[];
+  labels?: { tracking_number?: string; shipment_id?: string; ship_date?: string | null }[];
 };
 
 type ShipmentResponse = {
@@ -172,10 +184,11 @@ type ShipmentResponse = {
   } | null;
 };
 
-function parseShipment(trackingNumber: string, shipment: ShipmentResponse): ShipstationShipment {
+function parseShipment(trackingNumber: string, shipment: ShipmentResponse, shipDate: string | null): ShipstationShipment {
   const shipTo = shipment.ship_to;
   return {
     trackingNumber,
+    shipDate,
     externalOrderId: shipment.external_order_id ?? null,
     shipToName: shipTo?.name ?? null,
     shipToPostalCode: shipTo?.postal_code ?? null,
@@ -185,13 +198,18 @@ function parseShipment(trackingNumber: string, shipment: ShipmentResponse): Ship
   };
 }
 
+export type ShipstationParcelLookup =
+  | { status: "found"; shipment: ShipstationShipment }
+  /** ShipStation answered, and has no completed label for this tracking number. */
+  | { status: "not_found" }
+  /** The API call itself failed (rate limit, outage, no key) — worth retrying, unlike not_found. */
+  | { status: "error" };
+
 /**
- * Looks up the shipment (order + ship-to) behind one tracking number. Used
- * two ways: as an order-match fallback (lib/shipstation-order-fallback-cron.ts)
- * when Shopify's own matching has nothing, and as the destination address
- * feeding rate-shop estimates (lib/shipstation-rates.ts) — same call, two
- * independent callers, neither one persists more of the response than it
- * needs. Never throws — any failure reads as `null`.
+ * Looks up the shipment (order + ship-to) behind one tracking number, telling
+ * "ShipStation has no such label" apart from "the call failed". Used by the
+ * invoice audit's enrichment (lib/invoice-audit/enrich.ts), which must not
+ * permanently mark a parcel as missing over a transient error.
  *
  * Two steps on purpose: `GET /v2/shipments` has no `tracking_number` filter
  * (its documented filters are batch_id, tag, shipment_status, created/modified
@@ -202,9 +220,9 @@ function parseShipment(trackingNumber: string, shipment: ShipmentResponse): Ship
  * Both hops verify what came back is the record that was asked for, because
  * an ignored filter is otherwise indistinguishable from a real answer.
  */
-export async function lookupShipstationShipment(trackingNumber: string): Promise<ShipstationShipment | null> {
+export async function lookupShipstationParcel(trackingNumber: string): Promise<ShipstationParcelLookup> {
   const apiKey = process.env.SHIPSTATION_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) return { status: "error" };
 
   try {
     const labelUrl = new URL(`${apiBase()}/labels`);
@@ -216,25 +234,39 @@ export async function lookupShipstationShipment(trackingNumber: string): Promise
       headers: { "API-Key": apiKey },
       signal: AbortSignal.timeout(15_000),
     });
-    if (!labelRes.ok) return null;
+    if (!labelRes.ok) return { status: "error" };
 
     const label = ((await labelRes.json()) as LabelLookupResponse).labels?.[0];
     if (!label?.shipment_id || normalizeTrackingNumber(label.tracking_number ?? "") !== normalizeTrackingNumber(trackingNumber)) {
-      return null;
+      return { status: "not_found" };
     }
 
     const shipmentRes = await fetch(`${apiBase()}/shipments/${encodeURIComponent(label.shipment_id)}`, {
       headers: { "API-Key": apiKey },
       signal: AbortSignal.timeout(15_000),
     });
-    if (!shipmentRes.ok) return null;
+    if (!shipmentRes.ok) return { status: "error" };
 
     const shipment = (await shipmentRes.json()) as ShipmentResponse;
-    if (shipment.shipment_id !== label.shipment_id) return null;
-    return parseShipment(trackingNumber, shipment);
+    if (shipment.shipment_id !== label.shipment_id) return { status: "error" };
+    return { status: "found", shipment: parseShipment(trackingNumber, shipment, dateOnly(label.ship_date)) };
   } catch {
-    return null;
+    return { status: "error" };
   }
+}
+
+/**
+ * Looks up the shipment (order + ship-to) behind one tracking number. Used
+ * two ways: as an order-match fallback (lib/shipstation-order-fallback-cron.ts)
+ * when Shopify's own matching has nothing, and as the destination address
+ * feeding rate-shop estimates (lib/shipstation-rates.ts) — same call, two
+ * independent callers, neither one persists more of the response than it
+ * needs. Never throws — any failure reads as `null`; see
+ * lookupShipstationParcel for why the two hops verify what they got back.
+ */
+export async function lookupShipstationShipment(trackingNumber: string): Promise<ShipstationShipment | null> {
+  const result = await lookupShipstationParcel(trackingNumber);
+  return result.status === "found" ? result.shipment : null;
 }
 
 /**

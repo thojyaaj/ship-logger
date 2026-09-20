@@ -471,6 +471,20 @@ export const invoiceAuditLine = pgTable(
     disputeOutcome: text("dispute_outcome", { enum: ["pending", "credited", "rejected"] }),
     creditedAmount: real("credited_amount"),
     disputeResolvedAt: text("dispute_resolved_at"),
+    // Filled in from ShipStation and Shopify for parcels ship_logger has no
+    // scan (or no scan order) for — lib/invoice-audit/enrich.ts. Ship date
+    // is date-only ("YYYY-MM-DD"). orderRef is ShipStation's own
+    // external_order_id for the parcel's shipment; the order* columns are
+    // that order's shipping charge as Shopify reports it. enrichNote says
+    // what went wrong when something couldn't be found; enrichedAt is when
+    // the lookup last ran (null = never, so still a candidate).
+    shipstationShipDate: text("shipstation_ship_date"),
+    orderRef: text("order_ref"),
+    orderName: text("order_name"),
+    orderShippingAmount: real("order_shipping_amount"),
+    orderShippingCurrency: text("order_shipping_currency"),
+    enrichedAt: text("enriched_at"),
+    enrichNote: text("enrich_note"),
   },
   (t) => [
     index("invoice_audit_line_audit_idx").on(t.auditId),
@@ -478,5 +492,6 @@ export const invoiceAuditLine = pgTable(
     // earlier invoice already? (see lib/invoice-audit/audit.ts)
     index("invoice_audit_line_epg_ref_idx").on(t.epgRef),
     index("invoice_audit_line_dispute_idx").on(t.disputeId),
+    index("invoice_audit_line_order_ref_idx").on(t.orderRef),
   ],
 );

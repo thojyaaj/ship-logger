@@ -35,7 +35,7 @@ function needsReview(l: InvoiceAuditLineRow): boolean {
   return NEEDS_REVIEW.has(l.status) || l.billedHeavier;
 }
 
-const NO_SHIPPING: LineShipping = { customerPaid: null, profit: null, reason: "no_scan" };
+const NO_SHIPPING: LineShipping = { customerPaid: null, profit: null, reason: "no_scan", source: null, detail: null };
 
 export default function AuditLinesClient({
   lines,
@@ -150,11 +150,11 @@ export default function AuditLinesClient({
                     </td>
                     <td className="px-3 py-2 data text-right">
                       {formatMoney(shipOf(l).customerPaid, currency)}
-                      <MissingNote reason={shipOf(l).reason} />
+                      <MissingNote ship={shipOf(l)} />
                     </td>
                     <td className="px-3 py-2 data text-right">
                       <Profit value={shipOf(l).profit} currency={currency} />
-                      <MissingNote reason={shipOf(l).reason} />
+                      <MissingNote ship={shipOf(l)} />
                     </td>
                     <td className="px-3 py-2 text-xs text-ink-soft">{l.note ?? ""}</td>
                   </tr>
@@ -183,14 +183,14 @@ export default function AuditLinesClient({
                     <div className="tag-label !text-ink-faint">Cust. paid</div>
                     <div className="data">
                       {formatMoney(shipOf(l).customerPaid, currency)}
-                      <MissingNote reason={shipOf(l).reason} />
+                      <MissingNote ship={shipOf(l)} />
                     </div>
                   </div>
                   <div className="col-span-2">
                     <div className="tag-label !text-ink-faint">Shipping P/L</div>
                     <div className="data">
                       <Profit value={shipOf(l).profit} currency={currency} />
-                      <MissingNote reason={shipOf(l).reason} />
+                      <MissingNote ship={shipOf(l)} />
                     </div>
                   </div>
                 </div>
@@ -242,10 +242,14 @@ function ParcelIds({ line }: { line: InvoiceAuditLineRow }) {
       )}
       <span className="data text-[11px] text-ink-soft">
         Shipped{" "}
-        {line.shipDate && line.sessionId ? (
+        {line.shipDate && line.sessionId && line.shipDateSource === "scan" ? (
           <Link href={`/shipments/${line.sessionId}`} className="text-blue hover:underline">
             {line.shipDate}
           </Link>
+        ) : line.shipDate ? (
+          <span title="Label ship date from ShipStation — this parcel wasn't scanned in ship_logger">
+            {line.shipDate} <span className="text-ink-faint">(ShipStation)</span>
+          </span>
         ) : (
           <span className="text-ink-faint">— not scanned in ship_logger</span>
         )}
@@ -274,9 +278,32 @@ function Diff({ value, currency }: { value: number | null; currency: string }) {
 }
 
 /** Shipping profit (+, green) or loss (−, red) for one parcel. */
-/** The reason a shipping figure is blank, under the "—". */
-function MissingNote({ reason }: { reason: MissingReason | null }) {
-  return reason ? <div className="text-[10px] font-normal text-ink-faint">{REASON_TEXT[reason]}</div> : null;
+/** What the ShipStation/Shopify lookup found, in a few words for a narrow column; the full note is on hover. */
+function shortLookupResult(detail: string): string {
+  if (/no shipstation label/i.test(detail)) return "not in ShipStation";
+  if (/no order id/i.test(detail)) return "no order id in ShipStation";
+  if (/wasn't found in shopify/i.test(detail)) return "order not in Shopify";
+  if (/no shipping charge/i.test(detail)) return "order has no shipping charge";
+  return detail;
+}
+
+/** The reason a shipping figure is blank, under the "—" — or where a filled-in figure came from. */
+function MissingNote({ ship }: { ship: LineShipping }) {
+  if (ship.reason) {
+    return (
+      <div className="text-[10px] font-normal text-ink-faint" title={ship.detail ?? undefined}>
+        {ship.detail ? shortLookupResult(ship.detail) : REASON_TEXT[ship.reason]}
+      </div>
+    );
+  }
+  if (ship.source === "shipstation" || ship.source === "shopify") {
+    return (
+      <div className="text-[10px] font-normal text-ink-faint">
+        {ship.source === "shipstation" ? "via ShipStation" : "via Shopify fulfillment"}
+      </div>
+    );
+  }
+  return null;
 }
 
 function Profit({ value, currency }: { value: number | null; currency: string }) {
