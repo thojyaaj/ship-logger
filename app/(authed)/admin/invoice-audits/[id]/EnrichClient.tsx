@@ -40,7 +40,7 @@ export default function EnrichClient({ auditId, candidates }: { auditId: string;
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-sm text-ink-soft">
           {candidates} parcel{candidates === 1 ? "" : "s"} {candidates === 1 ? "is" : "are"} missing a ship date or customer
-          charge. This looks up each parcel's order through EPG and Shopify, and its ship date in ShipStation — up to 40 per click, so a large batch takes a minute.
+          charge. This looks up each parcel&apos;s order through EPG and Shopify, and its ship date in ShipStation — up to 40 per click, so a large batch takes a minute.
         </p>
         <button
           type="button"
