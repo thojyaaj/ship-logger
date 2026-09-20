@@ -40,8 +40,8 @@ export type LineShipping = {
   /** Set exactly when customerPaid is null. */
   reason: MissingReason | null;
   /** Where the customer charge came from; null when there isn't one. */
-  source: "scan" | "shopify" | "shipstation" | null;
-  /** What a lookup said when it couldn't find the order (see lib/invoice-audit/enrich.ts). */
+  source: "scan" | "shopify" | "lookup" | null;
+  /** What the order lookup said when it couldn't find the order (see lib/invoice-audit/enrich.ts). */
   detail: string | null;
 };
 
@@ -61,8 +61,8 @@ export type ShippingSummary = {
   parcelsScanned: number;
   /** Parcels whose customer charge came from Shopify's fulfillment records, not a scan. */
   fromOrderIndex: number;
-  /** Parcels whose ship date or customer charge came through ShipStation. */
-  fromShipstation: number;
+  /** Parcels whose customer charge came through the EPG/ShipStation → Shopify lookup (lib/invoice-audit/enrich.ts). */
+  fromLookup: number;
   parcelsTotal: number;
 };
 
@@ -186,7 +186,7 @@ async function loadLines(where: SQL | undefined) {
         ...r,
         hasScan,
         fromIndex: false,
-        source: "shipstation" as const,
+        source: "lookup" as const,
         detail,
         orderShipping: r.enrichedAmount,
         orderShippingCurrency: r.enrichedCurrency,
@@ -235,7 +235,7 @@ export async function getShippingSummaries(auditIds?: string[]): Promise<Map<str
       else s.missingCurrency++;
     } else {
       if (r.fromIndex) s.fromOrderIndex++;
-      if (r.source === "shipstation") s.fromShipstation++;
+      if (r.source === "lookup") s.fromLookup++;
       s.parcelsCounted++;
       s.customerPaid += l.customerPaid ?? 0;
       s.fee += (l.customerPaid ?? 0) * MARKETPLACE_FEE_RATE;
@@ -256,7 +256,7 @@ export async function getShippingSummaries(auditIds?: string[]): Promise<Map<str
 function emptySummary(): ShippingSummary {
   return {
     customerPaid: 0, fee: 0, billed: 0, profit: 0, parcelsCounted: 0, parcelsMissing: 0,
-    missingNoScan: 0, missingNoOrder: 0, missingCurrency: 0, parcelsScanned: 0, fromOrderIndex: 0, fromShipstation: 0, parcelsTotal: 0,
+    missingNoScan: 0, missingNoOrder: 0, missingCurrency: 0, parcelsScanned: 0, fromOrderIndex: 0, fromLookup: 0, parcelsTotal: 0,
   };
 }
 

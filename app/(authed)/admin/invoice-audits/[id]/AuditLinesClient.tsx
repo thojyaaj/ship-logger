@@ -280,8 +280,8 @@ function Diff({ value, currency }: { value: number | null; currency: string }) {
 /** Shipping profit (+, green) or loss (−, red) for one parcel. */
 /** What the ShipStation/Shopify lookup found, in a few words for a narrow column; the full note is on hover. */
 function shortLookupResult(detail: string): string {
-  if (/no shipstation label/i.test(detail)) return "not in ShipStation";
-  if (/no order id/i.test(detail)) return "no order id in ShipStation";
+  if (/no shipstation label/i.test(detail)) return "no order ref found";
+  if (/no order id|no order reference|neither epg/i.test(detail)) return "no order ref found";
   if (/wasn't found in shopify/i.test(detail)) return "order not in Shopify";
   if (/no shipping charge/i.test(detail)) return "order has no shipping charge";
   return detail;
@@ -296,10 +296,10 @@ function MissingNote({ ship }: { ship: LineShipping }) {
       </div>
     );
   }
-  if (ship.source === "shipstation" || ship.source === "shopify") {
+  if (ship.source === "lookup" || ship.source === "shopify") {
     return (
       <div className="text-[10px] font-normal text-ink-faint">
-        {ship.source === "shipstation" ? "via ShipStation" : "via Shopify fulfillment"}
+        {ship.source === "lookup" ? "via order lookup" : "via Shopify fulfillment"}
       </div>
     );
   }

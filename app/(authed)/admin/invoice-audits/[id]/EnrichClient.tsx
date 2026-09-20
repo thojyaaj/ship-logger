@@ -7,9 +7,9 @@ import type { EnrichResult } from "@/lib/invoice-audit/enrich";
 import { enrichInvoiceAuditAction } from "../actions";
 
 /**
- * Looks up ship date and customer shipping charge through ShipStation and
- * Shopify for parcels this audit couldn't get them for from a scan — up to
- * 40 per click (two ShipStation calls each). The nightly job does the same
+ * Looks up ship date and customer shipping charge (EPG's order name →
+ * Shopify, plus ShipStation's label for the date) for parcels this audit
+ * couldn't get them for from a scan — up to 40 per click. The nightly job does the same
  * for recent audits; this is for when you want it now.
  */
 export default function EnrichClient({ auditId, candidates }: { auditId: string; candidates: number }) {
@@ -40,7 +40,7 @@ export default function EnrichClient({ auditId, candidates }: { auditId: string;
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-sm text-ink-soft">
           {candidates} parcel{candidates === 1 ? "" : "s"} {candidates === 1 ? "is" : "are"} missing a ship date or customer
-          charge. This looks them up in ShipStation and Shopify — up to 40 per click, so a large batch takes a minute.
+          charge. This looks up each parcel&apos;s order through EPG and Shopify, and its ship date in ShipStation — up to 40 per click, so a large batch takes a minute.
         </p>
         <button
           type="button"
@@ -48,7 +48,7 @@ export default function EnrichClient({ auditId, candidates }: { auditId: string;
           disabled={isPending}
           className="btn px-3 py-2 bg-orange text-paper disabled:opacity-50 shrink-0"
         >
-          {isPending ? "Looking up…" : "Look up in ShipStation"}
+          {isPending ? "Looking up…" : "Look up orders & dates"}
         </button>
       </div>
       {error && <p role="alert" className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm">{error}</p>}

@@ -77,104 +77,33 @@ lost money:
   a parcel that was never scanned, it comes from ShipStation's label, and
   is marked "(ShipStation)".
 
-### Looking up unscanned parcels in ShipStation
+### Looking up unscanned parcels
 
 For parcels with no scan, or a scan with no order, the audit page shows
-**Look up in ShipStation**. It follows the chain:
+**Look up orders & dates**. It follows this chain:
 
-1. The parcel's EPG reference finds its **ShipStation label**, which has
-   the ship date and the shipment.
-2. The **shipment** carries the order source's own order id
-   (`external_order_id`).
-3. That order is looked up in **Shopify** for its shipping charge.
+1. **EPG** is asked about the parcel's EPG reference (one batched call for
+   the whole run). Its answer includes the order's `ERef`, which is the
+   **Shopify order name** (e.g. `OSE79987X25`), the same "Order #" that
+   ShipStation shows.
+2. **Shopify** is asked for that order's shipping charge.
+3. **ShipStation** supplies the ship date from the parcel's label (only
+   for parcels with no scan, which already know their shipment's date).
 
-ShipStation's API doesn't carry what the customer paid, only the order
-id, which is why the charge comes from Shopify. Each click looks up
-to 40 parcels. A nightly job (`/api/cron/invoice-enrich`, 9:38 UTC) does
-the same across all audits, newest invoice first.
+If EPG has no record, ShipStation's shipment `external_order_id` is tried
+instead. ShipStation's API doesn't carry what the customer paid, and its
+order id is often empty for orders imported by a store integration, so it
+is a backup rather than the main route.
+
+Each click looks up to 40 parcels. A nightly job
+(`/api/cron/invoice-enrich`, 9:38 UTC) does the same across all audits,
+newest invoice first.
 
 What was found, or why not, is saved on the audit line, so nothing is
-looked up twice. A blank shows a short reason: *not in ShipStation*, *no
-order id in ShipStation*, or *order not in Shopify*, with the full note on
-hover. A lookup that ended in a note is tried again after 7 days; an API
-failure is retried on the next run. Figures found this way are labeled
-"via ShipStation".
-
-This is worked out when the page loads, not saved with the audit, so
-order matches that arrive later are picked up without re-auditing. Each
-parcel also shows its **ship date**, the day its shipment was submitted in
-ship_logger, and links to that shipment. The CSV export includes ship
-date, customer paid and shipping profit/loss.
-
-## Dispute report for EPG
-
-A CSV meant for ePost Global, plus a cover email, about billing
-discrepancies. It lists only parcels billed above the ShipStation quote or
-billed twice, in EPG's own terms.
-
-- **Top of the CSV:** a "How to read this report" section, then totals:
-  parcels, charged, expected and total overcharge.
-- **Each row:** invoice, AWB, EPG reference, tracking number, ship date,
-  destination and service.
-  - Weights: **our label weight** next to **EPG's actual and billed weight**,
-    plus the difference.
-  - Charges: **expected charge**, the rate quoted when the label was bought,
-    next to **what EPG charged**, plus the overcharge.
-  - An issue label (charged above quoted rate, billed at a higher weight,
-    surcharge added, billed twice) and a one-line explanation.
-- **Bottom of the CSV:** a TOTAL row.
-
-It leaves out everything internal: customer payments, the Fruugo fee and
-ship_logger's own notes.
-
-The report is built from a **dispute** (see below), so it always matches
-exactly what was sent. **Export CSV** on an audit stays the internal,
-full-detail export.
-
-### Disputes: tracking what you sent and what came back
-
-1. **Start a dispute.** Use **Start a dispute with EPG** on the Invoices
-   page (pick invoices) or **Start a dispute** on an audit. It collects
-   every overcharged or double-billed parcel that isn't already in a
-   dispute. A parcel is only ever in one dispute, so the same charge is
-   never sent twice.
-2. **Send it.** On the dispute's page, use **Create Gmail draft** (or
-   **Download CSV** and email it yourself), send it, then click **Mark as
-   sent to EPG**. Until then it's a draft and can be deleted, which frees
-   its parcels.
-3. **Record EPG's answer.** Select parcels and mark them **Credited in
-   full**, **Rejected**, or **Back to waiting**. Use **Partial credit** on
-   a parcel to enter the amount EPG actually credited.
-
-The Invoices page totals every sent dispute: amount disputed, amount
-credited back (and the percentage), parcels still waiting, and parcels
-rejected. Each parcel on an audit shows its dispute status and links to
-the dispute. The amount claimed is saved when the dispute is created, and
-re-uploading an invoice keeps its parcels' dispute records.
-
-### Gmail draft (one-time setup)
-
-**Create Gmail draft** on a dispute saves a draft in your Gmail with the CSV attached
-and a summary email written for you: totals by invoice and by issue, and a
-request for a credit. Nothing is sent: you review it, edit it, and send
-it. The draft is made by the same Apps Script that handles intake:
-
-1. Re-paste `scripts/apps-script/epg-invoice-intake.gs` into the Apps
-   Script project; it now includes the draft step.
-2. Optionally, add a Script Property `DISPUTE_TO` with EPG's billing
-   contact address, to fill in "To" automatically.
-3. **Deploy → New deployment → Select type: Web app**. Set **Execute as:
-   Me** and **Who has access: Only myself**. Deploy, approve the Gmail
-   permission prompt, and copy the **Web app URL**
-   (`https://script.google.com/macros/s/…/exec`).
-4. In Vercel, set `GMAIL_DISPUTE_DRAFT_URL` to that URL and redeploy.
-
-"Only myself" means the page only works while you're signed in to that
-Google account; nobody else can use the URL to create drafts. The script
-fetches the report from `POST /api/v1/invoices/dispute-draft`, signed
-with the same secret as the intake. If you edit the script later, deploy
-again: **Manage deployments → Edit → New version**, which keeps the same
-URL.
+looked up twice. A blank shows a short reason: *no order ref found* or
+*order not in Shopify*, with the full note on hover. A lookup that ended
+in a note is tried again after 7 days; an API failure is retried on the
+next run. Figures found this way are labeled "via order lookup".
 
 ## Analytics
 
