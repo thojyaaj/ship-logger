@@ -38,7 +38,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run shopify:register-webhook` | Register the fulfillment webhooks against a callback URL (`CALLBACK_URL=... npm run shopify:register-webhook`) — run once per deployment domain |
 | `npm run shopify:backfill-orders` | One-time backfill of the order index from existing Shopify order history (`--days N`, default 180) |
 | `npm run lint` | ESLint |
-| `npm test` | Unit tests (`lib/**/*.test.ts`, Node's built-in runner via `tsx`, no database or network) — the EPG invoice parser, the audit's verdict rules, the intake request signing, and CSV escaping |
+| `npm test` | Unit tests (`lib/**/*.test.ts`, Node's built-in runner via `tsx`, no database or network) — the EPG invoice parser, the audit's verdict rules, the intake request signing, and CSV escaping. Runs automatically on every PR, with the type check and lint (`.github/workflows/ci.yml`) |
 
 ## Environment variables
 

@@ -1,0 +1,48 @@
+name: CI
+
+# Tests, types and lint on every pull request, and again on main after a
+# merge. None of it needs a database, API key or network: the tests are
+# pure (`npm test`), and the type check only needs Next's generated route
+# types (`next typegen`), not a build.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same PR cancels the older run instead of queueing behind it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Tests, types, lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `ci` installs exactly what package-lock.json says and fails if it
+      # disagrees with package.json — the point of running it here.
+      - run: npm ci
+
+      - name: Tests
+        run: npm test
+
+      # Route handler types (RouteContext<...>) are generated, not committed.
+      - name: Generate Next route types
+        run: npx next typegen
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
