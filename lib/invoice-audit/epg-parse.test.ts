@@ -30,7 +30,8 @@ function parcel(values: Record<string, unknown>, columns: (string | null)[] = HE
     CURRENCY: "USD", refno: "EPG000000000000001", Country: "AUSTRALIA",
   };
   const merged = { ...defaults, ...values };
-  return ["www.epgtrack.com", ...columns.map((name) => (name === null ? null : (merged[name] ?? null)))];
+  type Cell = SheetRows[number][number];
+  return ["www.epgtrack.com", ...columns.map((name): Cell => (name === null ? null : ((merged[name] ?? null) as Cell)))];
 }
 
 const summary = (total: number): SheetRows[number] => ["Total Pieces", 2, ...Array(37).fill(null)].map((v, i) => (i === 17 ? total : v));
