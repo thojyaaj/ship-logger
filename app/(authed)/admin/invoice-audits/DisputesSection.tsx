@@ -14,9 +14,12 @@ const STATUS: Record<DisputeSummary["status"], { text: string; tone: string }> =
 export default function DisputesSection({
   disputes,
   totals,
+  skipped,
 }: {
   disputes: DisputeSummary[];
   totals: ReturnType<typeof disputeTotals>;
+  /** Overcharged parcels deliberately left out of disputes. */
+  skipped: { parcels: number; amount: number };
 }) {
   const { currency } = totals;
   const recoveredPct = totals.disputed > 0 ? Math.round((totals.credited / totals.disputed) * 100) : 0;
@@ -39,30 +42,38 @@ export default function DisputesSection({
           <StatTile label="Rejected" value={`${totals.rejectedParcels}`} sub="parcels" />
         </div>
       )}
-      <div className="border border-line divide-y divide-line">
-        {disputes.map((d) => (
-          <Link
-            key={d.id}
-            href={`/admin/invoice-audits/disputes/${d.id}`}
-            className="flex items-center justify-between gap-3 flex-wrap px-3 py-3 bg-paper-panel hover:bg-paper-dim"
-          >
-            <div className="flex flex-col gap-0.5 min-w-0">
-              <span className="data font-semibold">Dispute {d.id.slice(0, 8).toUpperCase()}</span>
-              <span className="text-xs text-ink-faint">
-                {d.sentAt ? `Sent ${formatWarehouseTimestamp(d.sentAt)}` : `Created ${formatWarehouseTimestamp(d.createdAt)}`} ·{" "}
-                {d.invoiceNumbers.join(", ")} · {d.parcels} parcels
-              </span>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap text-xs font-condensed font-semibold uppercase tracking-widest">
-              <span className="px-2 py-1 bg-paper-dim text-ink-soft">Disputed {formatMoney(d.disputed, d.currency)}</span>
-              {d.credited > 0 && (
-                <span className="px-2 py-1 bg-green-dim text-green-ink">Credited {formatMoney(d.credited, d.currency)}</span>
-              )}
-              <span className={`px-2 py-1 ${STATUS[d.status].tone}`}>{STATUS[d.status].text}</span>
-            </div>
-          </Link>
-        ))}
-      </div>
+      {skipped.parcels > 0 && (
+        <p className="text-sm text-ink-soft">
+          {skipped.parcels} overcharged parcel{skipped.parcels === 1 ? "" : "s"} (+{formatMoney(skipped.amount, totals.currency)})
+          skipped — not being disputed. Restore them from their invoice if you change your mind.
+        </p>
+      )}
+      {disputes.length > 0 && (
+        <div className="border border-line divide-y divide-line">
+          {disputes.map((d) => (
+            <Link
+              key={d.id}
+              href={`/admin/invoice-audits/disputes/${d.id}`}
+              className="flex items-center justify-between gap-3 flex-wrap px-3 py-3 bg-paper-panel hover:bg-paper-dim"
+            >
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <span className="data font-semibold">Dispute {d.id.slice(0, 8).toUpperCase()}</span>
+                <span className="text-xs text-ink-faint">
+                  {d.sentAt ? `Sent ${formatWarehouseTimestamp(d.sentAt)}` : `Created ${formatWarehouseTimestamp(d.createdAt)}`} ·{" "}
+                  {d.invoiceNumbers.join(", ")} · {d.parcels} parcels
+                </span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap text-xs font-condensed font-semibold uppercase tracking-widest">
+                <span className="px-2 py-1 bg-paper-dim text-ink-soft">Disputed {formatMoney(d.disputed, d.currency)}</span>
+                {d.credited > 0 && (
+                  <span className="px-2 py-1 bg-green-dim text-green-ink">Credited {formatMoney(d.credited, d.currency)}</span>
+                )}
+                <span className={`px-2 py-1 ${STATUS[d.status].tone}`}>{STATUS[d.status].text}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

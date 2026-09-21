@@ -10,6 +10,7 @@ import RecheckClient from "./RecheckClient";
 import EnrichClient from "./EnrichClient";
 import { countEnrichmentCandidates } from "@/lib/invoice-audit/enrich";
 import StartDisputeButton from "./StartDisputeButton";
+import SkipDisputesButtons from "./SkipDisputesButtons";
 
 // recheckInvoiceAuditAction runs live ShipStation lookups — up to ~30s (see
 // MAX_LIVE_LOOKUPS in lib/invoice-audit/audit.ts).
@@ -31,7 +32,9 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
   // re-check can fix, so it's counted out here.
   // Overcharged parcels not in a dispute yet, and the disputes this
   // invoice's parcels are already in.
-  const undisputed = lines.filter((l) => (l.status === "over" || l.status === "duplicate") && !l.disputeId).length;
+  const disputable = lines.filter((l) => (l.status === "over" || l.status === "duplicate") && !l.disputeId);
+  const undisputed = disputable.filter((l) => !l.disputeSkippedAt).length;
+  const skipped = disputable.length - undisputed;
   const disputeIds = [...new Set(lines.map((l) => l.disputeId).filter((v): v is string => !!v))];
   const unverified = lines.filter((l) => l.status === "no_quote" || l.status === "not_found").length;
 
@@ -79,6 +82,7 @@ export default async function InvoiceAuditPage({ params }: { params: Promise<{ i
             </Link>
           ))}
           {undisputed > 0 && <StartDisputeButton auditId={a.id} parcels={undisputed} />}
+          {(undisputed > 0 || skipped > 0) && <SkipDisputesButtons auditId={a.id} undisputed={undisputed} skipped={skipped} />}
           <a
             href={`/admin/invoice-audits/${a.id}/export`}
             className="btn px-3 py-2 border border-line-strong bg-paper-panel hover:bg-paper-dim text-sm"

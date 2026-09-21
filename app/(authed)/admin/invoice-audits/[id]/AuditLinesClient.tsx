@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { InvoiceAuditLineRow } from "@/lib/invoice-audit/audit";
 import type { LineShipping, MissingReason } from "@/lib/invoice-audit/shipping-margin";
@@ -13,9 +14,10 @@ const REASON_TEXT: Record<MissingReason, string> = {
 import type { LineStatus } from "@/lib/invoice-audit/classify";
 import { formatMoney, STATUS_LABEL } from "@/lib/invoice-audit/format";
 import { trackingUrl } from "@/lib/carrier";
+import { setParcelsSkippedAction } from "../actions";
 
 // "losing": shipping cost more than the customer paid, after the Fruugo fee.
-type Filter = "review" | "all" | "losing" | LineStatus;
+type Filter = "review" | "all" | "losing" | "skipped" | LineStatus;
 
 // "Needs review" is the default: an admin opening an audit wants the
 // problems, not 100 matching rows to scroll past.
@@ -31,8 +33,14 @@ const STATUS_TONE: Record<LineStatus, string> = {
   not_found: "bg-amber-dim text-amber-ink",
 };
 
+// A skipped parcel is a decision already made, so it leaves the review list.
 function needsReview(l: InvoiceAuditLineRow): boolean {
-  return NEEDS_REVIEW.has(l.status) || l.billedHeavier;
+  return !l.disputeSkippedAt && (NEEDS_REVIEW.has(l.status) || l.billedHeavier);
+}
+
+/** An overcharged or double-billed parcel that isn't in a dispute — the ones that can be skipped. */
+function skippable(l: InvoiceAuditLineRow): boolean {
+  return (l.status === "over" || l.status === "duplicate") && !l.disputeId;
 }
 
 const NO_SHIPPING: LineShipping = { customerPaid: null, profit: null, reason: "no_scan", source: null, detail: null };
@@ -54,6 +62,7 @@ export default function AuditLinesClient({
       ["review", lines.filter(needsReview).length],
       ["all", lines.length],
       ["losing", lines.filter(losing).length],
+      ["skipped", lines.filter((l) => l.disputeSkippedAt && skippable(l)).length],
     ]);
     for (const l of lines) c.set(l.status, (c.get(l.status) ?? 0) + 1);
     return c;
@@ -66,16 +75,17 @@ export default function AuditLinesClient({
     "review",
     "all",
     ...(counts.get("losing") ? (["losing"] as Filter[]) : []),
+    ...(counts.get("skipped") ? (["skipped"] as Filter[]) : []),
     ...(["over", "duplicate", "under", "match", "no_quote", "currency_mismatch", "not_found"] as LineStatus[]).filter(
       (s) => counts.get(s),
     ),
   ];
   const visible = lines.filter((l) =>
-    filter === "all" ? true : filter === "review" ? needsReview(l) : filter === "losing" ? losing(l) : l.status === filter,
+    filter === "all" ? true : filter === "review" ? needsReview(l) : filter === "losing" ? losing(l) : filter === "skipped" ? !!l.disputeSkippedAt && skippable(l) : l.status === filter,
   );
 
   const label = (f: Filter) =>
-    f === "review" ? "Needs review" : f === "all" ? "All" : f === "losing" ? "Losing money on shipping" : STATUS_LABEL[f];
+    f === "review" ? "Needs review" : f === "all" ? "All" : f === "losing" ? "Losing money on shipping" : f === "skipped" ? "Skipped disputes" : STATUS_LABEL[f];
 
   return (
     <section className="flex flex-col gap-3">
@@ -222,6 +232,7 @@ function ParcelIds({ line }: { line: InvoiceAuditLineRow }) {
         <span className="break-all">{line.finalMileTracking}</span> · {line.destinationCountry ?? "—"} · row{" "}
         {line.sheetRow}
       </span>
+      {skippable(line) && <SkipControl lineId={line.id} skipped={!!line.disputeSkippedAt} />}
       {line.disputeId && (
         <Link
           href={`/admin/invoice-audits/disputes/${line.disputeId}`}
@@ -323,5 +334,37 @@ function Figure({ label, value }: { label: string; value: string }) {
       <div className="tag-label !text-ink-faint">{label}</div>
       <div className="data">{value}</div>
     </div>
+  );
+}
+
+/** Per-parcel skip: leave this overcharge out of disputes, or bring it back. */
+function SkipControl({ lineId, skipped }: { lineId: string; skipped: boolean }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <span className="self-start flex items-center gap-2 mt-0.5">
+      {skipped && (
+        <span className="px-1.5 py-px text-[10px] font-condensed font-semibold uppercase tracking-wider bg-paper-dim text-ink-soft">
+          Dispute skipped
+        </span>
+      )}
+      <button
+        type="button"
+        disabled={isPending}
+        onClick={() =>
+          startTransition(async () => {
+            setError(null);
+            const result = await setParcelsSkippedAction([lineId], !skipped);
+            if (result.status === "error") setError(result.message);
+            else router.refresh();
+          })
+        }
+        className="text-[11px] text-ink-faint underline hover:text-ink disabled:opacity-50"
+      >
+        {skipped ? "Undo skip" : "Skip dispute"}
+      </button>
+      {error && <span className="text-[11px] text-red-ink">{error}</span>}
+    </span>
   );
 }

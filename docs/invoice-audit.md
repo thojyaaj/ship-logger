@@ -77,6 +77,12 @@ lost money:
   a parcel that was never scanned, it comes from ShipStation's label, and
   is marked "(ShipStation)".
 
+These figures are worked out when the page loads, not saved with the
+audit, so order matches that arrive later are picked up without
+re-auditing. Each parcel also shows its **ship date** (see above), linked
+to its shipment when it was scanned. The CSV export includes ship date,
+customer paid and shipping profit/loss.
+
 ### Looking up unscanned parcels
 
 For parcels with no scan, or a scan with no order, the audit page shows
@@ -104,6 +110,96 @@ looked up twice. A blank shows a short reason: *no order ref found* or
 *order not in Shopify*, with the full note on hover. A lookup that ended
 in a note is tried again after 7 days; an API failure is retried on the
 next run. Figures found this way are labeled "via order lookup".
+
+## Dispute report for EPG
+
+A CSV meant for ePost Global, plus a cover email, about billing
+discrepancies. It lists only parcels billed above the ShipStation quote or
+billed twice, in EPG's own terms.
+
+- **Top of the CSV:** a "How to read this report" section, then totals:
+  parcels, charged, expected and total overcharge.
+- **Each row:** invoice, AWB, EPG reference, tracking number, ship date,
+  destination and service.
+  - Weights: **our label weight** next to **EPG's actual and billed weight**,
+    plus the difference.
+  - Charges: **expected charge**, the rate quoted when the label was bought,
+    next to **what EPG charged**, plus the overcharge.
+  - An issue label (charged above quoted rate, billed at a higher weight,
+    surcharge added, billed twice) and a one-line explanation.
+- **Bottom of the CSV:** a TOTAL row.
+
+It leaves out everything internal: customer payments, the Fruugo fee and
+ship_logger's own notes.
+
+The report is built from a **dispute** (see below), so it always matches
+exactly what was sent. **Export CSV** on an audit stays the internal,
+full-detail export.
+
+### Disputes: tracking what you sent and what came back
+
+1. **Start a dispute.** Use **Start a dispute with EPG** on the Invoices
+   page (pick invoices) or **Start a dispute** on an audit. It collects
+   every overcharged or double-billed parcel that isn't already in a
+   dispute. A parcel is only ever in one dispute, so the same charge is
+   never sent twice.
+2. **Send it.** On the dispute's page, use **Create Gmail draft** (or
+   **Download CSV** and email it yourself), send it, then click **Mark as
+   sent to EPG**. Until then it's a draft and can be deleted, which frees
+   its parcels.
+3. **Record EPG's answer.** Select parcels and mark them **Credited in
+   full**, **Rejected**, or **Back to waiting**. Use **Partial credit** on
+   a parcel to enter the amount EPG actually credited.
+
+### Skipping disputes
+
+Not every overcharge is worth chasing, or wrong. **Skip** leaves a parcel
+out of disputes:
+
+- **One parcel:** **Skip dispute** under an overcharged or double-billed
+  parcel on its audit (**Undo skip** brings it back).
+- **A whole invoice:** **Skip disputes (N)** in the audit's header skips
+  every overcharge on it that isn't already in a dispute; **Restore N
+  skipped** undoes it.
+- **From a draft dispute:** **Skip** on a parcel removes it from the draft
+  and skips it. Removing the last parcel deletes the empty draft. A
+  dispute that's been sent can't be changed.
+
+A skipped parcel is left out of new disputes and out of the "Start a
+dispute" counts, drops off the audit's "Needs review" list, and shows in a
+**Skipped disputes** filter. The Invoices page notes how many parcels (and
+how many dollars) are skipped. Skipping is always reversible, and a
+re-uploaded invoice keeps its skipped parcels.
+
+The Invoices page totals every sent dispute: amount disputed, amount
+credited back (and the percentage), parcels still waiting, and parcels
+rejected. Each parcel on an audit shows its dispute status and links to
+the dispute. The amount claimed is saved when the dispute is created, and
+re-uploading an invoice keeps its parcels' dispute records.
+
+### Gmail draft (one-time setup)
+
+**Create Gmail draft** on a dispute saves a draft in your Gmail with the CSV attached
+and a summary email written for you: totals by invoice and by issue, and a
+request for a credit. Nothing is sent: you review it, edit it, and send
+it. The draft is made by the same Apps Script that handles intake:
+
+1. Re-paste `scripts/apps-script/epg-invoice-intake.gs` into the Apps
+   Script project; it now includes the draft step.
+2. Optionally, add a Script Property `DISPUTE_TO` with EPG's billing
+   contact address, to fill in "To" automatically.
+3. **Deploy → New deployment → Select type: Web app**. Set **Execute as:
+   Me** and **Who has access: Only myself**. Deploy, approve the Gmail
+   permission prompt, and copy the **Web app URL**
+   (`https://script.google.com/macros/s/…/exec`).
+4. In Vercel, set `GMAIL_DISPUTE_DRAFT_URL` to that URL and redeploy.
+
+"Only myself" means the page only works while you're signed in to that
+Google account; nobody else can use the URL to create drafts. The script
+fetches the report from `POST /api/v1/invoices/dispute-draft`, signed
+with the same secret as the intake. If you edit the script later, deploy
+again: **Manage deployments → Edit → New version**, which keeps the same
+URL.
 
 ## Analytics
 

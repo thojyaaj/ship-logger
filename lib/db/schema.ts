@@ -471,6 +471,12 @@ export const invoiceAuditLine = pgTable(
     disputeOutcome: text("dispute_outcome", { enum: ["pending", "credited", "rejected"] }),
     creditedAmount: real("credited_amount"),
     disputeResolvedAt: text("dispute_resolved_at"),
+    // Set when an admin decides not to dispute this parcel (not worth
+    // chasing, a charge known to be correct…). A skipped parcel is left out
+    // of new disputes and of the "still to dispute" counts, and is never in
+    // a dispute at the same time — see lib/invoice-audit/disputes.ts. A
+    // re-upload of the invoice carries it over. Null = not skipped.
+    disputeSkippedAt: text("dispute_skipped_at"),
     // Filled in from ShipStation and Shopify for parcels ship_logger has no
     // scan (or no scan order) for — lib/invoice-audit/enrich.ts. Ship date
     // is date-only ("YYYY-MM-DD"). orderRef is ShipStation's own

@@ -348,8 +348,8 @@ export async function auditEpgInvoice(input: {
   const inserted = await db.transaction(async (tx) => {
     if (input.source === "upload") {
       // A re-upload replaces the audit's lines; a parcel that's already in
-      // a dispute keeps its dispute record (and outcome) on the new line,
-      // or the dispute would silently lose it.
+      // a dispute (or that was skipped) keeps that record (and outcome) on
+      // the new line, or the dispute would silently lose it.
       const disputed = await tx
         .select({
           sheetRow: invoiceAuditLine.sheetRow,
@@ -360,6 +360,7 @@ export async function auditEpgInvoice(input: {
           disputeOutcome: invoiceAuditLine.disputeOutcome,
           creditedAmount: invoiceAuditLine.creditedAmount,
           disputeResolvedAt: invoiceAuditLine.disputeResolvedAt,
+          disputeSkippedAt: invoiceAuditLine.disputeSkippedAt,
         })
         .from(invoiceAuditLine)
         .innerJoin(invoiceAudit, eq(invoiceAuditLine.auditId, invoiceAudit.id))
@@ -367,7 +368,7 @@ export async function auditEpgInvoice(input: {
           and(
             eq(invoiceAudit.carrier, "epg"),
             eq(invoiceAudit.invoiceNumber, invoiceNumber),
-            isNotNull(invoiceAuditLine.disputeId),
+            or(isNotNull(invoiceAuditLine.disputeId), isNotNull(invoiceAuditLine.disputeSkippedAt)),
           ),
         );
       const key = (l: { sheetRow: number; epgRef: string | null; finalMileTracking: string | null }) =>
@@ -381,6 +382,7 @@ export async function auditEpgInvoice(input: {
         line.disputeOutcome = d.disputeOutcome;
         line.creditedAmount = d.creditedAmount;
         line.disputeResolvedAt = d.disputeResolvedAt;
+        line.disputeSkippedAt = d.disputeSkippedAt;
       }
 
       await tx

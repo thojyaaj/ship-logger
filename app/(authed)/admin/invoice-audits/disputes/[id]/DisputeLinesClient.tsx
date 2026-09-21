@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { actionErrorMessage } from "@/lib/error-message";
 import { formatMoney } from "@/lib/invoice-audit/format";
 import type { DisputeOutcome } from "@/lib/invoice-audit/disputes";
-import { recordDisputeOutcomeAction } from "../../actions";
+import { recordDisputeOutcomeAction, removeFromDraftDisputeAction } from "../../actions";
 
 export type DisputeLine = {
   id: string;
@@ -71,6 +71,25 @@ export default function DisputeLinesClient({
     });
   }
 
+  /** Draft only: take a parcel out of this dispute and skip it (see removeFromDraft). */
+  function skipFromDraft(lineId: string) {
+    setError(null);
+    startTransition(async () => {
+      try {
+        const result = await removeFromDraftDisputeAction(disputeId, [lineId]);
+        if (result.status === "error") {
+          setError(result.message);
+          return;
+        }
+        // Removing the last parcel deletes the draft, so leave its page.
+        if (result.data.deletedDispute) router.push("/admin/invoice-audits");
+        else router.refresh();
+      } catch (err) {
+        setError(actionErrorMessage(err, "Couldn't remove that parcel — please retry."));
+      }
+    });
+  }
+
   function toggle(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -118,7 +137,12 @@ export default function DisputeLinesClient({
           </div>
         )}
       </div>
-      {!sent && <p className="text-xs text-ink-faint">Mark the dispute as sent to record EPG&apos;s answer.</p>}
+      {!sent && (
+        <p className="text-xs text-ink-faint">
+          Use <strong>Skip</strong> to leave a parcel out of this dispute (you can restore it from its invoice). Mark the
+          dispute as sent to record EPG&apos;s answer.
+        </p>
+      )}
       {error && <p role="alert" className="border-l-4 border-red bg-red-dim px-3 py-2 text-red-ink text-sm">{error}</p>}
 
       <div className="border border-line divide-y divide-line bg-paper-panel">
@@ -168,6 +192,17 @@ export default function DisputeLinesClient({
                       ? "Waiting"
                       : "Not sent"}
               </span>
+              {!sent && (
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => skipFromDraft(l.id)}
+                  className="text-xs text-ink-soft underline hover:text-ink disabled:opacity-50"
+                  title="Leave this parcel out of the dispute"
+                >
+                  Skip
+                </button>
+              )}
               {sent &&
                 (partialFor === l.id ? (
                   <form
