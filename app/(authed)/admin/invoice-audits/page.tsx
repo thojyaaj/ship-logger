@@ -6,7 +6,7 @@ import { formatWarehouseTimestamp } from "@/lib/date";
 import UploadInvoiceClient from "./UploadInvoiceClient";
 import StartDisputeClient, { type DisputableInvoice } from "./StartDisputeClient";
 import DisputesSection from "./DisputesSection";
-import { disputeTotals, listDisputes, undisputedCounts } from "@/lib/invoice-audit/disputes";
+import { disputeTotals, listDisputes, skippedTotals, undisputedCounts } from "@/lib/invoice-audit/disputes";
 import InvoiceAnalyticsSection from "./InvoiceAnalytics";
 import { getInvoiceAnalytics } from "@/lib/invoice-audit/analytics";
 import { getShippingSummaries, sumShippingSummaries } from "@/lib/invoice-audit/shipping-margin";
@@ -27,11 +27,12 @@ const NET_TONE = {
 
 export default async function InvoiceAuditsPage() {
   await pageRequireAdmin();
-  const [audits, analytics, shipping, disputes] = await Promise.all([
+  const [audits, analytics, shipping, disputes, skipped] = await Promise.all([
     listInvoiceAudits(),
     getInvoiceAnalytics(),
     getShippingSummaries(),
     listDisputes(),
+    skippedTotals(),
   ]);
   // Only parcels not already in a dispute — see lib/invoice-audit/disputes.ts.
   const undisputed = await undisputedCounts(audits.map((a) => a.id));
@@ -58,7 +59,9 @@ export default async function InvoiceAuditsPage() {
         <InvoiceAnalyticsSection data={analytics} shipping={sumShippingSummaries(shipping.values())} />
       )}
 
-      {disputes.length > 0 && <DisputesSection disputes={disputes} totals={disputeTotals(disputes)} />}
+      {(disputes.length > 0 || skipped.parcels > 0) && (
+        <DisputesSection disputes={disputes} totals={disputeTotals(disputes)} skipped={skipped} />
+      )}
 
       {disputable.length > 0 && <StartDisputeClient invoices={disputable} />}
 

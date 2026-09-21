@@ -8,6 +8,9 @@ import {
   deleteDraftDispute,
   markDisputeSent,
   recordOutcome,
+  removeFromDraft,
+  setAuditSkipped,
+  setParcelsSkipped,
   type DisputeOutcome,
 } from "@/lib/invoice-audit/disputes";
 import { enrichInvoiceLines, type EnrichResult } from "@/lib/invoice-audit/enrich";
@@ -70,4 +73,24 @@ export async function recordDisputeOutcomeAction(
 export async function enrichInvoiceAuditAction(auditId: string): Promise<ActionResult<EnrichResult>> {
   await requireAdmin();
   return runExpectable(() => enrichInvoiceLines({ auditId }));
+}
+
+// "Skip" = decide not to dispute a parcel (lib/invoice-audit/disputes.ts).
+// All reversible; skipping never touches a parcel that's in a dispute.
+export async function setParcelsSkippedAction(lineIds: string[], skip: boolean): Promise<ActionResult<{ changed: number }>> {
+  await requireAdmin();
+  return runExpectable(async () => ({ changed: await setParcelsSkipped(lineIds.slice(0, 500), skip) }));
+}
+
+export async function setAuditSkippedAction(auditId: string, skip: boolean): Promise<ActionResult<{ changed: number }>> {
+  await requireAdmin();
+  return runExpectable(async () => ({ changed: await setAuditSkipped(auditId, skip) }));
+}
+
+export async function removeFromDraftDisputeAction(
+  disputeId: string,
+  lineIds: string[],
+): Promise<ActionResult<{ deletedDispute: boolean; removed: number }>> {
+  await requireAdmin();
+  return runExpectable(() => removeFromDraft(disputeId, lineIds.slice(0, 500)));
 }

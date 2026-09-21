@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 import { db } from "../db";
 import { invoiceAudit, invoiceAuditLine, invoiceDispute } from "../db/schema";
 import { newId } from "../id";
@@ -15,6 +15,10 @@ import { ExpectedError } from "../expected-error";
  *
  * Lifecycle: draft (created, not sent — can be deleted, freeing its
  * parcels) → sent (Mark as sent) → resolved (every parcel has an outcome).
+ *
+ * A parcel can also be skipped — a decision not to dispute it — which keeps
+ * it out of new disputes and out of the "still to dispute" counts, and is
+ * reversible.
  */
 
 export const DISPUTABLE_STATUSES = ["over", "duplicate"] as const;
@@ -66,6 +70,7 @@ export async function createDispute(auditIds: string[], userId: string): Promise
           inArray(invoiceAuditLine.auditId, auditIds),
           inArray(invoiceAuditLine.status, [...DISPUTABLE_STATUSES]),
           isNull(invoiceAuditLine.disputeId),
+          isNull(invoiceAuditLine.disputeSkippedAt),
         ),
       )
       .returning({ id: invoiceAuditLine.id });
@@ -73,7 +78,7 @@ export async function createDispute(auditIds: string[], userId: string): Promise
 
   if (claimed.length === 0) {
     await db.delete(invoiceDispute).where(eq(invoiceDispute.id, id));
-    throw new ExpectedError("Nothing new to dispute — every overcharged parcel on these invoices is already in a dispute.");
+    throw new ExpectedError("Nothing new to dispute — every overcharged parcel on these invoices is already in a dispute or skipped.");
   }
   return { id, parcels: claimed.length };
 }
@@ -214,8 +219,104 @@ export async function undisputedCounts(auditIds: string[]): Promise<Map<string, 
         inArray(invoiceAuditLine.auditId, auditIds),
         inArray(invoiceAuditLine.status, [...DISPUTABLE_STATUSES]),
         isNull(invoiceAuditLine.disputeId),
+        isNull(invoiceAuditLine.disputeSkippedAt),
       ),
     )
     .groupBy(invoiceAuditLine.auditId);
   return new Map(rows.map((r) => [r.auditId, { parcels: r.parcels, amount: round2(Number(r.amount)) }]));
+}
+
+/**
+ * Skipping: deciding not to dispute a parcel. Only a disputable parcel that
+ * isn't already in a dispute can be skipped (one in a draft is removed from
+ * it with removeFromDraft; one in a sent dispute was already sent). All of
+ * this is reversible.
+ */
+const skippable = (extra: SQL | undefined) =>
+  and(
+    inArray(invoiceAuditLine.status, [...DISPUTABLE_STATUSES]),
+    isNull(invoiceAuditLine.disputeId),
+    extra,
+  );
+
+/** Skips (or, with `skip: false`, restores) specific parcels. Returns how many changed. */
+export async function setParcelsSkipped(lineIds: string[], skip: boolean): Promise<number> {
+  if (lineIds.length === 0) throw new ExpectedError("Select at least one parcel.");
+  const rows = await db
+    .update(invoiceAuditLine)
+    .set({ disputeSkippedAt: skip ? nowSqlTimestamp() : null })
+    .where(
+      skippable(
+        and(
+          inArray(invoiceAuditLine.id, lineIds),
+          skip ? isNull(invoiceAuditLine.disputeSkippedAt) : isNotNull(invoiceAuditLine.disputeSkippedAt),
+        ),
+      ),
+    )
+    .returning({ id: invoiceAuditLine.id });
+  return rows.length;
+}
+
+/** Skips (or restores) every parcel on one invoice that could be disputed and isn't in a dispute. */
+export async function setAuditSkipped(auditId: string, skip: boolean): Promise<number> {
+  const rows = await db
+    .update(invoiceAuditLine)
+    .set({ disputeSkippedAt: skip ? nowSqlTimestamp() : null })
+    .where(
+      skippable(
+        and(
+          eq(invoiceAuditLine.auditId, auditId),
+          skip ? isNull(invoiceAuditLine.disputeSkippedAt) : isNotNull(invoiceAuditLine.disputeSkippedAt),
+        ),
+      ),
+    )
+    .returning({ id: invoiceAuditLine.id });
+  return rows.length;
+}
+
+/**
+ * Takes parcels out of a draft dispute and skips them, so they aren't
+ * disputed and don't come straight back into the next one. A draft left
+ * with no parcels is deleted. A dispute that's been sent can't change.
+ */
+export async function removeFromDraft(disputeId: string, lineIds: string[]): Promise<{ deletedDispute: boolean; removed: number }> {
+  if (lineIds.length === 0) throw new ExpectedError("Select at least one parcel.");
+  return db.transaction(async (tx) => {
+    const [d] = await tx.select({ sentAt: invoiceDispute.sentAt }).from(invoiceDispute).where(eq(invoiceDispute.id, disputeId));
+    if (!d) throw new ExpectedError("That dispute no longer exists.");
+    if (d.sentAt) throw new ExpectedError("This dispute has been sent, so its parcels can't be removed.");
+
+    const removed = await tx
+      .update(invoiceAuditLine)
+      .set({
+        disputeId: null,
+        disputedAmount: null,
+        disputeOutcome: null,
+        creditedAmount: null,
+        disputeResolvedAt: null,
+        disputeSkippedAt: nowSqlTimestamp(),
+      })
+      .where(and(eq(invoiceAuditLine.disputeId, disputeId), inArray(invoiceAuditLine.id, lineIds)))
+      .returning({ id: invoiceAuditLine.id });
+
+    const [left] = await tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(invoiceAuditLine)
+      .where(eq(invoiceAuditLine.disputeId, disputeId));
+    const deletedDispute = (left?.n ?? 0) === 0;
+    if (deletedDispute) await tx.delete(invoiceDispute).where(eq(invoiceDispute.id, disputeId));
+    return { deletedDispute, removed: removed.length };
+  });
+}
+
+/** Parcels skipped across every invoice, for the Invoices page. */
+export async function skippedTotals(): Promise<{ parcels: number; amount: number }> {
+  const [row] = await db
+    .select({
+      parcels: sql<number>`count(*)::int`,
+      amount: sql<number>`coalesce(sum(${invoiceAuditLine.difference}), 0)`,
+    })
+    .from(invoiceAuditLine)
+    .where(and(isNotNull(invoiceAuditLine.disputeSkippedAt), isNull(invoiceAuditLine.disputeId)));
+  return { parcels: row?.parcels ?? 0, amount: round2(Number(row?.amount ?? 0)) };
 }

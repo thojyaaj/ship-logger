@@ -1,0 +1,1 @@
+ALTER TABLE "invoice_audit_line" ADD COLUMN "dispute_skipped_at" text;
