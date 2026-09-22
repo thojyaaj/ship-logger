@@ -10,7 +10,7 @@ import {
   nextCalendarDate,
   localCalendarDate,
 } from "./date";
-import { requestDhlPickup, cancelDhlPickup, type PickupPackageDimensions } from "./dhl";
+import { requestDhlPickup, cancelDhlPickup, toDhlDimension, type PickupPackageDimensions } from "./dhl";
 import { getShipmentDetail, ShipmentNotFoundError } from "./shiplog";
 
 // One warehouse, one pickup address/account — a fixed-id singleton row
@@ -368,11 +368,21 @@ async function computeDhlWeightAndDimensions(
 
   const dimensions: PickupPackageDimensions =
     measuredCount === 0
-      ? { length: settings.avgLengthIn, width: settings.avgWidthIn, height: settings.avgHeightIn }
+      ? {
+          length: toDhlDimension(settings.avgLengthIn),
+          width: toDhlDimension(settings.avgWidthIn),
+          height: toDhlDimension(settings.avgHeightIn),
+        }
       : {
-          length: (measured.reduce((sum, s) => sum + s.lengthIn, 0) + estimatedCount * settings.avgLengthIn) / parcelCount,
-          width: (measured.reduce((sum, s) => sum + s.widthIn, 0) + estimatedCount * settings.avgWidthIn) / parcelCount,
-          height: (measured.reduce((sum, s) => sum + s.heightIn, 0) + estimatedCount * settings.avgHeightIn) / parcelCount,
+          length: toDhlDimension(
+            (measured.reduce((sum, s) => sum + s.lengthIn, 0) + estimatedCount * settings.avgLengthIn) / parcelCount,
+          ),
+          width: toDhlDimension(
+            (measured.reduce((sum, s) => sum + s.widthIn, 0) + estimatedCount * settings.avgWidthIn) / parcelCount,
+          ),
+          height: toDhlDimension(
+            (measured.reduce((sum, s) => sum + s.heightIn, 0) + estimatedCount * settings.avgHeightIn) / parcelCount,
+          ),
         };
 
   return { totalWeightLb, dimensions, measuredCount };

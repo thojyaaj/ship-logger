@@ -44,6 +44,17 @@ export type PickupPackageDimensions = {
   height: number;
 };
 
+/**
+ * DHL's pickup API rejects any dimension that isn't a multiple of 0.001
+ * ("9.181818181818182 is not a multiple of 0.001", HTTP 422) — which is
+ * exactly what an average across parcels produces (see lib/dhl-pickup.ts's
+ * computeDhlWeightAndDimensions). Round to thousandths of an inch, and never
+ * send 0, the one multiple of 0.001 DHL still won't accept as a dimension.
+ */
+export function toDhlDimension(inches: number): number {
+  return Math.max(0.001, Math.round(inches * 1000) / 1000);
+}
+
 export type PickupRequestInput = {
   accountNumber: string;
   /** Full ISO-8601 timestamp with UTC offset, e.g. "2026-07-04T09:00:00-05:00". */
