@@ -18,6 +18,9 @@ import {
   getRateShopSavings,
   getShippingMargin,
   getExceptionBreakdown,
+  getDataGaps,
+  getCarrierMarginTrend,
+  getIntegrationHealth,
 } from "@/lib/analytics";
 import { carrierLabel, exceptionCategoryLabel, type Carrier } from "@/lib/carrier";
 import { getProblemSummary } from "@/lib/shipment-alerts";
@@ -28,6 +31,10 @@ import PackerTable from "./PackerTable";
 import StatTile from "./StatTile";
 import CourierCard, { type CourierCardData } from "./CourierCard";
 import AiInsights from "./AiInsights";
+import DataGapsPanel from "./DataGapsPanel";
+import MarginTrend from "./MarginTrend";
+import WeekdayCarrierChart from "./WeekdayCarrierChart";
+import { carrierBarClass } from "./carrier-colors";
 
 // AiInsights's server action makes one (slow, thoughtful) Anthropic call —
 // longer than the default 10s Vercel Function duration allows.
@@ -50,19 +57,6 @@ function formatMoney(amount: number | null, currency: string | null): string {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: currency ?? "USD" }).format(amount);
   } catch {
     return `${amount.toFixed(2)}${currency ? ` ${currency}` : ""}`;
-  }
-}
-
-function carrierBarClass(carrier: Carrier): string {
-  switch (carrier) {
-    case "epg":
-      return "bg-epg";
-    case "ups":
-      return "bg-ups";
-    case "dhl":
-      return "bg-dhl";
-    default:
-      return "bg-ink-faint";
   }
 }
 
@@ -122,6 +116,9 @@ export default async function AnalyticsPage({
     rateShopSavings,
     shippingMargin,
     exceptionBreakdown,
+    dataGaps,
+    marginTrend,
+    integrationHealth,
   ] = await Promise.all([
     getDailyVolume(days),
     getOverviewStats(days),
@@ -141,11 +138,13 @@ export default async function AnalyticsPage({
     getRateShopSavings(days),
     getShippingMargin(days),
     getExceptionBreakdown(days),
+    getDataGaps(days),
+    getCarrierMarginTrend(days),
+    getIntegrationHealth(days),
   ]);
   const problemTotal = problems.exceptionCount + problems.staleCount + problems.lossCount;
 
   const maxStatusCount = Math.max(1, ...statusBreakdown.map((s) => s.count));
-  const maxWeekdayCount = Math.max(1, ...weekday.map((w) => w.count));
   const maxCarrierCost = Math.max(1, ...costStats.byCarrier.map((c) => c.totalCost));
   const maxExceptionReasonCount = Math.max(1, ...exceptionBreakdown.topReasonsOverall.map((r) => r.count));
   const maxExceptionCategoryCount = Math.max(1, ...exceptionBreakdown.byCategory.map((c) => c.count));
@@ -206,6 +205,11 @@ export default async function AnalyticsPage({
     exceptionBreakdown,
     statusBreakdown,
     weekdayVolume: weekday,
+    // Examples are a UI convenience (tracking numbers to click through), not
+    // analysis input — left out to keep the snapshot small.
+    dataGaps: { ...dataGaps, examples: undefined },
+    marginTrend,
+    integrationHealth,
     dhlPickupStats: dhlStats,
     operationalHealth: health,
     epgFinalMile,
@@ -253,6 +257,29 @@ export default async function AnalyticsPage({
         </div>
       )}
 
+      {/* Empty rate-shop / on-time tiles are not good news — say so, and say
+          why, whenever the pipeline behind them isn't producing data. */}
+      {(
+        [
+          { key: "rate-shop", title: "Rate-shop savings", health: integrationHealth.rateShop },
+          { key: "on-time", title: "On-time delivery", health: integrationHealth.onTime },
+        ] as const
+      )
+        .filter((h) => h.health.status !== "ok" && h.health.reason && h.health.total > 0)
+        .map((h) => (
+          <div key={h.key} className="border-l-4 border-amber bg-amber-dim px-3 py-2 text-amber-ink text-sm font-condensed">
+            <strong className="font-semibold">
+              {h.title}: {h.health.status === "empty" ? "no data" : "incomplete data"}
+            </strong>{" "}
+            — {h.health.reason}{" "}
+            <span className="text-xs">
+              ({h.health.eligible}/{h.health.total} parcels eligible · {h.health.attempted} attempted · {h.health.populated} with data)
+            </span>
+          </div>
+        ))}
+
+      <DataGapsPanel gaps={dataGaps} currency={costStats.currency} />
+
       <AiInsights windowDays={days} snapshot={aiSnapshot} />
 
       {/* Overview KPIs — the six numbers worth knowing at a glance before
@@ -265,7 +292,7 @@ export default async function AnalyticsPage({
           value={shippingMargin.count > 0 ? formatMoney(shippingMargin.netMargin, costStats.currency) : "—"}
           sub={
             shippingMargin.count > 0
-              ? `${shippingMargin.marginPct !== null ? `${shippingMargin.marginPct.toFixed(1)}% of charged` : ""} · ${shippingMargin.count} parcels`
+              ? `${shippingMargin.marginPct !== null ? `${shippingMargin.marginPct.toFixed(1)}% of charged` : ""} · ${shippingMargin.count} of ${dataGaps.totalParcels} parcels`
               : "no cost+charged data yet"
           }
           accent={
@@ -332,7 +359,9 @@ export default async function AnalyticsPage({
             onTimeTotal > 0 ? (
               `${onTimeOnTime}/${onTimeTotal} parcels · unverified data source`
             ) : (
-              <InsufficientData reason="no delivery-estimate data backfilled yet" />
+              <InsufficientData
+                reason={integrationHealth.onTime.status === "empty" ? "pipeline not producing data, see warning above" : "no delivery-estimate data backfilled yet"}
+              />
             )
           }
           accent={onTimeTotal === 0 ? "!text-ink-faint" : undefined}
@@ -344,7 +373,9 @@ export default async function AnalyticsPage({
             rateShopSavings.count > 0 ? (
               `${rateShopSavings.count} parcels compared · unverified data source`
             ) : (
-              <InsufficientData reason="no rate-estimate data backfilled yet" />
+              <InsufficientData
+                reason={integrationHealth.rateShop.status === "empty" ? "pipeline not producing data, see warning above" : "no rate-estimate data backfilled yet"}
+              />
             )
           }
           accent={
@@ -361,6 +392,8 @@ export default async function AnalyticsPage({
           <CourierCard key={c.carrier} data={c} />
         ))}
       </div>
+
+      <MarginTrend trends={marginTrend.carriers} windowDays={days} />
 
       <VolumeChart points={dailyVolume} />
 
@@ -444,17 +477,7 @@ export default async function AnalyticsPage({
         emptyMessage="No exceptions in this window."
       />
 
-      <BarList
-        title="Volume by day of week"
-        rows={weekday.map((w) => ({
-          key: String(w.weekday),
-          label: w.label,
-          value: w.count,
-          displayValue: String(w.count),
-          pct: (w.count / maxWeekdayCount) * 100,
-          barClassName: "bg-orange",
-        }))}
-      />
+      <WeekdayCarrierChart points={weekday} />
 
       <PackerTable packers={packers} />
 

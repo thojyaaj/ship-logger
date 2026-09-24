@@ -1,9 +1,21 @@
 import "server-only";
 import { db } from "./db";
 import { appUser, shipmentSession, box, scan, shipmentReset, dhlPickupRequest } from "./db/schema";
-import { and, eq, sql, ne, isNull, isNotNull, inArray } from "drizzle-orm";
+import { and, eq, sql, ne, or, desc, isNull, isNotNull, inArray } from "drizzle-orm";
 import { localCalendarDate, toSqlTimestamp, parseDbTimestamp, parseCarrierTimestamp, warehouseLocalTime } from "./date";
 import { EXCEPTION_STATUS_RE, categorizeException, type Carrier, type ExceptionCategory } from "./carrier";
+import { getDhlPickupSettings } from "./dhl-pickup";
+import {
+  buildMarginTrend,
+  buildWeekdayVolume,
+  diagnoseOnTime,
+  diagnoseRateShop,
+  type CarrierMarginTrend,
+  type MarginDayRow,
+  type PipelineCounts,
+  type PipelineDiagnosis,
+  type WeekdayCarrierPoint,
+} from "./analytics-derive";
 
 /** Shared money-rounding — every $ figure in this file is rounded to cents once, at the point it's returned, not on every intermediate add. */
 function round2(n: number): number {
@@ -696,29 +708,18 @@ export async function getOperationalHealth(days: number): Promise<OperationalHea
   };
 }
 
-export type WeekdayVolumePoint = { weekday: number; label: string; count: number };
+export type WeekdayVolumePoint = WeekdayCarrierPoint;
 
-const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-/** Package volume summed by day of week across the whole window — which day of the week actually ships the most, independent of any one calendar date. */
+/** Package volume summed by day of week across the whole window, split by carrier — which day of the week actually ships the most, and which carrier is behind it, independent of any one calendar date. */
 export async function getWeekdayVolume(days: number): Promise<WeekdayVolumePoint[]> {
   const rows = await db
-    .select({ shipDate: shipmentSession.shipDate, count: sql<number>`count(*)` })
+    .select({ shipDate: shipmentSession.shipDate, carrier: scan.carrier, count: sql<number>`count(*)` })
     .from(scan)
     .innerJoin(shipmentSession, eq(scan.sessionId, shipmentSession.id))
     .where(submittedInWindow(days))
-    .groupBy(shipmentSession.shipDate);
+    .groupBy(shipmentSession.shipDate, scan.carrier);
 
-  const counts = new Array(7).fill(0) as number[];
-  for (const r of rows) {
-    // shipDate is a plain "YYYY-MM-DD" calendar day, not an instant — parsed
-    // as UTC midnight purely to ask "which weekday is this", never rendered
-    // or compared as a real timestamp, so there's no timezone to get wrong.
-    const [y, m, d] = r.shipDate.split("-").map(Number);
-    const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-    counts[weekday] += Number(r.count);
-  }
-  return counts.map((count, weekday) => ({ weekday, label: WEEKDAY_LABELS[weekday], count }));
+  return buildWeekdayVolume(rows.map((r) => ({ shipDate: r.shipDate, carrier: r.carrier as Carrier, count: Number(r.count) })));
 }
 
 export type PeriodMetric = { current: number; previous: number; pctChange: number | null };
@@ -768,5 +769,240 @@ export async function getPeriodComparison(days: number): Promise<PeriodCompariso
       pctChange: pctChange(currentSessions.length, previousSessions.length),
     },
     packages: { current: currentPackages, previous: previousPackages, pctChange: pctChange(currentPackages, previousPackages) },
+  };
+}
+
+export type CarrierMarginTrendResult = { windowDays: number; carriers: CarrierMarginTrend[] };
+
+/**
+ * Per-carrier margin over time: this window vs. the equal-length window
+ * before it, plus full 7-day buckets within this window. Answers "is this
+ * carrier's margin thin because rates crept up, or was it always thin" —
+ * which a single window total can't. Same both-figures-known filter as
+ * getShippingMargin, so the numbers tie out to the margin tiles.
+ */
+export async function getCarrierMarginTrend(days: number): Promise<CarrierMarginTrendResult> {
+  const rows = await db
+    .select({
+      carrier: scan.carrier,
+      shipDate: shipmentSession.shipDate,
+      cost: sql<number>`coalesce(sum(${scan.shipstationCostAmount}), 0)`,
+      charged: sql<number>`coalesce(sum(${scan.customerShippingAmount}), 0)`,
+      count: sql<number>`count(*)`,
+    })
+    .from(scan)
+    .innerJoin(shipmentSession, eq(scan.sessionId, shipmentSession.id))
+    .where(
+      and(
+        eq(shipmentSession.status, "submitted"),
+        isNull(shipmentSession.deletedAt),
+        sql`${shipmentSession.shipDate} >= ${calendarCutoff(days * 2)}`,
+        isNotNull(scan.shipstationCostAmount),
+        isNotNull(scan.customerShippingAmount),
+      ),
+    )
+    .groupBy(scan.carrier, shipmentSession.shipDate);
+
+  const marginRows: MarginDayRow[] = rows.map((r) => ({
+    carrier: r.carrier as Carrier,
+    shipDate: r.shipDate,
+    cost: Number(r.cost),
+    charged: Number(r.charged),
+    count: Number(r.count),
+  }));
+  return { windowDays: days, carriers: buildMarginTrend(marginRows, days, localCalendarDate()) };
+}
+
+export type DataGapKind = "no-order-match" | "no-charge" | "no-cost";
+export type DataGapCarrierPoint = {
+  carrier: Carrier;
+  total: number;
+  unmatched: number;
+  missingCharge: number;
+  chargedNoCost: number;
+};
+export type DataGapExample = {
+  scanId: string;
+  sessionId: string;
+  trackingNumber: string;
+  carrier: Carrier;
+  shipDate: string;
+  gaps: DataGapKind[];
+};
+export type DataGaps = {
+  totalParcels: number;
+  /** Parcels with both a label cost and a customer-charged amount — exactly the set every margin figure on the page is computed from. */
+  marginCovered: number;
+  /** Parcels the margin figures silently exclude (totalParcels − marginCovered). */
+  marginExcluded: number;
+  /** No Shopify order matched the scan (orderGid is null) — so no customer-charged amount either. */
+  unmatched: number;
+  /** A label cost is known but the customer-charged amount isn't: money went out with nothing to compare it to. `costExposure` is the label cost on those parcels. */
+  missingCharge: number;
+  costExposure: number;
+  /** A customer-charged amount is known but the label cost isn't: a loss on these parcels would be invisible. `chargedUncosted` is what customers paid on them. */
+  chargedNoCost: number;
+  chargedUncosted: number;
+  byCarrier: DataGapCarrierPoint[];
+  /** Most recent parcels with at least one gap, newest first. */
+  examples: DataGapExample[];
+};
+
+const DATA_GAP_EXAMPLE_LIMIT = 10;
+
+/**
+ * The parcels the margin/cost figures leave out, and why — so a gap between
+ * "parcels shipped" and "parcels with margin data" is a number on the page,
+ * not something to reverse-engineer by cross-referencing counts across
+ * sections. Three distinct failure modes, kept separate because they have
+ * different fixes: no order match (webhook/ERef/order-index), matched order
+ * with no shipping charge on it, and a charge with no ShipStation label cost
+ * (labels cron).
+ */
+export async function getDataGaps(days: number): Promise<DataGaps> {
+  const [rows, exampleRows] = await Promise.all([
+    db
+      .select({
+        carrier: scan.carrier,
+        total: sql<number>`count(*)`,
+        covered: sql<number>`count(*) filter (where ${scan.shipstationCostAmount} is not null and ${scan.customerShippingAmount} is not null)`,
+        unmatched: sql<number>`count(*) filter (where ${scan.orderGid} is null)`,
+        missingCharge: sql<number>`count(*) filter (where ${scan.shipstationCostAmount} is not null and ${scan.customerShippingAmount} is null)`,
+        costExposure: sql<number>`coalesce(sum(${scan.shipstationCostAmount}) filter (where ${scan.customerShippingAmount} is null), 0)`,
+        chargedNoCost: sql<number>`count(*) filter (where ${scan.customerShippingAmount} is not null and ${scan.shipstationCostAmount} is null)`,
+        chargedUncosted: sql<number>`coalesce(sum(${scan.customerShippingAmount}) filter (where ${scan.shipstationCostAmount} is null), 0)`,
+      })
+      .from(scan)
+      .innerJoin(shipmentSession, eq(scan.sessionId, shipmentSession.id))
+      .where(submittedInWindow(days))
+      .groupBy(scan.carrier),
+    db
+      .select({
+        scanId: scan.id,
+        sessionId: scan.sessionId,
+        trackingNumber: scan.trackingNumber,
+        carrier: scan.carrier,
+        shipDate: shipmentSession.shipDate,
+        orderGid: scan.orderGid,
+        cost: scan.shipstationCostAmount,
+        charged: scan.customerShippingAmount,
+      })
+      .from(scan)
+      .innerJoin(shipmentSession, eq(scan.sessionId, shipmentSession.id))
+      .where(
+        and(
+          submittedInWindow(days),
+          or(isNull(scan.orderGid), isNull(scan.shipstationCostAmount), isNull(scan.customerShippingAmount)),
+        ),
+      )
+      .orderBy(desc(scan.scannedAt))
+      .limit(DATA_GAP_EXAMPLE_LIMIT),
+  ]);
+
+  let totalParcels = 0;
+  let marginCovered = 0;
+  let unmatched = 0;
+  let missingCharge = 0;
+  let costExposure = 0;
+  let chargedNoCost = 0;
+  let chargedUncosted = 0;
+  const byCarrier: DataGapCarrierPoint[] = [];
+  for (const carrier of CARRIER_ORDER) {
+    const r = rows.find((row) => row.carrier === carrier);
+    if (!r) continue;
+    const point = {
+      carrier,
+      total: Number(r.total),
+      unmatched: Number(r.unmatched),
+      missingCharge: Number(r.missingCharge),
+      chargedNoCost: Number(r.chargedNoCost),
+    };
+    totalParcels += point.total;
+    marginCovered += Number(r.covered);
+    unmatched += point.unmatched;
+    missingCharge += point.missingCharge;
+    costExposure += Number(r.costExposure);
+    chargedNoCost += point.chargedNoCost;
+    chargedUncosted += Number(r.chargedUncosted);
+    byCarrier.push(point);
+  }
+
+  const examples: DataGapExample[] = exampleRows.map((r) => {
+    const gaps: DataGapKind[] = [];
+    if (r.orderGid === null) gaps.push("no-order-match");
+    else if (r.charged === null) gaps.push("no-charge");
+    if (r.cost === null) gaps.push("no-cost");
+    return {
+      scanId: r.scanId,
+      sessionId: r.sessionId,
+      trackingNumber: r.trackingNumber,
+      carrier: r.carrier as Carrier,
+      shipDate: r.shipDate,
+      gaps,
+    };
+  });
+
+  return {
+    totalParcels,
+    marginCovered,
+    marginExcluded: totalParcels - marginCovered,
+    unmatched,
+    missingCharge,
+    costExposure: round2(costExposure),
+    chargedNoCost,
+    chargedUncosted: round2(chargedUncosted),
+    byCarrier,
+    examples,
+  };
+}
+
+export type IntegrationHealth = {
+  rateShop: PipelineCounts & PipelineDiagnosis & { originConfigured: boolean };
+  onTime: PipelineCounts & PipelineDiagnosis;
+};
+
+/**
+ * Whether the two ShipStation-backed "unverified" metrics (rate-shop
+ * savings, on-time delivery) are empty because there's nothing to report or
+ * because the pipeline behind them isn't producing anything. Counts each
+ * parcel's progress through the backfill (eligible → attempted → populated)
+ * and hands them to the pure diagnosis functions for a plain-language cause.
+ */
+export async function getIntegrationHealth(days: number): Promise<IntegrationHealth> {
+  const [[row], originSettings] = await Promise.all([
+    db
+      .select({
+        total: sql<number>`count(*)`,
+        rateEligible: sql<number>`count(*) filter (where ${scan.shipstationWeightLb} is not null)`,
+        rateAttempted: sql<number>`count(*) filter (where ${scan.shipstationWeightLb} is not null and ${scan.shipstationBestRateCheckedAt} is not null)`,
+        ratePopulated: sql<number>`count(*) filter (where ${scan.shipstationBestRateAmount} is not null and ${scan.shipstationCostAmount} is not null)`,
+        timeEligible: sql<number>`count(*) filter (where ${scan.shipstationCarrierCode} is not null)`,
+        timeAttempted: sql<number>`count(*) filter (where ${scan.shipstationCarrierCode} is not null and ${scan.shipstationDeliveryCheckedAt} is not null)`,
+        timePopulated: sql<number>`count(*) filter (where ${scan.shipstationEstimatedDeliveryAt} is not null and ${scan.shipstationActualDeliveryAt} is not null)`,
+      })
+      .from(scan)
+      .innerJoin(shipmentSession, eq(scan.sessionId, shipmentSession.id))
+      .where(submittedInWindow(days)),
+    getDhlPickupSettings(),
+  ]);
+
+  const total = Number(row?.total ?? 0);
+  const rateCounts: PipelineCounts = {
+    total,
+    eligible: Number(row?.rateEligible ?? 0),
+    attempted: Number(row?.rateAttempted ?? 0),
+    populated: Number(row?.ratePopulated ?? 0),
+  };
+  const timeCounts: PipelineCounts = {
+    total,
+    eligible: Number(row?.timeEligible ?? 0),
+    attempted: Number(row?.timeAttempted ?? 0),
+    populated: Number(row?.timePopulated ?? 0),
+  };
+  const originConfigured = originSettings !== null;
+
+  return {
+    rateShop: { ...rateCounts, ...diagnoseRateShop(rateCounts, originConfigured), originConfigured },
+    onTime: { ...timeCounts, ...diagnoseOnTime(timeCounts) },
   };
 }
