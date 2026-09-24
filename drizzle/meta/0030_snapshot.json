@@ -1,5 +1,5 @@
 {
-  "id": "9ac7d05b-3bbd-45fd-9b80-a9a1ffb5b554",
+  "id": "f2ef5215-e5d4-4b69-94e7-070d56b4a27b",
   "prevId": "6528464d-1520-438d-8de6-c3db1ae804f1",
   "version": "7",
   "dialect": "postgresql",
@@ -152,30 +152,6 @@
         },
         "ups_tracking": {
           "name": "ups_tracking",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "shipstation_shipment_id": {
-          "name": "shipstation_shipment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "shipstation_draft_status": {
-          "name": "shipstation_draft_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "shipstation_draft_error": {
-          "name": "shipstation_draft_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "shipstation_draft_at": {
-          "name": "shipstation_draft_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -1773,6 +1749,30 @@
         },
         "master_ups_status_checked_at": {
           "name": "master_ups_status_checked_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shipstation_shipment_id": {
+          "name": "shipstation_shipment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shipstation_draft_status": {
+          "name": "shipstation_draft_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shipstation_draft_error": {
+          "name": "shipstation_draft_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shipstation_draft_at": {
+          "name": "shipstation_draft_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false

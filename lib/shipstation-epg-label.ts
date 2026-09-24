@@ -1,16 +1,23 @@
 import "server-only";
 import { db } from "./db";
-import { shipstationEpgLabelSettings, box } from "./db/schema";
+import { shipstationEpgLabelSettings, shipmentSession, box } from "./db/schema";
 import { eq } from "drizzle-orm";
 import { nowSqlTimestamp } from "./date";
 
 /**
- * Auto-drafts the UPS shipment ShipStation needs for an EPG box's outbound
- * label to ePost Global's hub — created (not purchased) the moment a
- * shipment with EPG parcels is submitted, so all a packer/admin has to do
- * in ShipStation afterward is weigh the box and click Buy Label. Every
- * field here except weight (unknown until the box is on a scale) comes
- * straight from shipstation_epg_label_settings.
+ * Drafts (never purchases) the single ShipStation shipment that covers
+ * every EPG box in a session as a UPS multi-piece shipment — one `package`
+ * entry per box, one master tracking number covering all of them, matching
+ * how UPS multi-piece actually works and how docs/PRD.md's data model
+ * expects `shipmentSession.masterUpsTracking` to behave (§7: "ONE UPS
+ * master; accounts for every box").
+ *
+ * This only pre-fills ShipStation — a person still has to open the
+ * shipment there, weigh each box, and buy the label. `syncMasterUpsTracking`
+ * below is what closes the loop: once bought, it looks the resulting label
+ * up and writes its tracking number back as this session's
+ * masterUpsTracking, which is what the AWB depends on and what unblocks
+ * Submit (see SubmitDialog.tsx and lib/shiplog.ts's submitSession).
  *
  * Two-call sequence, per ShipStation v2's own split: POST /v2/shipments
  * creates the shipment but its request body has no carrier_id/service_code/
@@ -21,9 +28,9 @@ import { nowSqlTimestamp } from "./date";
  *
  * Failure posture matches every other carrier client in this app
  * (lib/shipstation.ts, lib/dhl-pickup.ts): never throws. A failure is
- * recorded on the box row (shipstationDraftStatus: "error") rather than
- * blocking or retrying the submit that triggered it — submitting today's
- * shipment must never hinge on ShipStation being reachable.
+ * recorded on the session row (shipstationDraftStatus: "error") rather than
+ * blocking anything — the packer can always fall back to creating the label
+ * by hand in ShipStation and typing the AWB/master tracking in directly.
  */
 
 const PROD_BASE = "https://api.shipstation.com/v2";
@@ -202,8 +209,11 @@ export type DraftShipmentResult =
   | { status: "ok"; shipmentId: string }
   | { status: "error"; message: string };
 
-/** Creates (POST) then fills in carrier/service/billing (PUT) the ShipStation shipment for one EPG box. Never throws. */
-async function createDraftShipment(settings: ShipstationEpgLabelSettings): Promise<DraftShipmentResult> {
+/** Creates (POST) then fills in carrier/service/billing (PUT) one ShipStation shipment with `packageCount` packages — one per EPG box. Never throws. */
+async function createDraftShipment(
+  settings: ShipstationEpgLabelSettings,
+  packageCount: number,
+): Promise<DraftShipmentResult> {
   const apiKey = process.env.SHIPSTATION_API_KEY;
   if (!apiKey) return { status: "error", message: "SHIPSTATION_API_KEY not set." };
 
@@ -228,18 +238,19 @@ async function createDraftShipment(settings: ShipstationEpgLabelSettings): Promi
     country_code: settings.shipToCountryCode,
     address_residential_indicator: "no",
   };
-  const packages = [
-    {
-      package_code: "package",
-      weight: { value: PLACEHOLDER_WEIGHT_LB, unit: "pound" },
-      dimensions: {
-        unit: "inch",
-        length: settings.packageLengthIn,
-        width: settings.packageWidthIn,
-        height: settings.packageHeightIn,
-      },
+  // One package per EPG box — this is what makes it a UPS *multi-piece*
+  // shipment (one master tracking covering every piece) rather than
+  // packageCount separate shipments with unrelated tracking numbers.
+  const packages = Array.from({ length: Math.max(1, packageCount) }, () => ({
+    package_code: "package",
+    weight: { value: PLACEHOLDER_WEIGHT_LB, unit: "pound" },
+    dimensions: {
+      unit: "inch",
+      length: settings.packageLengthIn,
+      width: settings.packageWidthIn,
+      height: settings.packageHeightIn,
     },
-  ];
+  }));
 
   try {
     const createRes = await ssFetch(apiKey, "/shipments", {
@@ -296,48 +307,135 @@ async function createDraftShipment(settings: ShipstationEpgLabelSettings): Promi
   }
 }
 
+export type SessionDraftState = {
+  shipstationShipmentId: string | null;
+  shipstationDraftStatus: "created" | "error" | null;
+  shipstationDraftError: string | null;
+};
+
 /**
- * Drafts (never purchases) the ShipStation shipment for every EPG box in a
- * just-submitted session that doesn't already have one — called from
- * submitSession's `after()` (lib/shiplog.ts), so a slow or unreachable
- * ShipStation can never delay the submit response a packer is waiting on.
- * Idempotent: a retry (e.g. after a prior partial failure) skips any box
- * that already has a shipstationShipmentId rather than creating a duplicate.
+ * Drafts (never purchases) this session's single multi-piece ShipStation
+ * shipment, one package per EPG box — called when a packer opens the close-
+ * out step for a shipment with EPG parcels and no masterUpsTracking yet
+ * (see SubmitDialog.tsx). Idempotent: if the session already has a
+ * shipstationShipmentId, returns it as-is rather than creating a second
+ * shipment — this is safe to call on every dialog open/retry.
  */
-export async function createEpgDraftShipmentsForSession(sessionId: string): Promise<void> {
+export async function draftSessionShipment(sessionId: string): Promise<SessionDraftState> {
+  const sessionRows = await db.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId)).limit(1);
+  const session = sessionRows[0];
+  if (!session) {
+    return { shipstationShipmentId: null, shipstationDraftStatus: "error", shipstationDraftError: "Session not found." };
+  }
+  if (session.shipstationShipmentId) {
+    return {
+      shipstationShipmentId: session.shipstationShipmentId,
+      shipstationDraftStatus: session.shipstationDraftStatus,
+      shipstationDraftError: session.shipstationDraftError,
+    };
+  }
+
   const settings = await getShipstationEpgLabelSettings();
-  if (!settings?.enabled) return;
+  if (!settings?.enabled) {
+    const message = settings ? "ShipStation EPG label drafting is turned off." : "ShipStation EPG label settings aren't configured yet.";
+    await db
+      .update(shipmentSession)
+      .set({ shipstationDraftStatus: "error", shipstationDraftError: message, shipstationDraftAt: nowSqlTimestamp() })
+      .where(eq(shipmentSession.id, sessionId));
+    return { shipstationShipmentId: null, shipstationDraftStatus: "error", shipstationDraftError: message };
+  }
 
-  const boxRows = await db
-    .select()
-    .from(box)
-    .where(eq(box.sessionId, sessionId));
+  const boxCount = (await db.select().from(box).where(eq(box.sessionId, sessionId))).length;
+  console.log(`[shipstation-epg-label] drafting ShipStation shipment for session ${sessionId} (${boxCount} box(es))`);
+  const result = await createDraftShipment(settings, boxCount);
 
-  for (const row of boxRows) {
-    if (row.shipstationShipmentId) continue; // already drafted
-    console.log(`[shipstation-epg-label] drafting ShipStation shipment for box ${row.id} (session ${sessionId})`);
-    const result = await createDraftShipment(settings);
-    if (result.status === "ok") {
-      console.log(`[shipstation-epg-label] box ${row.id} -> shipment ${result.shipmentId}`);
-      await db
-        .update(box)
-        .set({
-          shipstationShipmentId: result.shipmentId,
-          shipstationDraftStatus: "created",
-          shipstationDraftError: null,
-          shipstationDraftAt: nowSqlTimestamp(),
-        })
-        .where(eq(box.id, row.id));
-    } else {
-      console.error(`[shipstation-epg-label] box ${row.id} draft failed: ${result.message}`);
-      await db
-        .update(box)
-        .set({
-          shipstationDraftStatus: "error",
-          shipstationDraftError: result.message,
-          shipstationDraftAt: nowSqlTimestamp(),
-        })
-        .where(eq(box.id, row.id));
+  if (result.status === "ok") {
+    console.log(`[shipstation-epg-label] session ${sessionId} -> shipment ${result.shipmentId}`);
+    await db
+      .update(shipmentSession)
+      .set({
+        shipstationShipmentId: result.shipmentId,
+        shipstationDraftStatus: "created",
+        shipstationDraftError: null,
+        shipstationDraftAt: nowSqlTimestamp(),
+      })
+      .where(eq(shipmentSession.id, sessionId));
+    return { shipstationShipmentId: result.shipmentId, shipstationDraftStatus: "created", shipstationDraftError: null };
+  }
+
+  console.error(`[shipstation-epg-label] session ${sessionId} draft failed: ${result.message}`);
+  await db
+    .update(shipmentSession)
+    .set({ shipstationDraftStatus: "error", shipstationDraftError: result.message, shipstationDraftAt: nowSqlTimestamp() })
+    .where(eq(shipmentSession.id, sessionId));
+  return { shipstationShipmentId: null, shipstationDraftStatus: "error", shipstationDraftError: result.message };
+}
+
+type LabelListResponse = {
+  labels?: { tracking_number?: string; created_at?: string }[];
+};
+
+export type SyncMasterTrackingResult =
+  | { status: "ok"; masterUpsTracking: string }
+  | { status: "pending" } // drafted (or not yet drafted), but no purchased label found yet
+  | { status: "error"; message: string };
+
+/**
+ * Looks up whether this session's drafted shipment has a purchased label
+ * yet, and if so writes its tracking number in as masterUpsTracking —
+ * called on a client-side poll from SubmitDialog.tsx while a packer is
+ * between "opened ShipStation to buy the label" and "label bought." No-ops
+ * (returns "ok" immediately) if masterUpsTracking is already set, so a late
+ * poll response after the packer already closed the loop is harmless.
+ *
+ * UNVERIFIED ASSUMPTION, same posture as lib/shipstation.ts's own
+ * unverified endpoints: ShipStation's v2 API has no explicit "master
+ * tracking number" concept for a multi-package shipment (confirmed absent
+ * from the v2 OpenAPI spec) — buying a label for a multi-piece shipment is
+ * expected to produce one label per package, each with its own
+ * tracking_number, following UPS's own convention that the first piece's
+ * tracking number is the one that acts as the master. This takes the
+ * earliest-created completed label for the shipment as the master. Confirm
+ * this against a real multi-piece UPS purchase before trusting it blindly;
+ * if it's wrong, the fallback (typing AWB/master tracking in by hand) is
+ * always available in SubmitDialog.
+ */
+export async function syncMasterUpsTracking(sessionId: string): Promise<SyncMasterTrackingResult> {
+  const sessionRows = await db.select().from(shipmentSession).where(eq(shipmentSession.id, sessionId)).limit(1);
+  const session = sessionRows[0];
+  if (!session) return { status: "error", message: "Session not found." };
+  if (session.masterUpsTracking) return { status: "ok", masterUpsTracking: session.masterUpsTracking };
+  if (!session.shipstationShipmentId) return { status: "pending" };
+
+  const apiKey = process.env.SHIPSTATION_API_KEY;
+  if (!apiKey) return { status: "error", message: "SHIPSTATION_API_KEY not set." };
+
+  try {
+    const url = new URL(`${apiBase()}/labels`);
+    url.searchParams.set("shipment_id", session.shipstationShipmentId);
+    url.searchParams.set("label_status", "completed");
+    url.searchParams.set("sort_by", "created_at");
+    url.searchParams.set("sort_dir", "asc");
+    url.searchParams.set("page_size", "25");
+
+    const res = await fetch(url, { headers: { "API-Key": apiKey }, signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) {
+      console.error(`[shipstation-epg-label] sync GET /labels failed: ${res.status} ${res.statusText}`);
+      return { status: "error", message: `ShipStation lookup failed (${res.status}).` };
     }
+
+    const data = (await res.json()) as LabelListResponse;
+    const earliest = data.labels?.[0];
+    if (!earliest?.tracking_number) return { status: "pending" };
+
+    await db
+      .update(shipmentSession)
+      .set({ masterUpsTracking: earliest.tracking_number })
+      .where(eq(shipmentSession.id, sessionId));
+    console.log(`[shipstation-epg-label] session ${sessionId} synced masterUpsTracking = ${earliest.tracking_number}`);
+    return { status: "ok", masterUpsTracking: earliest.tracking_number };
+  } catch (err) {
+    console.error("[shipstation-epg-label] sync threw:", err);
+    return { status: "error", message: err instanceof Error ? err.message : "Unknown error." };
   }
 }

@@ -24,8 +24,8 @@ CREATE TABLE "shipstation_epg_label_settings" (
 	"updated_by" text
 );
 --> statement-breakpoint
-ALTER TABLE "box" ADD COLUMN "shipstation_shipment_id" text;--> statement-breakpoint
-ALTER TABLE "box" ADD COLUMN "shipstation_draft_status" text;--> statement-breakpoint
-ALTER TABLE "box" ADD COLUMN "shipstation_draft_error" text;--> statement-breakpoint
-ALTER TABLE "box" ADD COLUMN "shipstation_draft_at" text;--> statement-breakpoint
+ALTER TABLE "shipment_session" ADD COLUMN "shipstation_shipment_id" text;--> statement-breakpoint
+ALTER TABLE "shipment_session" ADD COLUMN "shipstation_draft_status" text;--> statement-breakpoint
+ALTER TABLE "shipment_session" ADD COLUMN "shipstation_draft_error" text;--> statement-breakpoint
+ALTER TABLE "shipment_session" ADD COLUMN "shipstation_draft_at" text;--> statement-breakpoint
 ALTER TABLE "shipstation_epg_label_settings" ADD CONSTRAINT "shipstation_epg_label_settings_updated_by_app_user_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."app_user"("id") ON DELETE no action ON UPDATE no action;

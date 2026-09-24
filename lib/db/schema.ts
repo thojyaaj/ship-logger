@@ -56,6 +56,20 @@ export const shipmentSession = pgTable(
     masterUpsStatusLabel: text("master_ups_status_label"),
     masterUpsStatusAt: text("master_ups_status_at"),
     masterUpsStatusCheckedAt: text("master_ups_status_checked_at"),
+    // The single ShipStation shipment covering every EPG box in this
+    // session as UPS multi-piece packages (one `package` entry per box) —
+    // auto-drafted, never auto-purchased, the moment a packer tries to
+    // close out a shipment with EPG parcels and no masterUpsTracking yet
+    // (see lib/shipstation-epg-label.ts). A person still has to weigh each
+    // box and buy the label in ShipStation; once bought, this session's
+    // masterUpsTracking is filled in by polling ShipStation for the
+    // resulting label, which is what actually unblocks Submit — the AWB
+    // itself can only be generated externally once that master tracking
+    // number exists.
+    shipstationShipmentId: text("shipstation_shipment_id"),
+    shipstationDraftStatus: text("shipstation_draft_status", { enum: ["created", "error"] }),
+    shipstationDraftError: text("shipstation_draft_error"),
+    shipstationDraftAt: text("shipstation_draft_at"),
     // Which EPG box new scans land in. UI-convenience state, not domain data —
     // kept here (rather than only in client state) so a hard refresh mid-session
     // reopens on the same box instead of defaulting back to Box 1.
@@ -85,16 +99,6 @@ export const box = pgTable(
       .references(() => shipmentSession.id),
     boxNumber: integer("box_number").notNull(),
     upsTracking: text("ups_tracking"),
-    // The ShipStation shipment created for this box's EPG-hub-bound UPS
-    // label, auto-drafted on submit when the shipment has EPG parcels (see
-    // lib/shipstation-epg-label.ts). Never a purchased label by itself —
-    // it's a pre-filled shipment record a person still opens in ShipStation
-    // to enter the real box weight and buy. Null until the draft attempt
-    // runs; stays null forever if SHIPSTATION_API_KEY isn't configured.
-    shipstationShipmentId: text("shipstation_shipment_id"),
-    shipstationDraftStatus: text("shipstation_draft_status", { enum: ["created", "error"] }),
-    shipstationDraftError: text("shipstation_draft_error"),
-    shipstationDraftAt: text("shipstation_draft_at"),
   },
   (t) => [uniqueIndex("box_session_number_idx").on(t.sessionId, t.boxNumber)],
 );

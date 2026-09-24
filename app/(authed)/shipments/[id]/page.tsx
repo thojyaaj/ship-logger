@@ -58,9 +58,6 @@ export default async function ShipmentDetailPage({
     upsTracking: b.upsTracking,
     weightLb: b.weightLb,
     weighedCount: b.weighedCount,
-    shipstationShipmentId: b.shipstationShipmentId,
-    shipstationDraftStatus: b.shipstationDraftStatus,
-    shipstationDraftError: b.shipstationDraftError,
     rows: boxedScans.get(b.id) ?? [],
   }));
   // Split out of one combined "UPS / DHL Parcels" section into two, so each

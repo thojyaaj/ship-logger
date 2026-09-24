@@ -10,9 +10,6 @@ export type BoxData = {
   upsTracking: string | null;
   weightLb: number | null;
   weighedCount: number;
-  shipstationShipmentId: string | null;
-  shipstationDraftStatus: "created" | "error" | null;
-  shipstationDraftError: string | null;
   rows: Row[];
 };
 
@@ -32,40 +29,8 @@ function BoxHeading({ box }: { box: BoxData }) {
         ({box.scanCount} parcels{weight && `, ${weight}`})
       </span>
       {box.upsTracking && <span className="data text-ink-faint text-xs">{box.upsTracking}</span>}
-      <ShipstationDraftBadge box={box} />
     </h2>
   );
-}
-
-/**
- * Surfaces the outcome of submitSession's auto-drafted ShipStation shipment
- * (lib/shipstation-epg-label.ts) right on the box heading — a packer/admin
- * needs to know at a glance whether there's a shipment waiting in
- * ShipStation to be weighed and bought, or whether the draft failed and the
- * label has to be created by hand this time.
- */
-function ShipstationDraftBadge({ box }: { box: BoxData }) {
-  if (box.shipstationDraftStatus === "created" && box.shipstationShipmentId) {
-    return (
-      <span
-        className="tag-label !text-[0.6rem] !normal-case !tracking-normal text-green-ink"
-        title={`ShipStation shipment ${box.shipstationShipmentId} — open ShipStation to weigh and buy the label`}
-      >
-        ShipStation draft ready
-      </span>
-    );
-  }
-  if (box.shipstationDraftStatus === "error") {
-    return (
-      <span
-        className="tag-label !text-[0.6rem] !normal-case !tracking-normal text-red-ink"
-        title={box.shipstationDraftError ?? "ShipStation draft failed"}
-      >
-        ShipStation draft failed — create label manually
-      </span>
-    );
-  }
-  return null;
 }
 
 /**

@@ -8,7 +8,6 @@ import { detectCarrier, normalizeTrackingNumber, type Carrier } from "./carrier"
 import { nowSqlTimestamp, localCalendarDate, toSqlTimestamp, parseDbTimestamp } from "./date";
 import { lookupOrderIndex } from "./order-index";
 import { lookupShipstationLabel } from "./shipstation";
-import { createEpgDraftShipmentsForSession } from "./shipstation-epg-label";
 import { ExpectedError } from "./expected-error";
 
 function today(): string {
@@ -42,11 +41,6 @@ export type BoxSummary = {
   // flag a partial total (e.g. "not yet weighed: 1") instead of silently
   // understating the box.
   weighedCount: number;
-  // See box.shipstationShipmentId's comment (lib/db/schema.ts) — set once
-  // submitSession's after() has attempted a ShipStation draft for this box.
-  shipstationShipmentId: string | null;
-  shipstationDraftStatus: "created" | "error" | null;
-  shipstationDraftError: string | null;
 };
 
 export type ScanRow = {
@@ -131,9 +125,6 @@ async function loadDashboard(sessionId: string): Promise<SessionDashboard> {
         scanCount: boxCounts.get(b.id) ?? 0,
         weightLb: w ? Math.round(w.sum * 10) / 10 : null,
         weighedCount: w?.weighed ?? 0,
-        shipstationShipmentId: b.shipstationShipmentId,
-        shipstationDraftStatus: b.shipstationDraftStatus,
-        shipstationDraftError: b.shipstationDraftError,
       };
     });
 
@@ -453,16 +444,7 @@ export async function recordScan(input: RecordScanInput): Promise<RecordScanResu
           .update(shipmentSession)
           .set({ activeBoxId: id })
           .where(eq(shipmentSession.id, session.id));
-        activeBox = {
-          id,
-          sessionId: session.id,
-          boxNumber: nextNumber,
-          upsTracking: null,
-          shipstationShipmentId: null,
-          shipstationDraftStatus: null,
-          shipstationDraftError: null,
-          shipstationDraftAt: null,
-        };
+        activeBox = { id, sessionId: session.id, boxNumber: nextNumber, upsTracking: null };
       } catch (err) {
         // Two packers scanning the day's first EPG parcel at the same instant
         // both read activeBoxId=null and both compute box 1; the unique index
@@ -803,21 +785,6 @@ export async function submitSession(input: SubmitInput): Promise<SubmitResult> {
 
   if (!submitted) {
     return { status: "error", message: "This shipment was already submitted." };
-  }
-
-  // Every EPG box now has known contents and is about to physically go out
-  // to the hub, so this is the right moment to pre-fill its outbound UPS
-  // shipment in ShipStation — box weight still isn't known (that happens at
-  // the scale), so this only drafts, never purchases (see
-  // lib/shipstation-epg-label.ts). Scheduled with `after()` for the same
-  // reason as recordScan's ShipStation lookup above: a slow or unreachable
-  // ShipStation can never delay the submit response, and a failure here
-  // just leaves the box's draft fields null/error rather than blocking
-  // today's shipment from closing out.
-  if (hasEpg) {
-    after(async () => {
-      await createEpgDraftShipmentsForSession(input.sessionId);
-    });
   }
 
   return { status: "ok" };

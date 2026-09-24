@@ -1,12 +1,18 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import type { SessionDashboard } from "@/lib/shiplog";
 import { localCalendarDate } from "@/lib/date";
-import { submitSessionAction } from "./scan-actions";
+import { submitSessionAction, createMasterLabelDraftAction, syncMasterUpsTrackingAction } from "./scan-actions";
 import { useDismissable } from "./useDismissable";
 import { actionErrorMessage } from "@/lib/error-message";
 import { withTransportRetry } from "@/lib/with-retry";
+
+// How often to re-check ShipStation for the purchased label once a draft
+// exists — see the "Master label" section below. Frequent enough that a
+// packer isn't left staring at a stale screen after buying the label, but
+// not so tight it hammers ShipStation while they're still over at the scale.
+const SYNC_POLL_MS = 5000;
 
 export default function SubmitDialog({
   dashboard,
@@ -31,9 +37,79 @@ export default function SubmitDialog({
   );
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  // Step 1 of closing out an EPG shipment: the AWB can only be generated
+  // once a master UPS tracking number exists, and that number only exists
+  // once a real label has been bought in ShipStation — so masterUpsTracking
+  // can't just be a text field here the way it used to be. See
+  // lib/shipstation-epg-label.ts for the draft-then-sync flow this drives.
+  const [shipmentId, setShipmentId] = useState(dashboard.session.shipstationShipmentId);
+  const [draftStatus, setDraftStatus] = useState(dashboard.session.shipstationDraftStatus);
+  const [draftError, setDraftError] = useState(dashboard.session.shipstationDraftError);
+  const [syncing, setSyncing] = useState(false);
+  // Escape hatch: skip waiting on ShipStation entirely and type the AWB/
+  // master tracking in by hand, same as before this automation existed —
+  // always available, never just a fallback for when the draft errors.
+  const [manualEntry, setManualEntry] = useState(false);
+  const needsMasterTracking = hasEpg && !manualEntry && !masterUpsTracking.trim();
+
   // Was the only modal with no Escape and no backdrop close — Cancel was the
   // sole way out.
   useDismissable(onClose);
+
+  // Kicks off the ShipStation draft the moment this step is reached, if it
+  // doesn't already have one. draftSessionShipment is idempotent, so this
+  // is safe to fire on every mount — the ref just stops this effect from
+  // firing the request twice under React's dev-mode double-invoke.
+  const draftingRef = useRef(false);
+  useEffect(() => {
+    if (!needsMasterTracking || shipmentId || draftingRef.current) return;
+    draftingRef.current = true;
+    createMasterLabelDraftAction(dashboard.session.id)
+      .then((result) => {
+        setShipmentId(result.shipstationShipmentId);
+        setDraftStatus(result.shipstationDraftStatus);
+        setDraftError(result.shipstationDraftError);
+      })
+      .catch((err) => setDraftError(actionErrorMessage(err, "Couldn't reach ShipStation — try again.")))
+      .finally(() => {
+        draftingRef.current = false;
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsMasterTracking, shipmentId]);
+
+  // Polls for the purchased label once a draft exists, until either the
+  // tracking number lands or this dialog closes/switches to manual entry.
+  const pollingRef = useRef(false);
+  useEffect(() => {
+    if (!needsMasterTracking || !shipmentId || draftStatus !== "created") return;
+
+    let cancelled = false;
+    async function poll() {
+      if (pollingRef.current) return; // don't overlap a slow request with the next tick
+      pollingRef.current = true;
+      setSyncing(true);
+      try {
+        const result = await syncMasterUpsTrackingAction(dashboard.session.id);
+        if (cancelled) return;
+        if (result.status === "ok") setMasterUpsTracking(result.masterUpsTracking);
+        else if (result.status === "error") setDraftError(result.message);
+      } catch {
+        // Transient — the next tick just retries.
+      } finally {
+        pollingRef.current = false;
+        if (!cancelled) setSyncing(false);
+      }
+    }
+
+    poll(); // check immediately on mount rather than waiting a full interval
+    const id = setInterval(poll, SYNC_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsMasterTracking, shipmentId, draftStatus]);
 
   function applyToAllBoxes() {
     const first = dashboard.boxes[0];
@@ -101,7 +177,61 @@ export default function SubmitDialog({
           />
         </label>
 
-        {hasEpg && (
+        {hasEpg && needsMasterTracking && (
+          <div className="flex flex-col gap-2 border-l-4 border-orange bg-paper-dim p-3">
+            <span className="tag-label">Master UPS label</span>
+            {draftStatus === "error" ? (
+              <>
+                <p className="text-sm text-red-ink">{draftError ?? "Couldn't draft the ShipStation shipment."}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraftError(null);
+                    setDraftStatus(null);
+                  }}
+                  className="tag-label !text-blue self-start"
+                >
+                  Retry
+                </button>
+              </>
+            ) : shipmentId ? (
+              <>
+                <p className="text-sm text-ink-soft font-condensed">
+                  Drafted in ShipStation (shipment {shipmentId}) — open it there, weigh each box, and buy the
+                  label. This will pick up the tracking number automatically once it&apos;s bought
+                  {syncing ? "…" : "."}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSyncing(true);
+                    syncMasterUpsTrackingAction(dashboard.session.id)
+                      .then((result) => {
+                        if (result.status === "ok") setMasterUpsTracking(result.masterUpsTracking);
+                        else if (result.status === "error") setDraftError(result.message);
+                      })
+                      .finally(() => setSyncing(false));
+                  }}
+                  disabled={syncing}
+                  className="tag-label !text-blue self-start disabled:opacity-50"
+                >
+                  {syncing ? "Checking…" : "Check now"}
+                </button>
+              </>
+            ) : (
+              <p className="text-sm text-ink-soft font-condensed">Drafting the ShipStation shipment…</p>
+            )}
+            <button
+              type="button"
+              onClick={() => setManualEntry(true)}
+              className="tag-label !text-ink-faint self-start"
+            >
+              Enter AWB / tracking manually instead
+            </button>
+          </div>
+        )}
+
+        {hasEpg && !needsMasterTracking && (
           <>
             <label className="flex flex-col gap-1">
               <span className="tag-label">
