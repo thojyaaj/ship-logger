@@ -1,9 +1,11 @@
 import { pageRequireAdmin } from "@/lib/auth";
 import { listUsers } from "@/lib/users";
 import { getDhlPickupSettings } from "@/lib/dhl-pickup";
+import { getShipstationEpgLabelSettings } from "@/lib/shipstation-epg-label";
 import { getDisplaySettings } from "@/lib/display-settings";
 import UsersClient from "./UsersClient";
 import DhlPickupSettingsClient from "../dhl-pickup/DhlPickupSettingsClient";
+import ShipstationEpgLabelSettingsClient from "../shipstation-epg-label/ShipstationEpgLabelSettingsClient";
 import BackfillCountriesClient from "../BackfillCountriesClient";
 import DisplaySettingsClient from "../DisplaySettingsClient";
 import ClearPickupHistoryClient from "../dhl-pickup/ClearPickupHistoryClient";
@@ -20,9 +22,10 @@ export const maxDuration = 60;
 // just sharing one page-level wrapper/heading now.
 export default async function AdminPage() {
   const admin = await pageRequireAdmin();
-  const [users, dhlSettings, displaySettings] = await Promise.all([
+  const [users, dhlSettings, shipstationEpgLabelSettings, displaySettings] = await Promise.all([
     listUsers(),
     getDhlPickupSettings(),
+    getShipstationEpgLabelSettings(),
     getDisplaySettings(),
   ]);
 
@@ -31,6 +34,7 @@ export default async function AdminPage() {
       <h1 className="font-stencil text-2xl tracking-wide">Admin</h1>
       <UsersClient initialUsers={users} currentUserId={admin.id} />
       <DhlPickupSettingsClient initialSettings={dhlSettings} />
+      <ShipstationEpgLabelSettingsClient initialSettings={shipstationEpgLabelSettings} />
       <DisplaySettingsClient initial={displaySettings} />
       {/* Order-data backfill and DHL pickup history wipe are superadmin-only
           — bulk/irreversible tools most admins here never need (see

@@ -85,6 +85,16 @@ export const box = pgTable(
       .references(() => shipmentSession.id),
     boxNumber: integer("box_number").notNull(),
     upsTracking: text("ups_tracking"),
+    // The ShipStation shipment created for this box's EPG-hub-bound UPS
+    // label, auto-drafted on submit when the shipment has EPG parcels (see
+    // lib/shipstation-epg-label.ts). Never a purchased label by itself —
+    // it's a pre-filled shipment record a person still opens in ShipStation
+    // to enter the real box weight and buy. Null until the draft attempt
+    // runs; stays null forever if SHIPSTATION_API_KEY isn't configured.
+    shipstationShipmentId: text("shipstation_shipment_id"),
+    shipstationDraftStatus: text("shipstation_draft_status", { enum: ["created", "error"] }),
+    shipstationDraftError: text("shipstation_draft_error"),
+    shipstationDraftAt: text("shipstation_draft_at"),
   },
   (t) => [uniqueIndex("box_session_number_idx").on(t.sessionId, t.boxNumber)],
 );
@@ -298,6 +308,48 @@ export const dhlPickupRequest = pgTable(
       .where(sql`${t.status} = 'requested'`),
   ],
 );
+
+// Single settings row for the EPG-hub-bound UPS shipment ShipStation
+// auto-drafts for every box on submit (see lib/shipstation-epg-label.ts).
+// One destination (the ePost Global consolidation hub) and one recipient
+// UPS account, so a fixed-id singleton, same pattern as dhlPickupSettings —
+// business configuration an admin should be able to correct (a moved hub,
+// a new UPS account number) without a redeploy. Deliberately does NOT hold
+// SHIPSTATION_API_KEY itself — that's a real secret and stays env-var-only
+// like every other carrier credential in this app.
+export const shipstationEpgLabelSettings = pgTable("shipstation_epg_label_settings", {
+  id: text("id").primaryKey(),
+  // Admin kill switch — leaves settings intact but stops new drafts from
+  // being created on submit. A box that already has a shipstationShipmentId
+  // is unaffected; this only gates new attempts.
+  enabled: boolean("enabled").notNull().default(true),
+  shipToName: text("ship_to_name").notNull().default(""),
+  shipToCompanyName: text("ship_to_company_name").notNull().default(""),
+  shipToAddressLine1: text("ship_to_address_line1").notNull().default(""),
+  shipToAddressLine2: text("ship_to_address_line2"),
+  shipToCity: text("ship_to_city").notNull().default(""),
+  shipToState: text("ship_to_state").notNull().default(""),
+  shipToPostalCode: text("ship_to_postal_code").notNull().default(""),
+  shipToCountryCode: text("ship_to_country_code").notNull().default("US"),
+  shipToPhone: text("ship_to_phone").notNull().default(""),
+  // Matched by name against GET /v2/warehouses (lib/shipstation-epg-label.ts)
+  // rather than storing a raw address — the warehouse is already configured
+  // once in ShipStation and this just has to point at it.
+  shipFromWarehouseName: text("ship_from_warehouse_name").notNull().default(""),
+  serviceCode: text("service_code").notNull().default("ups_ground"),
+  confirmation: text("confirmation").notNull().default("delivery"),
+  billToParty: text("bill_to_party", { enum: ["recipient", "third_party"] })
+    .notNull()
+    .default("recipient"),
+  billToAccount: text("bill_to_account").notNull().default(""),
+  billToPostalCode: text("bill_to_postal_code").notNull().default(""),
+  billToCountryCode: text("bill_to_country_code").notNull().default("US"),
+  packageLengthIn: real("package_length_in").notNull().default(20),
+  packageWidthIn: real("package_width_in").notNull().default(20),
+  packageHeightIn: real("package_height_in").notNull().default(20),
+  updatedAt: text("updated_at").notNull().default(nowUtcText),
+  updatedBy: text("updated_by").references(() => appUser.id),
+});
 
 // Lets an admin dismiss a specific problem (exception/stale/shipping-loss —
 // see lib/shipment-alerts.ts) off /admin/exceptions once they've looked at
