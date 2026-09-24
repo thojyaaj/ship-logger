@@ -56,6 +56,20 @@ export const shipmentSession = pgTable(
     masterUpsStatusLabel: text("master_ups_status_label"),
     masterUpsStatusAt: text("master_ups_status_at"),
     masterUpsStatusCheckedAt: text("master_ups_status_checked_at"),
+    // The single ShipStation shipment covering every EPG box in this
+    // session as UPS multi-piece packages (one `package` entry per box) —
+    // auto-drafted, never auto-purchased, the moment a packer tries to
+    // close out a shipment with EPG parcels and no masterUpsTracking yet
+    // (see lib/shipstation-epg-label.ts). A person still has to weigh each
+    // box and buy the label in ShipStation; once bought, this session's
+    // masterUpsTracking is filled in by polling ShipStation for the
+    // resulting label, which is what actually unblocks Submit — the AWB
+    // itself can only be generated externally once that master tracking
+    // number exists.
+    shipstationShipmentId: text("shipstation_shipment_id"),
+    shipstationDraftStatus: text("shipstation_draft_status", { enum: ["created", "error"] }),
+    shipstationDraftError: text("shipstation_draft_error"),
+    shipstationDraftAt: text("shipstation_draft_at"),
     // Which EPG box new scans land in. UI-convenience state, not domain data —
     // kept here (rather than only in client state) so a hard refresh mid-session
     // reopens on the same box instead of defaulting back to Box 1.
@@ -298,6 +312,48 @@ export const dhlPickupRequest = pgTable(
       .where(sql`${t.status} = 'requested'`),
   ],
 );
+
+// Single settings row for the EPG-hub-bound UPS shipment ShipStation
+// auto-drafts for every box on submit (see lib/shipstation-epg-label.ts).
+// One destination (the ePost Global consolidation hub) and one recipient
+// UPS account, so a fixed-id singleton, same pattern as dhlPickupSettings —
+// business configuration an admin should be able to correct (a moved hub,
+// a new UPS account number) without a redeploy. Deliberately does NOT hold
+// SHIPSTATION_API_KEY itself — that's a real secret and stays env-var-only
+// like every other carrier credential in this app.
+export const shipstationEpgLabelSettings = pgTable("shipstation_epg_label_settings", {
+  id: text("id").primaryKey(),
+  // Admin kill switch — leaves settings intact but stops new drafts from
+  // being created on submit. A box that already has a shipstationShipmentId
+  // is unaffected; this only gates new attempts.
+  enabled: boolean("enabled").notNull().default(true),
+  shipToName: text("ship_to_name").notNull().default(""),
+  shipToCompanyName: text("ship_to_company_name").notNull().default(""),
+  shipToAddressLine1: text("ship_to_address_line1").notNull().default(""),
+  shipToAddressLine2: text("ship_to_address_line2"),
+  shipToCity: text("ship_to_city").notNull().default(""),
+  shipToState: text("ship_to_state").notNull().default(""),
+  shipToPostalCode: text("ship_to_postal_code").notNull().default(""),
+  shipToCountryCode: text("ship_to_country_code").notNull().default("US"),
+  shipToPhone: text("ship_to_phone").notNull().default(""),
+  // Matched by name against GET /v2/warehouses (lib/shipstation-epg-label.ts)
+  // rather than storing a raw address — the warehouse is already configured
+  // once in ShipStation and this just has to point at it.
+  shipFromWarehouseName: text("ship_from_warehouse_name").notNull().default(""),
+  serviceCode: text("service_code").notNull().default("ups_ground"),
+  confirmation: text("confirmation").notNull().default("delivery"),
+  billToParty: text("bill_to_party", { enum: ["recipient", "third_party"] })
+    .notNull()
+    .default("recipient"),
+  billToAccount: text("bill_to_account").notNull().default(""),
+  billToPostalCode: text("bill_to_postal_code").notNull().default(""),
+  billToCountryCode: text("bill_to_country_code").notNull().default("US"),
+  packageLengthIn: real("package_length_in").notNull().default(20),
+  packageWidthIn: real("package_width_in").notNull().default(20),
+  packageHeightIn: real("package_height_in").notNull().default(20),
+  updatedAt: text("updated_at").notNull().default(nowUtcText),
+  updatedBy: text("updated_by").references(() => appUser.id),
+});
 
 // Lets an admin dismiss a specific problem (exception/stale/shipping-loss —
 // see lib/shipment-alerts.ts) off /admin/exceptions once they've looked at

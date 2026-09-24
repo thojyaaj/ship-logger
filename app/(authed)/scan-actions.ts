@@ -21,6 +21,12 @@ import {
 } from "@/lib/shiplog";
 import type { Carrier } from "@/lib/carrier";
 import { runExpectable, type ActionResult } from "@/lib/action-result";
+import {
+  draftSessionShipment,
+  syncMasterUpsTracking,
+  type SessionDraftState,
+  type SyncMasterTrackingResult,
+} from "@/lib/shipstation-epg-label";
 
 // Carriers a packer may manually assign to an unrecognized scan. TypeScript's
 // `Carrier` type is erased at the Server Action boundary and the `carrier`
@@ -116,6 +122,30 @@ export async function removeEmptyBoxAction(
 ): Promise<ActionResult<SessionDashboard>> {
   await requireUser();
   return runExpectable(() => removeEmptyBox(sessionId, boxId));
+}
+
+/**
+ * Step 1 of closing out an EPG shipment: drafts (never purchases) this
+ * session's ShipStation shipment so a packer can open it there to weigh
+ * each box and buy the label. See SubmitDialog.tsx, which calls this on
+ * mount and idempotently retries it — draftSessionShipment itself is a
+ * no-op if the session already has a shipstationShipmentId.
+ */
+export async function createMasterLabelDraftAction(sessionId: string): Promise<SessionDraftState> {
+  await requireUser();
+  return draftSessionShipment(sessionId);
+}
+
+/**
+ * Step 2: polled from SubmitDialog.tsx every few seconds once a draft
+ * exists, to pick up the master UPS tracking number the instant the label
+ * is bought in ShipStation — see syncMasterUpsTracking's own comment for
+ * why "earliest completed label" is the best-effort stand-in for a true
+ * master tracking number.
+ */
+export async function syncMasterUpsTrackingAction(sessionId: string): Promise<SyncMasterTrackingResult> {
+  await requireUser();
+  return syncMasterUpsTracking(sessionId);
 }
 
 export async function submitSessionAction(input: {
